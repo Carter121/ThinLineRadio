@@ -29,21 +29,24 @@ import (
 
 // AssemblyAITranscription implements TranscriptionProvider for AssemblyAI
 type AssemblyAITranscription struct {
-	available  bool
-	apiKey     string
-	httpClient *http.Client
-	warned     bool
+	available   bool
+	apiKey      string
+	speechModel string
+	httpClient  *http.Client
+	warned      bool
 }
 
 // AssemblyAIConfig contains configuration for AssemblyAI
 type AssemblyAIConfig struct {
-	APIKey string // AssemblyAI API key
+	APIKey      string // AssemblyAI API key
+	SpeechModel string // AssemblyAI speech model (e.g. "best", "nano", "slam-1-5")
 }
 
 // NewAssemblyAITranscription creates a new AssemblyAI transcription provider
 func NewAssemblyAITranscription(config *AssemblyAIConfig) *AssemblyAITranscription {
 	assemblyai := &AssemblyAITranscription{
-		apiKey: config.APIKey,
+		apiKey:      config.APIKey,
+		speechModel: config.SpeechModel,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute,
 		},
@@ -144,11 +147,15 @@ func (assemblyai *AssemblyAITranscription) Transcribe(audio []byte, options Tran
 
 	// Step 2: Submit transcription job
 	// Build transcript request body with absolute minimum required fields
-	// Start with only audio_url to ensure basic request works
 	transcriptBody := map[string]interface{}{
 		"audio_url": uploadResponse.UploadURL,
 	}
-	
+
+	// Add speech model if configured (e.g. "best", "nano", "slam-1-5")
+	if assemblyai.speechModel != "" {
+		transcriptBody["speech_model"] = assemblyai.speechModel
+	}
+
 	// Add word boost/keyterms if provided (AssemblyAI supports word_boost parameter)
 	if len(options.WordBoost) > 0 {
 		// Filter and validate keyterms (max 100, each max 50 chars)

@@ -171,6 +171,8 @@ func (api *Api) CallUploadHandler(w http.ResponseWriter, r *http.Request) {
 
 		mr := multipart.NewReader(r.Body, params["boundary"])
 
+		log.Printf("api: [UPLOAD RAW] /api/call-upload - from=%s ua=%q", r.RemoteAddr, r.Header.Get("User-Agent"))
+
 		for {
 			p, err := mr.NextPart()
 			if err == io.EOF {
@@ -186,6 +188,13 @@ func (api *Api) CallUploadHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			// Log every raw field received
+			if p.FormName() == "audio" || p.FileName() != "" {
+				log.Printf("api: [UPLOAD RAW]   field=%q filename=%q mime=%q size=%d bytes", p.FormName(), p.FileName(), p.Header.Get("Content-Type"), len(b))
+			} else {
+				log.Printf("api: [UPLOAD RAW]   field=%q value=%q", p.FormName(), string(b))
+			}
+
 			switch p.FormName() {
 			case "key":
 				key = string(b)
@@ -194,38 +203,35 @@ func (api *Api) CallUploadHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Log the full parsed call metadata for every upload
+		log.Printf("api: [UPLOAD PARSED] SystemId=%d TalkgroupId=%d Timestamp=%q Frequency=%d SiteRef=%q AudioLen=%d AudioFilename=%q AudioMime=%q",
+			call.SystemId, call.TalkgroupId, call.Timestamp.String(), call.Frequency, call.SiteRef, len(call.Audio), call.AudioFilename, call.AudioMime)
+		log.Printf("api: [UPLOAD PARSED] Meta.SystemRef=%d Meta.SystemLabel=%q Meta.SystemId=%d",
+			call.Meta.SystemRef, call.Meta.SystemLabel, call.Meta.SystemId)
+		log.Printf("api: [UPLOAD PARSED] Meta.TalkgroupRef=%d Meta.TalkgroupLabel=%q Meta.TalkgroupName=%q Meta.TalkgroupTag=%q Meta.TalkgroupGroups=%v",
+			call.Meta.TalkgroupRef, call.Meta.TalkgroupLabel, call.Meta.TalkgroupName, call.Meta.TalkgroupTag, call.Meta.TalkgroupGroups)
+		log.Printf("api: [UPLOAD PARSED] Meta.SiteRef=%q Meta.SiteId=%d Meta.SiteLabel=%q",
+			call.Meta.SiteRef, call.Meta.SiteId, call.Meta.SiteLabel)
+		log.Printf("api: [UPLOAD PARSED] Units=%v Meta.UnitRefs=%v Meta.UnitLabels=%v Patches=%v",
+			call.Units, call.Meta.UnitRefs, call.Meta.UnitLabels, call.Patches)
+
 		// Check if this is a test connection (SDRTrunk sends key, system, test fields)
 		if len(call.Audio) == 0 && call.SystemId > 0 && call.TalkgroupId == 0 && call.Timestamp.IsZero() {
 			// This is likely a test connection from SDRTrunk
 			// SDRTrunk expects this to fail with "Incomplete call data: no talkgroup" to consider it successful
 			// Log test connection details for debugging (no need for full error context since this is expected)
-			log.Printf("api: Test connection detected - SystemId=%d TalkgroupId=%d AudioLen=%d Timestamp=%v",
-				call.SystemId, call.TalkgroupId, len(call.Audio), call.Timestamp)
+			log.Printf("api: [UPLOAD PARSED] -> Test connection detected (no audio/talkgroup/timestamp)")
 			api.exitWithError(w, http.StatusExpectationFailed, "Incomplete call data: no talkgroup")
 			return
 		}
 
 		if ok, err := call.IsValid(); ok {
+			log.Printf("api: [UPLOAD PARSED] -> Valid, passing to HandleCall")
 			api.HandleCall(key, call, w)
 		} else {
-			// Log full call data for debugging incomplete uploads
-			log.Printf("api: INCOMPLETE CALL DATA RECEIVED:")
-			log.Printf("  Error: %s", err.Error())
-			log.Printf("  SystemId: %d", call.SystemId)
-			log.Printf("  TalkgroupId: %d", call.TalkgroupId)
-			log.Printf("  Audio Length: %d bytes", len(call.Audio))
-			log.Printf("  Timestamp: %v", call.Timestamp)
-			log.Printf("  SiteRef: %d", call.SiteRef)
-			log.Printf("  Frequency: %d", call.Frequency)
-			log.Printf("  Units: %v", call.Units)
-			log.Printf("  Patches: %v", call.Patches)
-			log.Printf("  Meta.UnitRefs: %v", call.Meta.UnitRefs)
-			log.Printf("  Meta.UnitLabels: %v", call.Meta.UnitLabels)
-			log.Printf("  Remote Address: %s", r.RemoteAddr)
-			log.Printf("  User-Agent: %s", r.Header.Get("User-Agent"))
-
+			log.Printf("api: [UPLOAD PARSED] -> INVALID: %s", err.Error())
 			// Also log to event system
-			api.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("api: Incomplete call data: %s | SystemId=%d TalkgroupId=%d AudioLen=%d Timestamp=%v SiteRef=%d Frequency=%d",
+			api.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("api: Incomplete call data: %s | SystemId=%d TalkgroupId=%d AudioLen=%d Timestamp=%v SiteRef=%q Frequency=%d",
 				err.Error(), call.SystemId, call.TalkgroupId, len(call.Audio), call.Timestamp, call.SiteRef, call.Frequency))
 			api.exitWithError(w, http.StatusExpectationFailed, fmt.Sprintf("Incomplete call data: %s\n", err.Error()))
 		}
@@ -346,6 +352,8 @@ func (api *Api) TrunkRecorderCallUploadHandler(w http.ResponseWriter, r *http.Re
 
 		parts := map[*multipart.Part][]byte{}
 
+		log.Printf("api: [TR-UPLOAD RAW] /api/trunk-recorder-call-upload - from=%s ua=%q", r.RemoteAddr, r.Header.Get("User-Agent"))
+
 		for {
 			p, err := mr.NextPart()
 			if err == io.EOF {
@@ -359,6 +367,13 @@ func (api *Api) TrunkRecorderCallUploadHandler(w http.ResponseWriter, r *http.Re
 			if err != nil {
 				api.exitWithError(w, http.StatusExpectationFailed, fmt.Sprintf("ioread: %s", err.Error()))
 				return
+			}
+
+			// Log every raw field received
+			if p.FormName() == "audio" || p.FileName() != "" {
+				log.Printf("api: [TR-UPLOAD RAW]   field=%q filename=%q mime=%q size=%d bytes", p.FormName(), p.FileName(), p.Header.Get("Content-Type"), len(b))
+			} else {
+				log.Printf("api: [TR-UPLOAD RAW]   field=%q value=%q", p.FormName(), string(b))
 			}
 
 			switch p.FormName() {
@@ -378,10 +393,26 @@ func (api *Api) TrunkRecorderCallUploadHandler(w http.ResponseWriter, r *http.Re
 			ParseMultipartContent(call, p, b)
 		}
 
+		// Log the full parsed call metadata for every upload
+		log.Printf("api: [TR-UPLOAD PARSED] SystemId=%d TalkgroupId=%d Timestamp=%q Frequency=%d SiteRef=%q AudioLen=%d AudioFilename=%q AudioMime=%q",
+			call.SystemId, call.TalkgroupId, call.Timestamp.String(), call.Frequency, call.SiteRef, len(call.Audio), call.AudioFilename, call.AudioMime)
+		log.Printf("api: [TR-UPLOAD PARSED] Meta.SystemRef=%d Meta.SystemLabel=%q Meta.SystemId=%d",
+			call.Meta.SystemRef, call.Meta.SystemLabel, call.Meta.SystemId)
+		log.Printf("api: [TR-UPLOAD PARSED] Meta.TalkgroupRef=%d Meta.TalkgroupLabel=%q Meta.TalkgroupName=%q Meta.TalkgroupTag=%q Meta.TalkgroupGroups=%v",
+			call.Meta.TalkgroupRef, call.Meta.TalkgroupLabel, call.Meta.TalkgroupName, call.Meta.TalkgroupTag, call.Meta.TalkgroupGroups)
+		log.Printf("api: [TR-UPLOAD PARSED] Meta.SiteRef=%q Meta.SiteId=%d Meta.SiteLabel=%q",
+			call.Meta.SiteRef, call.Meta.SiteId, call.Meta.SiteLabel)
+		log.Printf("api: [TR-UPLOAD PARSED] Units=%v Meta.UnitRefs=%v Meta.UnitLabels=%v Patches=%v",
+			call.Units, call.Meta.UnitRefs, call.Meta.UnitLabels, call.Patches)
+
 		if ok, err := call.IsValid(); ok {
+			log.Printf("api: [TR-UPLOAD PARSED] -> Valid, passing to HandleCall")
 			api.HandleCall(key, call, w)
 
 		} else {
+			log.Printf("api: [TR-UPLOAD PARSED] -> INVALID: %s", err.Error())
+			api.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("api: Trunk-Recorder incomplete call data: %s | SystemId=%d TalkgroupId=%d AudioLen=%d Timestamp=%v SiteRef=%q Frequency=%d",
+				err.Error(), call.SystemId, call.TalkgroupId, len(call.Audio), call.Timestamp, call.SiteRef, call.Frequency))
 			api.exitWithError(w, http.StatusExpectationFailed, fmt.Sprintf("Incomplete call data: %s\n", err.Error()))
 		}
 

@@ -1,8 +1,19 @@
 # Change log
 
-## Version 7.0 Beta 9.6.9 - Released Feb 28, 2026 *(Work in Progress)*
+## Version 7.0 Beta 9.7.0 - Released Mar 1, 2026
 
-> ⚠️ **Beta / Work in Progress** — Features in this release are actively being developed and refined. Some functionality may be incomplete or subject to change.
+### New Features
+
+- **AssemblyAI: Configurable Speech Model**
+  - Added a **Speech Model** input field in the admin options page under the AssemblyAI transcription provider settings
+  - Allows selecting or typing any AssemblyAI model name (e.g. `best`, `nano`, `slam-1-5`) without needing a server update when AssemblyAI changes their available models
+  - Ships with an autocomplete dropdown listing the three most common models for quick selection; free-text entry supports any future model names
+  - Leaving the field blank continues to use AssemblyAI's API default
+  - Files modified: `server/options.go`, `server/transcription_assemblyai.go`, `server/transcription_queue.go`, `client/src/app/components/rdio-scanner/admin/admin.service.ts`, `client/src/app/components/rdio-scanner/admin/config/options/options.component.html`
+
+---
+
+## Version 7.0 Beta 9.6.9 - Released Feb 28, 2026
 
 ### New Features
 

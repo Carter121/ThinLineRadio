@@ -151,6 +151,7 @@ type TranscriptionConfig struct {
 	GoogleAPIKey                 string   `json:"googleAPIKey"`                 // Google Cloud Speech-to-Text API key
 	GoogleCredentials            string   `json:"googleCredentials"`            // Google Cloud service account JSON credentials (alternative to API key)
 	AssemblyAIKey                string   `json:"assemblyAIKey"`                // AssemblyAI API key
+	AssemblyAISpeechModel        string   `json:"assemblyAISpeechModel"`        // AssemblyAI speech model (e.g. "best", "nano", "slam-1-5")
 	AssemblyAIWordBoost          []string `json:"assemblyAIWordBoost"`          // Word boost/keyterms for AssemblyAI (max 100 terms, 50 chars each)
 	HallucinationPatterns        []string `json:"hallucinationPatterns"`        // Patterns to remove from transcripts (Whisper hallucinations)
 	HallucinationDetectionMode   string   `json:"hallucinationDetectionMode"`   // "off", "manual", "auto"
@@ -829,6 +830,9 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		}
 		if v, ok := tc["assemblyAIKey"].(string); ok {
 			options.TranscriptionConfig.AssemblyAIKey = v
+		}
+		if v, ok := tc["assemblyAISpeechModel"].(string); ok {
+			options.TranscriptionConfig.AssemblyAISpeechModel = v
 		}
 		if v, ok := tc["assemblyAIWordBoost"].([]interface{}); ok {
 			wordBoost := make([]string, 0, len(v))
