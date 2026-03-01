@@ -1,5 +1,16 @@
 # Change log
 
+## Version 7.0 Beta 9.7.1 - Released Mar 1, 2026
+
+### Bug Fixes
+
+- **AssemblyAI: Fix deprecated `speech_model` API field**
+  - AssemblyAI renamed the transcript request field from `speech_model` to `speech_models` (plural) in their current API, causing all transcription jobs to fail with HTTP 400
+  - Updated the request body to use `speech_models` per AssemblyAI's current documentation
+  - Files modified: `server/transcription_assemblyai.go`
+
+---
+
 ## Version 7.0 Beta 9.7.0 - Released Mar 1, 2026
 
 ### New Features
@@ -13,7 +24,7 @@
 
 ---
 
-## Version 7.0 Beta 9.6.9 - Released Feb 28, 2026
+> ⚠️ **Beta / Work in Progress** — Features in this release are actively being developed and refined. Some functionality may be incomplete or subject to change.
 
 ### New Features
 
