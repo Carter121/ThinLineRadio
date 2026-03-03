@@ -151,6 +151,7 @@ type TranscriptionConfig struct {
 	GoogleAPIKey                 string   `json:"googleAPIKey"`                 // Google Cloud Speech-to-Text API key
 	GoogleCredentials            string   `json:"googleCredentials"`            // Google Cloud service account JSON credentials (alternative to API key)
 	AssemblyAIKey                string   `json:"assemblyAIKey"`                // AssemblyAI API key
+	AssemblyAISpeechModel        string   `json:"assemblyAISpeechModel"`        // Speech model for AssemblyAI: "universal-2" (default) or "universal-3-pro"
 	AssemblyAIWordBoost          []string `json:"assemblyAIWordBoost"`          // Word boost/keyterms for AssemblyAI (max 100 terms, 50 chars each)
 	HallucinationPatterns        []string `json:"hallucinationPatterns"`        // Patterns to remove from transcripts (Whisper hallucinations)
 	HallucinationDetectionMode   string   `json:"hallucinationDetectionMode"`   // "off", "manual", "auto"
@@ -658,25 +659,24 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		options.AdminLocalhostOnly = defaults.options.adminLocalhostOnly
 	}
 
-	switch v := m["transcriptionFailureAlertsEnabled"].(type) {
-	case bool:
+	// Note: systemHealthAlertsEnabled and sub-alert toggles are managed via their
+	// own dedicated API endpoints (System Health tab), NOT the main options form.
+	// Only update them if explicitly provided in the map; otherwise preserve the
+	// current in-memory value so a main-config save doesn't silently reset them.
+	if v, ok := m["systemHealthAlertsEnabled"].(bool); ok {
+		options.SystemHealthAlertsEnabled = v
+	}
+
+	if v, ok := m["transcriptionFailureAlertsEnabled"].(bool); ok {
 		options.TranscriptionFailureAlertsEnabled = v
-	default:
-		options.TranscriptionFailureAlertsEnabled = defaults.options.transcriptionFailureAlertsEnabled
 	}
 
-	switch v := m["toneDetectionAlertsEnabled"].(type) {
-	case bool:
+	if v, ok := m["toneDetectionAlertsEnabled"].(bool); ok {
 		options.ToneDetectionAlertsEnabled = v
-	default:
-		options.ToneDetectionAlertsEnabled = defaults.options.toneDetectionAlertsEnabled
 	}
 
-	switch v := m["noAudioAlertsEnabled"].(type) {
-	case bool:
+	if v, ok := m["noAudioAlertsEnabled"].(bool); ok {
 		options.NoAudioAlertsEnabled = v
-	default:
-		options.NoAudioAlertsEnabled = defaults.options.noAudioAlertsEnabled
 	}
 
 	switch v := m["transcriptionFailureTimeWindow"].(type) {
@@ -829,6 +829,9 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		}
 		if v, ok := tc["assemblyAIKey"].(string); ok {
 			options.TranscriptionConfig.AssemblyAIKey = v
+		}
+		if v, ok := tc["assemblyAISpeechModel"].(string); ok {
+			options.TranscriptionConfig.AssemblyAISpeechModel = v
 		}
 		if v, ok := tc["assemblyAIWordBoost"].([]interface{}); ok {
 			wordBoost := make([]string, 0, len(v))
@@ -1694,5 +1697,32 @@ func (options *Options) Write(db *Database) error {
 		return formatError(err, "")
 	}
 
+	return nil
+}
+
+// WriteKey writes a single options key directly to the database and updates
+// the in-memory value via the provided setter function.  This avoids the
+// bulk Options.Write overwriting keys that are managed by dedicated endpoints.
+func (options *Options) WriteKey(db *Database, key string, val any, setInMemory func()) error {
+	valJSON, err := json.Marshal(val)
+	if err != nil {
+		return fmt.Errorf("options WriteKey marshal: %w", err)
+	}
+
+	query := fmt.Sprintf(`UPDATE "options" SET "value" = '%s' WHERE "key" = '%s'`, valJSON, key)
+	res, err := db.Sql.Exec(query)
+	if err != nil {
+		return fmt.Errorf("options WriteKey update: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		query = fmt.Sprintf(`INSERT INTO "options" ("key", "value") VALUES ('%s', '%s')`, key, valJSON)
+		if _, err = db.Sql.Exec(query); err != nil {
+			return fmt.Errorf("options WriteKey insert: %w", err)
+		}
+	}
+
+	options.mutex.Lock()
+	setInMemory()
+	options.mutex.Unlock()
 	return nil
 }

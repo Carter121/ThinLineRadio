@@ -387,6 +387,7 @@ func ParseMultipartContent(call *Call, p *multipart.Part, b []byte) {
 						switch s := v["tag"].(type) {
 						case string:
 							if len(s) > 0 && hasValidSrc {
+								unit.Label = s
 								call.Meta.UnitLabels = append(call.Meta.UnitLabels, s)
 							}
 						}
@@ -441,6 +442,7 @@ func ParseMultipartContent(call *Call, p *multipart.Part, b []byte) {
 						switch s := v["label"].(type) {
 						case string:
 							if len(s) > 0 && hasValidId {
+								unit.Label = s
 								call.Meta.UnitLabels = append(call.Meta.UnitLabels, s)
 							}
 						}
@@ -608,6 +610,7 @@ func ParseTrunkRecorderMeta(call *Call, b []byte) error {
 				switch s := v["tag"].(type) {
 				case string:
 					if len(s) > 0 && hasValidSrc {
+						unit.Label = s
 						call.Meta.UnitLabels = append(call.Meta.UnitLabels, s)
 					}
 				}

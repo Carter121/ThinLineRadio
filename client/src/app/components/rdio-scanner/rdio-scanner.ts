@@ -166,6 +166,7 @@ export interface RdioScannerCallFrequency {
 export interface RdioScannerCallSource {
     pos?: number;
     src?: number;
+    tag?: string; // P25 talker alias / dynamic unit label
 }
 
 export interface RdioScannerCategory {

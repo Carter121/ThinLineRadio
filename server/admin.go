@@ -746,8 +746,16 @@ func (admin *Admin) SystemHealthAlertsEnabledHandler(w http.ResponseWriter, r *h
 
 	switch r.Method {
 	case http.MethodGet:
-		// Get current enabled status
-		enabled := admin.Controller.Options.SystemHealthAlertsEnabled
+		// Read directly from the database — never trust the in-memory value for this key.
+		var enabled bool
+		var val string
+		row := admin.Controller.Database.Sql.QueryRow(`SELECT "value" FROM "options" WHERE "key" = 'systemHealthAlertsEnabled'`)
+		if err := row.Scan(&val); err == nil {
+			json.Unmarshal([]byte(val), &enabled) //nolint:errcheck
+		} else {
+			// Key not yet in DB — fall back to in-memory default
+			enabled = admin.Controller.Options.SystemHealthAlertsEnabled
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -768,9 +776,15 @@ func (admin *Admin) SystemHealthAlertsEnabledHandler(w http.ResponseWriter, r *h
 			return
 		}
 
-		admin.Controller.Options.SystemHealthAlertsEnabled = request.Enabled
-
-		if err := admin.Controller.Options.Write(admin.Controller.Database); err != nil {
+		// Write ONLY this key directly to the database — never call the bulk
+		// Options.Write here, which could clobber the value with stale in-memory state.
+		err := admin.Controller.Options.WriteKey(
+			admin.Controller.Database,
+			"systemHealthAlertsEnabled",
+			request.Enabled,
+			func() { admin.Controller.Options.SystemHealthAlertsEnabled = request.Enabled },
+		)
+		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{
 				"error": fmt.Sprintf("failed to save setting: %v", err),
@@ -851,15 +865,48 @@ func (admin *Admin) SystemHealthAlertSettingsHandler(w http.ResponseWriter, r *h
 			return
 		}
 
-		// Update only provided fields
+		// Update only provided fields.
+		// Alert-toggle booleans are written directly to the DB (not via the
+		// bulk Options.Write) so they survive future bulk writes with stale
+		// in-memory state.
 		if request.TranscriptionFailureAlertsEnabled != nil {
-			admin.Controller.Options.TranscriptionFailureAlertsEnabled = *request.TranscriptionFailureAlertsEnabled
+			v := *request.TranscriptionFailureAlertsEnabled
+			if err := admin.Controller.Options.WriteKey(
+				admin.Controller.Database,
+				"transcriptionFailureAlertsEnabled",
+				v,
+				func() { admin.Controller.Options.TranscriptionFailureAlertsEnabled = v },
+			); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to save transcriptionFailureAlertsEnabled: %v", err)})
+				return
+			}
 		}
 		if request.ToneDetectionAlertsEnabled != nil {
-			admin.Controller.Options.ToneDetectionAlertsEnabled = *request.ToneDetectionAlertsEnabled
+			v := *request.ToneDetectionAlertsEnabled
+			if err := admin.Controller.Options.WriteKey(
+				admin.Controller.Database,
+				"toneDetectionAlertsEnabled",
+				v,
+				func() { admin.Controller.Options.ToneDetectionAlertsEnabled = v },
+			); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to save toneDetectionAlertsEnabled: %v", err)})
+				return
+			}
 		}
 		if request.NoAudioAlertsEnabled != nil {
-			admin.Controller.Options.NoAudioAlertsEnabled = *request.NoAudioAlertsEnabled
+			v := *request.NoAudioAlertsEnabled
+			if err := admin.Controller.Options.WriteKey(
+				admin.Controller.Database,
+				"noAudioAlertsEnabled",
+				v,
+				func() { admin.Controller.Options.NoAudioAlertsEnabled = v },
+			); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to save noAudioAlertsEnabled: %v", err)})
+				return
+			}
 		}
 		if request.TranscriptionFailureThreshold != nil && *request.TranscriptionFailureThreshold > 0 {
 			admin.Controller.Options.TranscriptionFailureThreshold = *request.TranscriptionFailureThreshold

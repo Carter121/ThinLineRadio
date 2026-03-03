@@ -32,6 +32,7 @@ type TranscriptionOptions struct {
 	InitialPrompt string  // Initial prompt/context
 	AudioMime    string   // MIME type of audio (e.g., "audio/mp4", "audio/mpeg")
 	WordBoost    []string // Word boost/keyterms for AssemblyAI (max 100 terms, 50 chars each)
+	SpeechModel  string   // Speech model for AssemblyAI (e.g., "universal-2", "universal-3-pro")
 }
 
 // TranscriptionResult contains the transcription result

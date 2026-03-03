@@ -1559,7 +1559,11 @@ export class RdioScannerMainComponent implements OnDestroy, OnInit {
                 this.callTalkgroupId = isAfs ? this.formatAfs(this.call.talkgroup) : this.call.talkgroup.toString();
 
                 if (typeof source.src === 'number') {
-                    if (Array.isArray(this.call.systemData?.units)) {
+                    // Prefer inline talker alias (P25 / dynamic label sent with call)
+                    if (typeof source.tag === 'string' && source.tag.length > 0) {
+                        this.callUnit = source.tag;
+                    } else if (Array.isArray(this.call.systemData?.units)) {
+                        // Fall back to admin-configured static unit table
                         this.callUnit = this.call.systemData?.units?.find((u) => {
                             if (typeof u.unitFrom === 'number' && typeof u.unitTo === 'number')
                                 if (u.unitFrom <= (source.src as number) && u.unitTo >= (source.src as number))
@@ -1567,9 +1571,6 @@ export class RdioScannerMainComponent implements OnDestroy, OnInit {
 
                             return u.id === source.src;
                         })?.label ?? `${source.src}`;
-
-                        console.log('here', this.callUnit);
-
                     } else {
                         this.callUnit = `${source.src}`;
                     }

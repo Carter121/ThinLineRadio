@@ -58,6 +58,7 @@ type CallMeta struct {
 type CallUnit struct {
 	Id      uint64
 	CallId  uint64
+	Label   string  // P25 talker alias or other unit label (dynamic, from call upload)
 	Offset  float32
 	UnitRef uint
 }
@@ -213,10 +214,14 @@ func (call *Call) MarshalJSON() ([]byte, error) {
 	if len(unitsToUse) > 0 {
 		sources := []map[string]any{}
 		for _, unit := range unitsToUse {
-			sources = append(sources, map[string]any{
+			entry := map[string]any{
 				"pos": unit.Offset,
 				"src": unit.UnitRef,
-			})
+			}
+			if unit.Label != "" {
+				entry["tag"] = unit.Label
+			}
+			sources = append(sources, entry)
 		}
 		callMap["sources"] = sources
 		// Also set source field as fallback for frontend compatibility (v6 style)
@@ -455,7 +460,7 @@ func (calls *Calls) GetCall(id uint64) (*Call, error) {
 		return nil, formatError(fmt.Errorf("cannot retrieve talkgroup id %d for call id %d", talkgroupId, call.Id), "")
 	}
 
-	query = fmt.Sprintf(`SELECT "offset", "unitRef" FROM "callUnits" WHERE "callId" = %d`, id)
+	query = fmt.Sprintf(`SELECT "offset", "unitRef", COALESCE("label", '') FROM "callUnits" WHERE "callId" = %d ORDER BY "offset" ASC`, id)
 	if rows, err = tx.Query(query); err != nil {
 		tx.Rollback()
 		return nil, formatError(err, query)
@@ -464,7 +469,7 @@ func (calls *Calls) GetCall(id uint64) (*Call, error) {
 	for rows.Next() {
 		unit := CallUnit{}
 
-		if err = rows.Scan(&unit.Offset, &unit.UnitRef); err != nil {
+		if err = rows.Scan(&unit.Offset, &unit.UnitRef, &unit.Label); err != nil {
 			break
 		}
 
@@ -893,8 +898,8 @@ func (calls *Calls) WriteCall(call *Call, db *Database) (uint64, error) {
 		if unit.UnitRef > 9223372036854775807 {
 			continue
 		}
-		query = fmt.Sprintf(`INSERT INTO "callUnits" ("callId", "offset", "unitRef") VALUES (%d, %f, %d)`, call.Id, unit.Offset, unit.UnitRef)
-		if _, err = tx.Exec(query); err != nil {
+		query = fmt.Sprintf(`INSERT INTO "callUnits" ("callId", "offset", "unitRef", "label") VALUES (%d, %f, %d, $1)`, call.Id, unit.Offset, unit.UnitRef)
+		if _, err = tx.Exec(query, unit.Label); err != nil {
 			tx.Rollback()
 			return 0, formatError(err, query)
 		}

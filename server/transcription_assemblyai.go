@@ -143,9 +143,16 @@ func (assemblyai *AssemblyAITranscription) Transcribe(audio []byte, options Tran
 	}
 
 	// Step 2: Submit transcription job
-	// Build transcript request body with absolute minimum required fields
+	// Determine speech model — AssemblyAI requires speech_models to be a non-empty array.
+	// Valid values: "universal-2" (default, cheaper) or "universal-3-pro" (higher accuracy).
+	speechModel := options.SpeechModel
+	if speechModel == "" {
+		speechModel = "universal-2"
+	}
+
 	transcriptBody := map[string]interface{}{
-		"audio_url": uploadResponse.UploadURL,
+		"audio_url":     uploadResponse.UploadURL,
+		"speech_models": []string{speechModel},
 	}
 
 	// Add word boost/keyterms if provided (AssemblyAI supports word_boost parameter)

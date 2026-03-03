@@ -1,5 +1,52 @@
 # Change log
 
+## Version 7.0 Beta 9.7.7 - Released Mar 3, 2026
+
+### Bug Fixes
+
+- **Web: P25 talker aliases not showing — radio ID displayed instead of alias name**
+  - The web client resolved unit labels exclusively from the admin-configured static unit table (`systemData.units`), which contains manually entered radio IDs. P25 talker aliases are *dynamic* — they are broadcast by the radio at transmission time and arrive embedded in the call metadata (`sources[].tag`). The static table never has them, so the web always fell back to the raw radio ID
+  - Server-side: added `Label` field to `CallUnit` struct; all three call-upload parsers (`sources`, `units`, `srcList`) now populate `unit.Label` directly when a `tag`/`label` field is present
+  - Server-side: `call.MarshalJSON` now includes `"tag"` in each source entry when a label is set, so the alias travels with the call to the web client
+  - Database: added `label` column to the `callUnits` table (migration `20260303000000-callunits-label`); labels are now persisted on write and loaded on read so historical/search calls also display the correct alias
+  - Web client: `updateDisplay()` in `main.component.ts` now checks `source.tag` first; falls back to the static unit table lookup only when no inline alias exists
+  - Also removed a leftover `console.log('here', ...)` debug statement from the same function
+  - Closes [#111](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/issues/111)
+  - Files modified: `server/call.go`, `server/parsers.go`, `server/migrations.go`, `server/database.go`, `client/src/app/components/rdio-scanner/main/main.component.ts`
+
+- **Whisper API: GPT transcribe models fail with `response_format 'verbose_json' is not compatible`**
+  - `gpt-4o-transcribe` and `gpt-4o-mini-transcribe` only accept `response_format: "json"` or `"text"` — sending `"verbose_json"` (used by `whisper-1` and local Whisper servers for segment timestamps) causes HTTP 400
+  - Added `isGPTTranscribeModel()` helper that detects GPT transcribe model names; those requests now use `response_format: "json"` and omit `timestamp_granularities[]` (also unsupported by these models)
+  - Response parsing is now branched: GPT transcribe models parse the simple `{"text":"..."}` response; all other models continue parsing the full `verbose_json` structure with segments, language, and duration
+  - Closes [#114](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/issues/114)
+  - Files modified: `server/transcription_whisper_api.go`
+
+- **Admin: API key cell is truncated and read-only**
+  - The API key column displayed keys in a `<code>` element capped at `max-width: 220px` with `text-overflow: ellipsis`, cutting off the key visually with no way to see the full value or edit it
+  - Replaced the static `<code>` display with a proper `mat-form-field` text input bound to `formControlName="key"` — the key is now fully visible, editable, selectable, and copyable
+  - Input uses `type="password"` when masked and `type="text"` when revealed (show/hide button unchanged); the clipboard copy button remains as a convenience
+  - Closes [#115](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/issues/115)
+  - Files modified: `client/src/app/components/rdio-scanner/admin/config/apikeys/apikeys.component.html`, `client/src/app/components/rdio-scanner/admin/config/apikeys/apikeys.component.scss`
+
+- **AssemblyAI: `speech_models` is now required — re-added with `universal-2` default**
+  - AssemblyAI's API now returns HTTP 400 with *"speech_models must be a non-empty list"* when the field is omitted entirely (the behavior introduced in 9.7.4 of not sending it at all)
+  - Re-added `speech_models` as a required field sent on every transcription request, defaulting to `"universal-2"` when no model is configured
+  - Restored the configurable **Speech Model** field in Admin → Options → Transcription (AssemblyAI section) with autocomplete for `universal-2` and `universal-3-pro`
+  - Files modified: `server/transcription_assemblyai.go`, `server/transcription_provider.go`, `server/options.go`, `server/transcription_queue.go`, `client/src/app/components/rdio-scanner/admin/admin.service.ts`, `client/src/app/components/rdio-scanner/admin/config/options/options.component.html`
+
+- **System Health Alerts: Master toggle not persisting across restarts/saves**
+  - `systemHealthAlertsEnabled` (the master on/off toggle) was missing from `Options.FromMap`, so every time any admin settings were saved the full options write would silently reset it back to `true` (the default), ignoring whatever was stored in the database
+  - The three individual toggles (`transcriptionFailureAlertsEnabled`, `toneDetectionAlertsEnabled`, `noAudioAlertsEnabled`) were already correctly handled and were not affected
+  - Files modified: `server/options.go`
+
+- **Transcription debug log: provider-aware logging**
+  - The error debug log always showed `apiURL=<WhisperAPIURL>` regardless of which transcription provider was in use, causing misleading log lines like `apiURL=http://localhost:8000` when the actual failing provider was AssemblyAI
+  - The connection error hint also always said "Check if Whisper API server is overloaded" even for AssemblyAI/Azure/Google failures
+  - Log lines now include `provider=<name>` and only show `apiURL` for Whisper API; connection error hints are provider-aware
+  - Files modified: `server/transcription_queue.go`
+
+---
+
 ## Version 7.0 Beta 9.7.5 - Released Mar 2, 2026
 
 ### New Features

@@ -295,6 +295,7 @@ export interface Options {
         googleAPIKey?: string;
         googleCredentials?: string;
         assemblyAIKey?: string;
+        assemblyAISpeechModel?: string;
         assemblyAIWordBoost?: string[];
         hallucinationPatterns?: string[];
         hallucinationDetectionMode?: string;
@@ -1157,6 +1158,7 @@ export class RdioScannerAdminService implements OnDestroy {
             googleAPIKey: '',
             googleCredentials: '',
             assemblyAIKey: '',
+            assemblyAISpeechModel: '',
             assemblyAIWordBoost: [],
         };
         
@@ -1230,6 +1232,7 @@ export class RdioScannerAdminService implements OnDestroy {
                 googleAPIKey: this.ngFormBuilder.control(transcriptionConfig?.googleAPIKey || ''),
                 googleCredentials: this.ngFormBuilder.control(transcriptionConfig?.googleCredentials || ''),
                 assemblyAIKey: this.ngFormBuilder.control(transcriptionConfig?.assemblyAIKey || ''),
+                assemblyAISpeechModel: this.ngFormBuilder.control(transcriptionConfig?.assemblyAISpeechModel || ''),
                 assemblyAIWordBoost: this.ngFormBuilder.control(
                     (transcriptionConfig?.assemblyAIWordBoost || []).join('\n')
                 ),

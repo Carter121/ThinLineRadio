@@ -198,6 +198,16 @@ func isRetryableError(err error) bool {
 	return false
 }
 
+// isGPTTranscribeModel returns true for OpenAI GPT-based transcription models
+// (e.g. gpt-4o-transcribe, gpt-4o-mini-transcribe) which only support
+// response_format "json" or "text" — not "verbose_json".
+func isGPTTranscribeModel(model string) bool {
+	m := strings.ToLower(model)
+	return strings.Contains(m, "gpt-4o-transcribe") ||
+		strings.Contains(m, "gpt-4o-mini-transcribe") ||
+		strings.Contains(m, "gpt-4-transcribe")
+}
+
 // attemptTranscribe performs a single transcription attempt
 func (api *WhisperAPITranscription) attemptTranscribe(audio []byte, options TranscriptionOptions) (*TranscriptionResult, error) {
 	// Determine file extension from MIME type
@@ -248,8 +258,15 @@ func (api *WhisperAPITranscription) attemptTranscribe(audio []byte, options Tran
 		}
 	}
 
-	// Add response format (use verbose_json to get segments)
-	if err := writer.WriteField("response_format", "verbose_json"); err != nil {
+	// GPT transcribe models (gpt-4o-transcribe, gpt-4o-mini-transcribe) only support
+	// response_format "json" or "text" — not "verbose_json". They also do not support
+	// timestamp_granularities. All other models use verbose_json to get segment timestamps.
+	gptTranscribe := isGPTTranscribeModel(api.model)
+	responseFormat := "verbose_json"
+	if gptTranscribe {
+		responseFormat = "json"
+	}
+	if err := writer.WriteField("response_format", responseFormat); err != nil {
 		return nil, fmt.Errorf("failed to write response_format field: %v", err)
 	}
 
@@ -260,9 +277,11 @@ func (api *WhisperAPITranscription) attemptTranscribe(audio []byte, options Tran
 		}
 	}
 
-	// Add timestamp_granularities for segments
-	if err := writer.WriteField("timestamp_granularities[]", "segment"); err != nil {
-		return nil, fmt.Errorf("failed to write timestamp_granularities field: %v", err)
+	// timestamp_granularities is only supported with verbose_json
+	if !gptTranscribe {
+		if err := writer.WriteField("timestamp_granularities[]", "segment"); err != nil {
+			return nil, fmt.Errorf("failed to write timestamp_granularities field: %v", err)
+		}
 	}
 
 	// Add prompt if specified (for custom terminology, formatting, etc.)
@@ -303,60 +322,75 @@ func (api *WhisperAPITranscription) attemptTranscribe(audio []byte, options Tran
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Parse response
-	var apiResponse struct {
-		Text     string `json:"text"`
-		Language string `json:"language"`
-		Duration float64 `json:"duration"`
-		Segments []struct {
-			Id    int     `json:"id"`
-			Start float64 `json:"start"`
-			End   float64 `json:"end"`
-			Text  string  `json:"text"`
-		} `json:"segments"`
-		Words []struct {
-			Word  string  `json:"word"`
-			Start float64 `json:"start"`
-			End   float64 `json:"end"`
-		} `json:"words"`
-	}
+	// Parse response — GPT transcribe models return plain {"text":"..."} (json format),
+	// while whisper-1 and local Whisper servers return the richer verbose_json structure.
+	var transcript string
+	var responseLanguage string
+	var segments []TranscriptSegment
 
-	if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
-		return nil, fmt.Errorf("failed to parse API response: %v", err)
-	}
-
-	// Convert to TranscriptionResult format
-	transcript := strings.ToUpper(strings.TrimSpace(apiResponse.Text))
-
-	// Build segments
-	segments := make([]TranscriptSegment, 0, len(apiResponse.Segments))
-	for _, seg := range apiResponse.Segments {
-		segText := strings.TrimSpace(seg.Text)
-		if segText == "" {
-			continue
+	if gptTranscribe {
+		// json format: only {"text": "..."}
+		var apiResponse struct {
+			Text string `json:"text"`
 		}
-		segments = append(segments, TranscriptSegment{
-			Text:       strings.ToUpper(segText),
-			StartTime:  seg.Start,
-			EndTime:    seg.End,
-			Confidence: 0.95, // API doesn't provide per-segment confidence
-		})
-	}
+		if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+			return nil, fmt.Errorf("failed to parse API response: %v", err)
+		}
+		transcript = strings.ToUpper(strings.TrimSpace(apiResponse.Text))
+		if transcript != "" {
+			segments = []TranscriptSegment{{
+				Text:       transcript,
+				StartTime:  0,
+				EndTime:    0,
+				Confidence: 0.95,
+			}}
+		}
+	} else {
+		// verbose_json format: full structure with segments, language, duration
+		var apiResponse struct {
+			Text     string  `json:"text"`
+			Language string  `json:"language"`
+			Duration float64 `json:"duration"`
+			Segments []struct {
+				Id    int     `json:"id"`
+				Start float64 `json:"start"`
+				End   float64 `json:"end"`
+				Text  string  `json:"text"`
+			} `json:"segments"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+			return nil, fmt.Errorf("failed to parse API response: %v", err)
+		}
+		transcript = strings.ToUpper(strings.TrimSpace(apiResponse.Text))
+		responseLanguage = apiResponse.Language
 
-	// If no segments but we have text, create a single segment
-	if len(segments) == 0 && transcript != "" {
-		segments = append(segments, TranscriptSegment{
-			Text:       transcript,
-			StartTime:  0,
-			EndTime:    apiResponse.Duration,
-			Confidence: 0.95,
-		})
+		for _, seg := range apiResponse.Segments {
+			segText := strings.TrimSpace(seg.Text)
+			if segText == "" {
+				continue
+			}
+			segments = append(segments, TranscriptSegment{
+				Text:       strings.ToUpper(segText),
+				StartTime:  seg.Start,
+				EndTime:    seg.End,
+				Confidence: 0.95,
+			})
+		}
+		// Fallback: no segments but we have text
+		if len(segments) == 0 && transcript != "" {
+			segments = []TranscriptSegment{{
+				Text:       transcript,
+				StartTime:  0,
+				EndTime:    apiResponse.Duration,
+				Confidence: 0.95,
+			}}
+		}
 	}
 
 	return &TranscriptionResult{
 		Transcript: transcript,
-		Confidence: 0.95, // API doesn't provide overall confidence
-		Language:   apiResponse.Language,
+		Confidence: 0.95,
+		Language:   responseLanguage,
 		Segments:   segments,
 	}, nil
 }

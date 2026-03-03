@@ -187,9 +187,10 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 			AudioMime:     audioMimeType, // Use original audio MIME type
 		}
 
-		// Add word boost for AssemblyAI if configured
+		// Add AssemblyAI-specific options if configured
 		if queue.controller.Options.TranscriptionConfig.Provider == "assemblyai" {
 			transcriptionOpts.WordBoost = queue.controller.Options.TranscriptionConfig.AssemblyAIWordBoost
+			transcriptionOpts.SpeechModel = queue.controller.Options.TranscriptionConfig.AssemblyAISpeechModel
 		}
 
 		result, err := queue.provider.Transcribe(audioToTranscribe, transcriptionOpts)
@@ -197,12 +198,21 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 		if err != nil {
 			errorMsg := err.Error()
 			queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("transcription worker %d failed for call %d after retries: %v", workerId, job.CallId, err))
-			queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("transcription debug: apiURL=%s, usedFilteredAudio=%v, error=%s", queue.controller.Options.TranscriptionConfig.WhisperAPIURL, usedFilteredAudio, errorMsg))
+			provider := queue.controller.Options.TranscriptionConfig.Provider
+			if provider == "whisper-api" || provider == "" {
+				queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("transcription debug: provider=%s, apiURL=%s, usedFilteredAudio=%v, error=%s", provider, queue.controller.Options.TranscriptionConfig.WhisperAPIURL, usedFilteredAudio, errorMsg))
+			} else {
+				queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("transcription debug: provider=%s, usedFilteredAudio=%v, error=%s", provider, usedFilteredAudio, errorMsg))
+			}
 
 			// Check if this is a connection-related error that might indicate server issues
 			if strings.Contains(strings.ToLower(errorMsg), "connection") ||
 				strings.Contains(strings.ToLower(errorMsg), "eof") {
-				queue.controller.Logs.LogEvent(LogLevelWarn, "Connection error detected. Check if Whisper API server is overloaded or network is unstable")
+				if provider == "whisper-api" || provider == "" {
+					queue.controller.Logs.LogEvent(LogLevelWarn, "Connection error detected. Check if Whisper API server is overloaded or network is unstable")
+				} else {
+					queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("Connection error detected with %s provider. Check network connectivity or API service status", provider))
+				}
 			}
 
 			queue.updateCallTranscriptionStatus(job.CallId, "failed", errorMsg)

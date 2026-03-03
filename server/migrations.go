@@ -2355,6 +2355,33 @@ func migrateSystemHealthAlertOptions(db *Database) error {
 	return nil
 }
 
+// migrateCallUnitsLabel adds a "label" column to the callUnits table to persist
+// P25 talker aliases and other dynamic unit labels submitted with calls.
+func migrateCallUnitsLabel(db *Database) error {
+	// Check if column already exists
+	var exists bool
+	if err := db.Sql.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'callUnits' AND column_name = 'label'
+		)`).Scan(&exists); err != nil {
+		return fmt.Errorf("migrateCallUnitsLabel: %w", err)
+	}
+	if exists {
+		return nil
+	}
+
+	log.Println("migrating callUnits: adding label column for P25 talker aliases...")
+	queries := []string{
+		`ALTER TABLE "callUnits" ADD COLUMN IF NOT EXISTS "label" text NOT NULL DEFAULT ''`,
+	}
+	if err := db.migrateWithSchema("20260303000000-callunits-label", queries, true); err != nil {
+		return fmt.Errorf("migrateCallUnitsLabel: %w", err)
+	}
+	log.Println("callUnits label column migration completed")
+	return nil
+}
+
 // migrateLogsIndex adds a timestamp index to the logs table for fast searching.
 // Without this index, COUNT(*) / ORDER BY queries do full table scans that time
 // out when there are millions of log rows.
