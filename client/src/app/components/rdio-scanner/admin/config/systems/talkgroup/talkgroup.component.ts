@@ -28,6 +28,7 @@ import { RdioScannerToneSet } from '../../../../rdio-scanner';
 @Component({
     selector: 'rdio-scanner-admin-talkgroup',
     templateUrl: './talkgroup.component.html',
+    styleUrls: ['./talkgroup.component.scss'],
 })
 export class RdioScannerAdminTalkgroupComponent {
     @Input() form: FormGroup | undefined;

@@ -1,0 +1,113 @@
+// ─── Tone Sets Container ──────────────────────────────────────────────────────
+.tone-sets-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+// ─── Individual Tone Set Card ─────────────────────────────────────────────────
+.tone-set-item {
+    background: #1a1a1a;
+    border: 1px solid #2e2e2e;
+    border-left: 4px solid #cc0000;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    overflow: visible;
+}
+
+// ─── Tone Set Header (name + delete) ─────────────────────────────────────────
+.tone-set-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px 6px;
+    background: rgba(204, 0, 0, 0.08);
+    border-bottom: 1px solid #2a2a2a;
+    border-radius: 4px 4px 0 0;
+
+    mat-form-field {
+        flex: 1;
+    }
+}
+
+// ─── Tone Set Body ────────────────────────────────────────────────────────────
+.tone-set-content {
+    padding: 14px 16px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+// ─── A/B/Long Tone Rows ───────────────────────────────────────────────────────
+.tone-spec-section {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+
+    &:last-of-type {
+        border-bottom: none;
+    }
+
+    strong {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #777;
+        margin-bottom: 2px;
+    }
+}
+
+.tone-spec-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-start;
+
+    mat-form-field {
+        flex: 1;
+        min-width: 120px;
+    }
+}
+
+// ─── Tolerance & Min Duration ─────────────────────────────────────────────────
+// Extra bottom padding so mat-hint text is never clipped by the next element
+.tone-tolerance-section {
+    padding-bottom: 24px !important;
+
+    mat-form-field {
+        width: 100%;
+        max-width: 320px;
+    }
+}
+
+.tone-set-advanced {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-bottom: 8px;
+
+    strong {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #777;
+    }
+
+    mat-form-field {
+        width: 100%;
+        max-width: 320px;
+    }
+}
+
+// ─── Forward to TonesToActive strip ───────────────────────────────────────────
+.tone-set-downstream {
+    margin: 8px 0 12px;
+    padding: 10px 12px 12px;
+    border: 1px solid #333;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.025);
+}
