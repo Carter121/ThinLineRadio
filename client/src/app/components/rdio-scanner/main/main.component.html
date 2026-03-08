@@ -22,7 +22,15 @@
         </div>
     </div>
 
-    <div class="signout-container" *ngIf="isUserAuthenticated">
+    <div class="signout-container" *ngIf="isUserAuthenticated" style="display:flex;gap:12px;align-items:center;">
+        <button *ngIf="isSystemAdmin"
+                mat-raised-button
+                class="admin-panel-button"
+                (click)="openAdminPanel()"
+                title="Open Admin Panel">
+            <mat-icon>admin_panel_settings</mat-icon>
+            Admin
+        </button>
         <button mat-raised-button class="signout-button" (click)="onSignOut()" title="Sign Out">
             Sign Out
         </button>

@@ -660,6 +660,16 @@ export class RdioScannerService implements OnDestroy {
         this.play(this.call || this.callPrevious);
     }
 
+    static LOCAL_STORAGE_KEY_IS_SYSTEM_ADMIN = 'rdio-scanner-is-system-admin';
+
+    isSystemAdmin(): boolean {
+        return window?.localStorage?.getItem(RdioScannerService.LOCAL_STORAGE_KEY_IS_SYSTEM_ADMIN) === 'true';
+    }
+
+    saveIsSystemAdmin(value: boolean): void {
+        window?.localStorage?.setItem(RdioScannerService.LOCAL_STORAGE_KEY_IS_SYSTEM_ADMIN, String(value));
+    }
+
     readPin(): string | undefined {
         const pin = window?.localStorage?.getItem(RdioScannerService.LOCAL_STORAGE_KEY_PIN);
 

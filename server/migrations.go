@@ -2399,6 +2399,35 @@ func migrateCallUnitsLabel(db *Database) error {
 	return nil
 }
 
+// migrateLinkedVoiceTalkgroup adds the three cross-talkgroup voice association columns to the
+// talkgroups table.  All default to 0, which disables the feature — existing behaviour is
+// completely unchanged for talkgroups that are not explicitly configured.
+func migrateLinkedVoiceTalkgroup(db *Database) error {
+	queries := []string{
+		`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "linkedVoiceTalkgroupRef" integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "linkedVoiceWindowSeconds" integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "linkedVoiceMinDurationSeconds" integer NOT NULL DEFAULT 0`,
+	}
+	for _, q := range queries {
+		if _, err := db.Sql.Exec(q); err != nil {
+			log.Printf("migration note (linkedVoiceTalkgroup): %v", err)
+		}
+	}
+	return nil
+}
+
+// migrateAlertCooldown adds the alertCooldownSeconds column to the talkgroups table.
+// This enables per-talkgroup suppression of repeat alert notifications (e.g. for
+// departments that always double-page).  DEFAULT 0 means disabled — existing
+// behaviour is completely unchanged for all talkgroups that are not explicitly configured.
+func migrateAlertCooldown(db *Database) error {
+	query := `ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "alertCooldownSeconds" integer NOT NULL DEFAULT 0`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note (alertCooldownSeconds): %v", err)
+	}
+	return nil
+}
+
 // migrateLogsIndex adds a timestamp index to the logs table for fast searching.
 // Without this index, COUNT(*) / ORDER BY queries do full table scans that time
 // out when there are millions of log rows.

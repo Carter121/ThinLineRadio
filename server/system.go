@@ -632,6 +632,15 @@ func (systems *Systems) Write(db *Database) error {
 		return formatError(err, "")
 	}
 
+	// Ensure the transaction is always rolled back if Commit is never reached
+	// (covers early returns, panics, and any unhandled error path).
+	// Calling Rollback after a successful Commit is harmless – it returns ErrTxDone.
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && rbErr != sql.ErrTxDone {
+			log.Printf("systems.write: tx.Rollback() failed: %v", rbErr)
+		}
+	}()
+
 	query = `SELECT "systemId" FROM "systems"`
 	if rows, err = tx.Query(query); err != nil {
 		tx.Rollback()
@@ -791,12 +800,11 @@ func (systems *Systems) Write(db *Database) error {
 	}
 
 	if err = tx.Commit(); err != nil {
-		log.Printf("DEBUG: Systems.Write() - Transaction commit failed: %v", err)
-		tx.Rollback()
+		log.Printf("systems.write: tx.Commit() failed: %v", err)
+		// defer will call tx.Rollback(); no need to call it explicitly here.
 		return formatError(err, "")
 	}
 
-	log.Printf("Systems.Write() - Write operation completed successfully")
 	return nil
 }
 

@@ -536,6 +536,14 @@ func (controller *Controller) IngestCall(call *Call) {
 	if populated {
 		if err = controller.Systems.Write(controller.Database); err != nil {
 			logError(err)
+			// The write transaction was rolled back, but any INSERT…RETURNING that
+			// executed before the failure may have left phantom talkgroup IDs in the
+			// in-memory structs (e.g. talkgroup.Id set to a sequence value that was
+			// never committed).  Re-read from the DB to restore a consistent state so
+			// that subsequent WriteCall attempts don't reference non-existent IDs.
+			if readErr := controller.Systems.Read(controller.Database); readErr != nil {
+				logError(readErr)
+			}
 			return
 		}
 
@@ -1334,6 +1342,41 @@ func (controller *Controller) storePendingTones(call *Call, toneSequence *ToneSe
 		// Start a timer to check if tones are orphaned (no new tones within 60 seconds)
 		// If they're still pending after 60 seconds, send an alert for "tones detected but no voice call"
 		go controller.checkOrphanedTones(key, call.Id, call.Timestamp.UnixMilli())
+
+		// Cross-talkgroup voice association (Scenario 2).
+		// If this talkgroup is configured to watch a different talkgroup for its voice dispatch,
+		// register a second pending-tones entry keyed by the linked talkgroup's DB ID.
+		// The mutex is still held here, so we look up the linked ID under the lock (fast PK query).
+		if call.Talkgroup.LinkedVoiceTalkgroupRef > 0 {
+			var linkedTalkgroupId uint64
+			linkQuery := fmt.Sprintf(`SELECT "talkgroupId" FROM "talkgroups" WHERE "systemId" = %d AND "talkgroupRef" = %d LIMIT 1`, call.System.Id, call.Talkgroup.LinkedVoiceTalkgroupRef)
+			if err := controller.Database.Sql.QueryRow(linkQuery).Scan(&linkedTalkgroupId); err == nil && linkedTalkgroupId > 0 {
+				windowSecs := call.Talkgroup.LinkedVoiceWindowSeconds
+				if windowSecs == 0 {
+					windowSecs = 30 // sensible default: 30-second look-forward window
+				}
+				crossKey := fmt.Sprintf("%d:%d", call.System.Id, linkedTalkgroupId)
+				controller.pendingTones[crossKey] = &PendingToneSequence{
+					ToneSequence:             toneSequence,
+					CallId:                   call.Id,
+					Timestamp:                call.Timestamp.UnixMilli(),
+					SystemId:                 call.System.Id,
+					TalkgroupId:              linkedTalkgroupId,
+					WindowSeconds:            windowSecs,
+					MinVoiceDurationSeconds:  call.Talkgroup.LinkedVoiceMinDurationSeconds,
+					CrossTalkgroupSourceKey:  key,
+				}
+				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
+					"cross-talkgroup watch registered: tones from talkgroup %d will attach to voice on talkgroup ref %d (id=%d) within %ds (min duration: %ds)",
+					call.Talkgroup.TalkgroupRef, call.Talkgroup.LinkedVoiceTalkgroupRef, linkedTalkgroupId, windowSecs, call.Talkgroup.LinkedVoiceMinDurationSeconds,
+				))
+			} else {
+				controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf(
+					"cross-talkgroup watch: could not resolve linkedVoiceTalkgroupRef %d for talkgroup %d: %v",
+					call.Talkgroup.LinkedVoiceTalkgroupRef, call.Talkgroup.TalkgroupRef, err,
+				))
+			}
+		}
 	} else {
 		// Check if existing pending tones are too old (expired)
 		existingAge := time.Now().UnixMilli() - existing.Timestamp
@@ -1617,13 +1660,29 @@ func (controller *Controller) checkAndAttachPendingTones(call *Call) bool {
 		return false
 	}
 
-	// Check if pending tones are still valid (within time window)
+	// Check if pending tones are still valid (within time window).
+	// Cross-talkgroup entries use their own per-entry WindowSeconds; same-TGID entries use the global timeout.
 	now := time.Now().UnixMilli()
 	ageMinutes := float64(now-pending.Timestamp) / (1000.0 * 60.0)
-	if ageMinutes > float64(pendingToneTimeoutMinutes) {
-		// Pending tones expired, remove them
+
+	expired := false
+	if pending.WindowSeconds > 0 {
+		// Cross-talkgroup entry: use the tighter per-entry window
+		ageSeconds := float64(now-pending.Timestamp) / 1000.0
+		if ageSeconds > float64(pending.WindowSeconds) {
+			expired = true
+		}
+	} else if ageMinutes > float64(pendingToneTimeoutMinutes) {
+		expired = true
+	}
+
+	if expired {
 		controller.pendingTonesMutex.Lock()
 		delete(controller.pendingTones, key)
+		// For cross-talkgroup entries, also clean up the source talkgroup's pending entry
+		if pending.CrossTalkgroupSourceKey != "" {
+			delete(controller.pendingTones, pending.CrossTalkgroupSourceKey)
+		}
 		controller.pendingTonesMutex.Unlock()
 		return false
 	}
@@ -1645,6 +1704,19 @@ func (controller *Controller) checkAndAttachPendingTones(call *Call) bool {
 
 	if !hasVoice {
 		return false
+	}
+
+	// Cross-talkgroup minimum duration check: filter out mic clicks on the linked voice channel.
+	// Only applies when the pending entry has MinVoiceDurationSeconds > 0 (cross-TGID entries).
+	if pending.MinVoiceDurationSeconds > 0 {
+		dur, durErr := controller.getAudioDuration(call.Audio, call.AudioMime)
+		if durErr != nil || dur < float64(pending.MinVoiceDurationSeconds) {
+			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
+				"cross-talkgroup: skipping voice call %d (%.1fs) — shorter than minimum %.0fs, treating as mic click",
+				call.Id, dur, float64(pending.MinVoiceDurationSeconds),
+			))
+			return false
+		}
 	}
 
 	// This is a voice call without its own tones - attach pending tones
@@ -1684,6 +1756,16 @@ func (controller *Controller) checkAndAttachPendingTones(call *Call) bool {
 
 	// Check if there are "next pending" tones waiting (arrived during lock)
 	// Promote them to current pending for the next voice call
+	// For cross-talkgroup entries, also remove the source talkgroup's pending entry so that
+	// a voice call later arriving on the tone talkgroup itself does not fire a second alert.
+	if pending.CrossTalkgroupSourceKey != "" {
+		delete(controller.pendingTones, pending.CrossTalkgroupSourceKey)
+		controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
+			"cross-talkgroup: cleaned up source pending entry %q after voice call %d claimed tones",
+			pending.CrossTalkgroupSourceKey, call.Id,
+		))
+	}
+
 	nextKey := key + ":next"
 	if nextPending, nextExists := controller.pendingTones[nextKey]; nextExists && nextPending != nil {
 		// Promote next pending to current pending

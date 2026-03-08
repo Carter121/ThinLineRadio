@@ -656,6 +656,8 @@ export class RdioScannerAuthScreenComponent implements OnInit, OnDestroy, AfterV
           if (typeof pin === 'string' && pin.length > 0) {
             this.rdioScannerService.savePin(pin);
           }
+          // Persist system admin flag so the main UI can show the Admin Panel button
+          this.rdioScannerService.saveIsSystemAdmin(response?.user?.systemAdmin === true);
           console.log('Login successful:', response);
           
           // Reload the page to ensure fresh state and WebSocket connection

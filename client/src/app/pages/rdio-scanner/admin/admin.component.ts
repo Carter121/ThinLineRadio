@@ -39,13 +39,16 @@ export class RdioScannerAdminPageComponent implements OnInit, OnDestroy {
         private adminService: RdioScannerAdminService,
         private titleService: Title,
     ) {
-        // Auto-login when Central Management opens this page with a cm_token query param.
-        // This must run before reading `authenticated` so the token is in sessionStorage first.
+        // Auto-login via cm_token (Central Management one-click) or sso_token (system admin SSO).
+        // Must run before reading `authenticated` so the token is in sessionStorage first.
         const params = new URLSearchParams(window.location.search);
         const cmToken = params.get('cm_token');
+        const ssoToken = params.get('sso_token');
         if (cmToken) {
             this.adminService.setTokenFromExternal(cmToken);
-            // Clean the token from the address bar so it isn't bookmarked or leaked
+            window.history.replaceState({}, '', window.location.pathname);
+        } else if (ssoToken) {
+            this.adminService.setTokenFromExternal(ssoToken);
             window.history.replaceState({}, '', window.location.pathname);
         }
 

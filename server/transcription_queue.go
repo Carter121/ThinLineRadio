@@ -70,9 +70,10 @@ func NewTranscriptionQueue(controller *Controller, config TranscriptionConfig) *
 	case "whisper-api":
 		// External OpenAI-compatible Whisper API server
 		queue.provider = NewWhisperAPITranscription(&WhisperAPIConfig{
-			BaseURL: config.WhisperAPIURL,
-			APIKey:  config.WhisperAPIKey,
-			Model:   config.WhisperAPIModel,
+			BaseURL:        config.WhisperAPIURL,
+			APIKey:         config.WhisperAPIKey,
+			Model:          config.WhisperAPIModel,
+			TimeoutSeconds: config.TimeoutSeconds,
 		})
 	case "azure":
 		// Azure Speech Services
@@ -107,9 +108,10 @@ func NewTranscriptionQueue(controller *Controller, config TranscriptionConfig) *
 			config.WhisperAPIURL = "http://localhost:8000"
 		}
 		queue.provider = NewWhisperAPITranscription(&WhisperAPIConfig{
-			BaseURL: config.WhisperAPIURL,
-			APIKey:  config.WhisperAPIKey,
-			Model:   config.WhisperAPIModel,
+			BaseURL:        config.WhisperAPIURL,
+			APIKey:         config.WhisperAPIKey,
+			Model:          config.WhisperAPIModel,
+			TimeoutSeconds: config.TimeoutSeconds,
 		})
 	}
 

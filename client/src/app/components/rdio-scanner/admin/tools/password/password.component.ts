@@ -31,6 +31,8 @@ import { Subscription } from 'rxjs';
 export class RdioScannerAdminPasswordComponent implements OnInit, OnDestroy {
     form: FormGroup;
     adminLocalhostOnly = false;
+    adminPasswordLoginDisabled = false;
+    adminAllowedIPs = '';
     private eventSubscription: Subscription | undefined;
 
     constructor(
@@ -64,31 +66,56 @@ export class RdioScannerAdminPasswordComponent implements OnInit, OnDestroy {
             const config = await this.adminService.getConfig();
             if (config?.options) {
                 this.adminLocalhostOnly = config.options.adminLocalhostOnly || false;
+                this.adminPasswordLoginDisabled = config.options.adminPasswordLoginDisabled || false;
+                this.adminAllowedIPs = config.options.adminAllowedIPs || '';
             }
         } catch (error) {
             // Silently fail if not authenticated yet
         }
     }
 
+    private async patchOptions(patch: Record<string, any>): Promise<void> {
+        const currentConfig = await this.adminService.getConfig();
+        if (currentConfig?.options) {
+            Object.assign(currentConfig.options, patch);
+            await this.adminService.saveConfig(currentConfig);
+        }
+    }
+
     async toggleAdminLocalhost(enabled: boolean): Promise<void> {
         const snackConfig: MatSnackBarConfig = { duration: 3000 };
-        
         try {
-            const currentConfig = await this.adminService.getConfig();
-            if (currentConfig && currentConfig.options) {
-                currentConfig.options.adminLocalhostOnly = enabled;
-                await this.adminService.saveConfig(currentConfig);
-                this.adminLocalhostOnly = enabled;
-                
-                const message = enabled 
-                    ? 'Admin access restricted to localhost only' 
-                    : 'Admin access restriction removed';
-                this.matSnackBar.open(message, '', snackConfig);
-            }
-        } catch (error) {
-            this.matSnackBar.open('Failed to update security setting', '', snackConfig);
-            // Revert the toggle on error
+            await this.patchOptions({ adminLocalhostOnly: enabled });
+            this.adminLocalhostOnly = enabled;
+            this.matSnackBar.open(enabled ? 'Admin restricted to localhost' : 'Localhost restriction removed', '', snackConfig);
+        } catch {
+            this.matSnackBar.open('Failed to update setting', '', snackConfig);
             this.adminLocalhostOnly = !enabled;
+        }
+    }
+
+    async toggleAdminPasswordDisabled(enabled: boolean): Promise<void> {
+        const snackConfig: MatSnackBarConfig = { duration: 3000 };
+        try {
+            await this.patchOptions({ adminPasswordLoginDisabled: enabled });
+            this.adminPasswordLoginDisabled = enabled;
+            this.matSnackBar.open(
+                enabled ? 'Admin password login disabled' : 'Admin password login re-enabled',
+                '', snackConfig
+            );
+        } catch {
+            this.matSnackBar.open('Failed to update setting', '', snackConfig);
+            this.adminPasswordLoginDisabled = !enabled;
+        }
+    }
+
+    async saveAllowedIPs(): Promise<void> {
+        const snackConfig: MatSnackBarConfig = { duration: 3000 };
+        try {
+            await this.patchOptions({ adminAllowedIPs: this.adminAllowedIPs });
+            this.matSnackBar.open('IP allow list saved', '', snackConfig);
+        } catch {
+            this.matSnackBar.open('Failed to save IP allow list', '', snackConfig);
         }
     }
 

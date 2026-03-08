@@ -218,8 +218,8 @@ func (api *Api) CallUploadHandler(w http.ResponseWriter, r *http.Request) {
 			call.Meta.SiteRef, call.Meta.SiteId, call.Meta.SiteLabel)
 		log.Printf("api: [UPLOAD PARSED] Units=%v Meta.UnitRefs=%v Meta.UnitLabels=%v Patches=%v",
 			call.Units, call.Meta.UnitRefs, call.Meta.UnitLabels, call.Patches)
-		log.Printf("api: [UPLOAD PARSED] TransmissionId=%q RequestId=%q",
-			call.TransmissionId, call.RequestId)
+		log.Printf("api: [UPLOAD PARSED] TransmissionId=%q RequestId=%q SignalJobId=%q",
+			call.TransmissionId, call.RequestId, call.SignalJobId)
 
 		// Check if this is a test connection (SDRTrunk sends key, system, test fields)
 		if len(call.Audio) == 0 && call.SystemId > 0 && call.TalkgroupId == 0 && call.Timestamp.IsZero() {
@@ -414,8 +414,8 @@ func (api *Api) TrunkRecorderCallUploadHandler(w http.ResponseWriter, r *http.Re
 			call.Meta.SiteRef, call.Meta.SiteId, call.Meta.SiteLabel)
 		log.Printf("api: [TR-UPLOAD PARSED] Units=%v Meta.UnitRefs=%v Meta.UnitLabels=%v Patches=%v",
 			call.Units, call.Meta.UnitRefs, call.Meta.UnitLabels, call.Patches)
-		log.Printf("api: [TR-UPLOAD PARSED] TransmissionId=%q RequestId=%q",
-			call.TransmissionId, call.RequestId)
+		log.Printf("api: [TR-UPLOAD PARSED] TransmissionId=%q RequestId=%q SignalJobId=%q",
+			call.TransmissionId, call.RequestId, call.SignalJobId)
 
 		if ok, err := call.IsValid(); ok {
 			log.Printf("api: [TR-UPLOAD PARSED] -> Valid, passing to HandleCall")
@@ -976,6 +976,7 @@ func (api *Api) UserLoginHandler(w http.ResponseWriter, r *http.Request) {
 			"pin":                user.Pin,
 			"subscriptionStatus": user.SubscriptionStatus,
 			"needsSubscription":  needsSubscription,
+			"systemAdmin":        user.SystemAdmin,
 		},
 	})
 }

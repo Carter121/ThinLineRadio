@@ -342,6 +342,12 @@ func main() {
 	)
 	http.HandleFunc("/api/admin/login", securityHeadersWrapper(rateLimitWrapper(adminLoginHandler)).ServeHTTP)
 
+	// Public: tells the admin login page whether password login is disabled (no auth required)
+	http.HandleFunc("/api/admin/login-config", wrapHandler(http.HandlerFunc(controller.Admin.LoginConfigHandler)).ServeHTTP)
+
+	// SSO: system admin users exchange their TLR user PIN for an admin JWT (no separate password needed)
+	http.HandleFunc("/api/admin/sso", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SSOLoginHandler)).ServeHTTP)
+
 	http.HandleFunc("/api/admin/logout", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.LogoutHandler)).ServeHTTP)
 
 	http.HandleFunc("/api/admin/logs", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.LogsHandler)).ServeHTTP)
@@ -737,14 +743,12 @@ func main() {
 	})).ServeHTTP)
 
 	http.HandleFunc("/", wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Redirect /admin to root if accessed from non-localhost and AdminLocalhostOnly is enabled
+		// Redirect /admin to root if the client IP is not on the admin allow list
 		requestPath := r.URL.Path
-		if (requestPath == "/admin" || strings.HasPrefix(requestPath, "/admin/")) && controller.Options.AdminLocalhostOnly {
+		if requestPath == "/admin" || strings.HasPrefix(requestPath, "/admin/") {
 			clientIP := GetClientIP(r)
-			isLocalhost := IsLocalhostIP(clientIP)
-
-			if !isLocalhost {
-				log.Printf("Redirecting %s to / for non-localhost IP: %s", requestPath, clientIP)
+			if !controller.Admin.isAdminIPAllowed(clientIP) {
+				log.Printf("Redirecting %s to / for disallowed IP: %s", requestPath, clientIP)
 				http.Redirect(w, r, "/", http.StatusFound)
 				return
 			}

@@ -18,18 +18,28 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 )
 
 // AlertEngine handles alert creation and triggering
 type AlertEngine struct {
 	controller *Controller
+
+	// cooldownMu protects lastAlertFiredAt.
+	cooldownMu      sync.Mutex
+	// lastAlertFiredAt tracks when the most recent tone alert notification was sent
+	// for each talkgroup (keyed by talkgroupId).  Used to enforce per-talkgroup
+	// alert cooldowns so that departments who double-page don't generate duplicate
+	// push notifications within the configured window.
+	lastAlertFiredAt map[uint64]time.Time
 }
 
 // NewAlertEngine creates a new alert engine
 func NewAlertEngine(controller *Controller) *AlertEngine {
 	return &AlertEngine{
-		controller: controller,
+		controller:       controller,
+		lastAlertFiredAt: make(map[uint64]time.Time),
 	}
 }
 
@@ -312,6 +322,30 @@ func (engine *AlertEngine) TriggerToneAlerts(call *Call) {
 
 		// Forward to TonesToActive downstream (per-tone-set and/or global)
 		dispatchToneDownstreams(engine.controller, call, matchedToneSet)
+
+		// --- Per-talkgroup alert cooldown ---
+		// If the talkgroup has a cooldown configured and an alert was already sent
+		// within that window, skip push notifications (but keep the DB alert record
+		// above so history is preserved).  cooldown == 0 means disabled.
+		if call.Talkgroup != nil && call.Talkgroup.AlertCooldownSeconds > 0 {
+			cooldown := time.Duration(call.Talkgroup.AlertCooldownSeconds) * time.Second
+			engine.cooldownMu.Lock()
+			last, hasPrior := engine.lastAlertFiredAt[call.Talkgroup.Id]
+			engine.cooldownMu.Unlock()
+
+			if hasPrior && time.Since(last) < cooldown {
+				engine.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
+					"tone alert cooldown active for talkgroup %d: last alert was %.0fs ago (cooldown=%.0fs) — skipping notifications for call %d",
+					call.Talkgroup.Id, time.Since(last).Seconds(), cooldown.Seconds(), call.Id,
+				))
+				continue // next matched tone set; notifications suppressed
+			}
+
+			// Record this alert fire time
+			engine.cooldownMu.Lock()
+			engine.lastAlertFiredAt[call.Talkgroup.Id] = time.Now()
+			engine.cooldownMu.Unlock()
+		}
 
 		// Collect users who should get notifications for this tone set
 		var eligibleUsers []uint64

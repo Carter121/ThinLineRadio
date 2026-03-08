@@ -302,11 +302,14 @@ export interface Options {
         hallucinationPatterns?: string[];
         hallucinationDetectionMode?: string;
         hallucinationMinOccurrences?: number;
+        timeoutSeconds?: number;
     };
     alertRetentionDays?: number;
     relayServerURL?: string;
     relayServerAPIKey?: string;
     adminLocalhostOnly?: boolean;
+    adminPasswordLoginDisabled?: boolean;
+    adminAllowedIPs?: string;
     configSyncEnabled?: boolean;
     configSyncPath?: string;
     turnstileEnabled?: boolean;
@@ -388,6 +391,12 @@ export interface Talkgroup {
     toneDownstreamEnabled?: boolean;
     toneDownstreamURL?: string;
     toneDownstreamAPIKey?: string;
+    // Alert cooldown: suppress repeat notifications for N seconds after an alert fires (0 = off)
+    alertCooldownSeconds?: number;
+    // Cross-talkgroup voice association (0 = disabled)
+    linkedVoiceTalkgroupRef?: number;
+    linkedVoiceWindowSeconds?: number;
+    linkedVoiceMinDurationSeconds?: number;
 }
 
 export interface Unit {
@@ -872,6 +881,36 @@ export class RdioScannerAdminService implements OnDestroy {
         return this.getUrl(`call-audio/${callId}`);
     }
 
+    /** Exchange a TLR user PIN for an admin JWT (system admin SSO). */
+    async ssoLogin(pin: string): Promise<boolean> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.post<{ token: string }>(
+                '/api/admin/sso',
+                { pin },
+                { responseType: 'json' },
+            ));
+            if (!res?.token) return false;
+            this.token = res.token;
+            this.event.emit({ authenticated: true, passwordNeedChange: false });
+            this.configWebSocketOpen();
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /** Fetch whether password-based admin login is disabled (public, no auth required). */
+    async getLoginConfig(): Promise<{ adminPasswordLoginDisabled: boolean }> {
+        try {
+            return await firstValueFrom(this.ngHttpClient.get<{ adminPasswordLoginDisabled: boolean }>(
+                '/api/admin/login-config',
+                { responseType: 'json' },
+            ));
+        } catch {
+            return { adminPasswordLoginDisabled: false };
+        }
+    }
+
     async login(password: string): Promise<boolean> {
         try {
             const res = await firstValueFrom(this.ngHttpClient.post<{
@@ -1221,6 +1260,7 @@ export class RdioScannerAdminService implements OnDestroy {
             stripePriceId: this.ngFormBuilder.control(options?.stripePriceId),
             baseUrl: this.ngFormBuilder.control(options?.baseUrl),
             adminLocalhostOnly: this.ngFormBuilder.control(options?.adminLocalhostOnly ?? false),
+            adminPasswordLoginDisabled: this.ngFormBuilder.control(options?.adminPasswordLoginDisabled ?? false),
             transcriptionEnabled: this.ngFormBuilder.control(transcriptionConfig?.enabled || false),
             transcriptionConfig: this.ngFormBuilder.group({
                 enabled: this.ngFormBuilder.control(transcriptionConfig?.enabled || false),
@@ -1229,6 +1269,7 @@ export class RdioScannerAdminService implements OnDestroy {
                 prompt: this.ngFormBuilder.control(transcriptionConfig?.prompt || ''),
                 workerPoolSize: this.ngFormBuilder.control(transcriptionConfig?.workerPoolSize || 1, [Validators.min(1), Validators.max(10)]), // Default 1 for safety; configurable by user
                 minCallDuration: this.ngFormBuilder.control(transcriptionConfig?.minCallDuration || 0, [Validators.min(0)]),
+                timeoutSeconds: this.ngFormBuilder.control(transcriptionConfig?.timeoutSeconds || 0, [Validators.min(0)]),
                 whisperAPIURL: this.ngFormBuilder.control(transcriptionConfig?.whisperAPIURL || 'http://localhost:8000'),
                 whisperAPIKey: this.ngFormBuilder.control(transcriptionConfig?.whisperAPIKey || ''),
                 whisperAPIModel: this.ngFormBuilder.control(transcriptionConfig?.whisperAPIModel || 'whisper-1'),
@@ -1357,6 +1398,10 @@ export class RdioScannerAdminService implements OnDestroy {
             toneDownstreamEnabled: this.ngFormBuilder.control(talkgroup?.toneDownstreamEnabled || false),
             toneDownstreamURL: this.ngFormBuilder.control(talkgroup?.toneDownstreamURL || ''),
             toneDownstreamAPIKey: this.ngFormBuilder.control(talkgroup?.toneDownstreamAPIKey || ''),
+            alertCooldownSeconds: this.ngFormBuilder.control(talkgroup?.alertCooldownSeconds || 0, Validators.min(0)),
+            linkedVoiceTalkgroupRef: this.ngFormBuilder.control(talkgroup?.linkedVoiceTalkgroupRef || 0, Validators.min(0)),
+            linkedVoiceWindowSeconds: this.ngFormBuilder.control(talkgroup?.linkedVoiceWindowSeconds || 0, Validators.min(0)),
+            linkedVoiceMinDurationSeconds: this.ngFormBuilder.control(talkgroup?.linkedVoiceMinDurationSeconds || 0, Validators.min(0)),
         });
     }
 

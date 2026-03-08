@@ -87,6 +87,17 @@ type PendingToneSequence struct {
 	SystemId     uint64
 	TalkgroupId  uint64
 	Locked       bool // When true, prevents new tones from merging (claimed by transcribing call)
+
+	// Cross-talkgroup fields (Scenario 2: tones on TGID A, voice on TGID B)
+	// When non-zero, WindowSeconds overrides the global pendingToneTimeoutMinutes for this entry.
+	WindowSeconds uint
+	// MinVoiceDurationSeconds filters out mic-click false positives on the linked voice channel.
+	// A voice call shorter than this many seconds will not claim these pending tones.
+	MinVoiceDurationSeconds uint
+	// CrossTalkgroupSourceKey is set on cross-talkgroup watch entries. When this entry is consumed
+	// it is used to also clean up the source talkgroup's own pending-tones entry so a second alert
+	// is not fired if a voice call later arrives on the original (tone) talkgroup.
+	CrossTalkgroupSourceKey string
 }
 
 // ToneDetector handles tone detection in audio calls

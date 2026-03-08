@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -102,21 +103,60 @@ type Admin struct {
 	running          bool
 }
 
-// requireLocalhost middleware for admin routes
+// isAdminIPAllowed returns true if the given client IP is permitted to access admin routes.
+// Localhost is always permitted. If AdminAllowedIPs is non-empty it is treated as the
+// access-control list (CIDR ranges or exact IPs, comma/newline-separated).  When empty,
+// AdminLocalhostOnly governs access as before.
+func (admin *Admin) isAdminIPAllowed(clientIP string) bool {
+	if IsLocalhostIP(clientIP) {
+		return true
+	}
+
+	allowed := strings.TrimSpace(admin.Controller.Options.AdminAllowedIPs)
+	if allowed != "" {
+		clientAddr := net.ParseIP(strings.TrimSpace(clientIP))
+		for _, entry := range strings.FieldsFunc(allowed, func(r rune) bool {
+			return r == ',' || r == '\n' || r == '\r'
+		}) {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+			// Try CIDR notation first
+			if _, ipNet, err := net.ParseCIDR(entry); err == nil {
+				if clientAddr != nil && ipNet.Contains(clientAddr) {
+					return true
+				}
+				continue
+			}
+			// Exact IP match
+			if clientAddr != nil && clientAddr.Equal(net.ParseIP(entry)) {
+				return true
+			}
+		}
+		return false // allowlist set but IP not in it
+	}
+
+	// No allowlist — fall back to localhost-only toggle
+	if admin.Controller.Options.AdminLocalhostOnly {
+		return false
+	}
+	return true
+}
+
+// requireLocalhost middleware for admin routes (name kept for backward compatibility;
+// behaviour now also respects AdminAllowedIPs).
 func (admin *Admin) requireLocalhost(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		clientIP := GetClientIP(r)
-		isLocalhost := IsLocalhostIP(clientIP)
 
-		if admin.Controller.Options.AdminLocalhostOnly {
-			if !isLocalhost {
-				log.Printf("Admin access denied from non-localhost IP: %s for route: %s", clientIP, r.URL.Path)
-				w.WriteHeader(http.StatusForbidden)
-				json.NewEncoder(w).Encode(map[string]string{
-					"error": "Admin access restricted to localhost only",
-				})
-				return
-			}
+		if !admin.isAdminIPAllowed(clientIP) {
+			log.Printf("Admin access denied from IP: %s for route: %s", clientIP, r.URL.Path)
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Admin access denied: your IP address is not on the admin allow list",
+			})
+			return
 		}
 		next(w, r)
 	}
@@ -1478,6 +1518,13 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			err = admin.Controller.Systems.Write(admin.Controller.Database)
 				if err != nil {
 					logError(err)
+					// The write transaction was rolled back, but any INSERT…RETURNING
+					// that ran before the failure may have left phantom talkgroup/site
+					// IDs in the in-memory structs.  Re-read from the DB to restore a
+					// clean, consistent in-memory state before further requests arrive.
+					if readErr := admin.Controller.Systems.Read(admin.Controller.Database); readErr != nil {
+						logError(readErr)
+					}
 				} else {
 					err = admin.Controller.Systems.Read(admin.Controller.Database)
 					if err != nil {
@@ -2600,30 +2647,121 @@ func (admin *Admin) PurgeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (admin *Admin) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	// Check localhost restriction if enabled
-	clientIP := GetClientIP(r)
-	isLocalhost := IsLocalhostIP(clientIP)
+// LoginConfigHandler returns lightweight public config info that the admin login page
+// needs before authentication — specifically whether password login is disabled so
+// the Angular app can show the right UI before the user attempts to sign in.
+// GET /api/admin/login-config  (no authentication required)
+func (admin *Admin) LoginConfigHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"adminPasswordLoginDisabled": admin.Controller.Options.AdminPasswordLoginDisabled,
+	})
+}
 
-	if admin.Controller.Options.AdminLocalhostOnly {
-		if !isLocalhost {
-			// Enhanced logging with request context
-			userAgent := r.Header.Get("User-Agent")
-			if userAgent == "" {
-				userAgent = "none"
-			}
-			admin.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("admin: Admin login attempt denied from non-localhost IP | IP=%s | Endpoint=%s %s | UserAgent=%s",
-				clientIP, r.Method, r.URL.Path, userAgent))
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Admin access restricted to localhost only",
-			})
-			return
+// SSOLoginHandler allows a system admin user to obtain an admin JWT using their
+// user PIN — no separate admin password required.
+// POST /api/admin/sso   Body: {"pin":"<user-pin>"}
+// The same IP-restriction rules (localhost-only, allowlist) apply as for the
+// normal admin login endpoint.
+func (admin *Admin) SSOLoginHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Apply the same IP restrictions as the normal admin login
+	clientIP := GetClientIP(r)
+	if !admin.isAdminIPAllowed(clientIP) {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Admin access denied: your IP address is not on the admin allow list"})
+		return
+	}
+
+	var body struct {
+		Pin string `json:"pin"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Pin == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "pin is required"})
+		return
+	}
+
+	// Look up the user by PIN
+	user := admin.Controller.Users.GetUserByPin(body.Pin)
+	if user == nil {
+		admin.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("admin: SSO login failed — unknown PIN from %s", clientIP))
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid credentials"})
+		return
+	}
+
+	if !user.SystemAdmin {
+		admin.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("admin: SSO login denied for user %s — not a system admin", user.Email))
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "user is not a system administrator"})
+		return
+	}
+
+	// Issue a standard admin JWT (same format as password login)
+	id, err := uuid.NewRandom()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{ID: id.String()})
+	sToken, err := token.SignedString([]byte(admin.Controller.Options.secret))
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	admin.mutex.Lock()
+	if len(admin.Tokens) < 5 {
+		admin.Tokens = append(admin.Tokens, sToken)
+	} else {
+		admin.Tokens = append(admin.Tokens[1:], sToken)
+	}
+	admin.mutex.Unlock()
+
+	admin.Controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("admin: SSO login granted for system admin %s from %s", user.Email, clientIP))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"token": sToken})
+}
+
+func (admin *Admin) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	clientIP := GetClientIP(r)
+
+	if !admin.isAdminIPAllowed(clientIP) {
+		userAgent := r.Header.Get("User-Agent")
+		if userAgent == "" {
+			userAgent = "none"
 		}
+		admin.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("admin: Admin login attempt denied | IP=%s | Endpoint=%s %s | UserAgent=%s",
+			clientIP, r.Method, r.URL.Path, userAgent))
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Admin access denied: your IP address is not on the admin allow list",
+		})
+		return
 	}
 
 	switch r.Method {
 	case http.MethodPost:
+		// If the admin password login method has been disabled, reject all password-based logins.
+		// SSO via system admin user accounts and Central Management token remain available.
+		if admin.Controller.Options.AdminPasswordLoginDisabled {
+			admin.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("admin: password login rejected — AdminPasswordLoginDisabled is set (IP=%s)", clientIP))
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Admin password login is disabled. Use your TLR system admin account to access the admin panel.",
+			})
+			return
+		}
 		m := map[string]any{}
 
 		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {

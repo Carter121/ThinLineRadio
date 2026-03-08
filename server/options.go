@@ -113,6 +113,15 @@ type Options struct {
 	RelayServerAPIKey           string            `json:"relayServerAPIKey"`
 	RadioReferenceAPIKey        string            `json:"radioReferenceAPIKey"`
 	AdminLocalhostOnly          bool              `json:"adminLocalhostOnly"`
+	// When true, the traditional admin password login form is disabled. Admin access is only
+	// possible via system admin user SSO or Central Management one-click login.
+	// Guard: the server refuses to set this if no SystemAdmin user exists.
+	AdminPasswordLoginDisabled  bool              `json:"adminPasswordLoginDisabled"`
+	// Comma or newline-separated list of IP addresses and/or CIDR ranges that are allowed to
+	// access admin routes.  Localhost (127.0.0.1, ::1) is always allowed regardless of this list.
+	// When non-empty this overrides AdminLocalhostOnly for IPs that are in the list.
+	// When empty, AdminLocalhostOnly governs access as before.  Default: "" (no extra IPs).
+	AdminAllowedIPs             string            `json:"adminAllowedIPs"`
 	ConfigSyncEnabled           bool              `json:"configSyncEnabled"`
 	ConfigSyncPath              string            `json:"configSyncPath"`
 	// Cloudflare Turnstile configuration (for user registration/login and group admin login)
@@ -159,6 +168,12 @@ type TranscriptionConfig struct {
 	HallucinationPatterns        []string `json:"hallucinationPatterns"`        // Patterns to remove from transcripts (Whisper hallucinations)
 	HallucinationDetectionMode   string   `json:"hallucinationDetectionMode"`   // "off", "manual", "auto"
 	HallucinationMinOccurrences  int      `json:"hallucinationMinOccurrences"`  // Minimum times a phrase must appear in rejected calls before flagging (default: 5)
+	// TimeoutSeconds controls the maximum time to wait for a transcription response.
+	// This sets both the overall HTTP client timeout and the per-transport response-header timeout,
+	// which is the one most likely to fire on slow local Whisper servers (they don't send headers
+	// until transcription is complete).  Default: 300 seconds (5 minutes).  Set higher for very
+	// slow CPUs.  0 = use default.
+	TimeoutSeconds int `json:"timeoutSeconds"`
 }
 
 const (
@@ -676,6 +691,16 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		options.AdminLocalhostOnly = defaults.options.adminLocalhostOnly
 	}
 
+	switch v := m["adminPasswordLoginDisabled"].(type) {
+	case bool:
+		options.AdminPasswordLoginDisabled = v
+	}
+
+	switch v := m["adminAllowedIPs"].(type) {
+	case string:
+		options.AdminAllowedIPs = v
+	}
+
 	// Note: systemHealthAlertsEnabled and sub-alert toggles are managed via their
 	// own dedicated API endpoints (System Health tab), NOT the main options form.
 	// Only update them if explicitly provided in the map; otherwise preserve the
@@ -873,6 +898,9 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		}
 		if v, ok := tc["hallucinationMinOccurrences"].(float64); ok {
 			options.TranscriptionConfig.HallucinationMinOccurrences = int(v)
+		}
+		if v, ok := tc["timeoutSeconds"].(float64); ok && v > 0 {
+			options.TranscriptionConfig.TimeoutSeconds = int(v)
 		}
 	}
 
@@ -1533,6 +1561,20 @@ func (options *Options) Read(db *Database) error {
 					options.AdminLocalhostOnly = v
 				}
 			}
+		case "adminPasswordLoginDisabled":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case bool:
+					options.AdminPasswordLoginDisabled = v
+				}
+			}
+		case "adminAllowedIPs":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case string:
+					options.AdminAllowedIPs = v
+				}
+			}
 		case "configSyncEnabled":
 			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
 				switch v := f.(type) {
@@ -1714,6 +1756,8 @@ func (options *Options) Write(db *Database) error {
 	set("hydraTranscriptionEnabled", options.HydraTranscriptionEnabled)
 	set("radioReferenceAPIKey", options.RadioReferenceAPIKey)
 	set("adminLocalhostOnly", options.AdminLocalhostOnly)
+	set("adminPasswordLoginDisabled", options.AdminPasswordLoginDisabled)
+	set("adminAllowedIPs", options.AdminAllowedIPs)
 	set("configSyncEnabled", options.ConfigSyncEnabled)
 	set("configSyncPath", options.ConfigSyncPath)
 	set("turnstileEnabled", options.TurnstileEnabled)

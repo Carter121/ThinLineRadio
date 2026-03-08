@@ -28,22 +28,48 @@
 </div>
 
 <!-- Login Form -->
-<form [formGroup]="form" (ngSubmit)="login()" *ngIf="!isBlocked" class="login-form">
+<div *ngIf="!isBlocked" class="login-form">
     <div class="login-icon-wrap">
         <mat-icon>admin_panel_settings</mat-icon>
     </div>
     <h2 class="login-title">Admin Login</h2>
-    <p class="login-sub">Enter your password to access the administration console</p>
 
-    <mat-form-field appearance="outline" class="pw-field">
-        <mat-label>Admin Password</mat-label>
-        <input matInput formControlName="password" type="password" required autocomplete="current-password">
-        <mat-icon matSuffix>lock</mat-icon>
-        <mat-error>{{ message || 'Password is required' }}</mat-error>
-    </mat-form-field>
+    <!-- SSO section: always shown when a TLR user is logged in -->
+    <div class="sso-section">
+        <p class="login-sub">
+            If you are logged in to TLR as a <strong>System Admin</strong>, click below to access
+            the admin panel without a separate password.
+        </p>
+        <button mat-raised-button color="primary" class="login-btn sso-btn"
+                [disabled]="ssoLoading"
+                (click)="ssoLogin()">
+            <mat-icon>manage_accounts</mat-icon>
+            {{ ssoLoading ? 'Signing in…' : 'Sign in with TLR Account' }}
+        </button>
+        <p *ngIf="ssoMessage" class="sso-error">{{ ssoMessage }}</p>
+    </div>
 
-    <button mat-raised-button type="submit" class="login-btn" [disabled]="form.disabled || form.invalid">
-        <mat-icon>login</mat-icon>
-        Sign In
-    </button>
-</form>
+    <!-- Password form: hidden when password login is disabled server-side -->
+    <form [formGroup]="form" (ngSubmit)="login()" *ngIf="!adminPasswordLoginDisabled" class="password-section">
+        <div class="divider-row">
+            <span class="divider-line"></span>
+            <span class="divider-text">or use admin password</span>
+            <span class="divider-line"></span>
+        </div>
+        <mat-form-field appearance="outline" class="pw-field">
+            <mat-label>Admin Password</mat-label>
+            <input matInput formControlName="password" type="password" required autocomplete="current-password">
+            <mat-icon matSuffix>lock</mat-icon>
+            <mat-error>{{ message || 'Password is required' }}</mat-error>
+        </mat-form-field>
+        <button mat-stroked-button type="submit" class="login-btn" [disabled]="form.disabled || form.invalid">
+            <mat-icon>lock</mat-icon>
+            Sign in with Password
+        </button>
+    </form>
+
+    <p *ngIf="adminPasswordLoginDisabled" class="password-disabled-note">
+        <mat-icon style="vertical-align:middle;font-size:16px;">info</mat-icon>
+        Admin password login is disabled. Use your TLR system admin account above.
+    </p>
+</div>

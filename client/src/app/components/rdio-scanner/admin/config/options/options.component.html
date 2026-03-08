@@ -541,6 +541,26 @@
   </div>
 
 
+  <div class="row" *ngIf="form?.get('transcriptionEnabled')?.value && (form?.get('transcriptionConfig')?.get('provider')?.value === 'whisper-api' || !form?.get('transcriptionConfig')?.get('provider')?.value)" formGroupName="transcriptionConfig">
+    <p>
+      <span class="mat-body">Transcription Timeout (seconds)</span><br>
+      <span class="mat-caption">
+        How long to wait for a transcription response before giving up. This controls both the
+        overall request timeout and the response-header timeout — the one most likely to fire on
+        slow local Whisper servers, because Whisper doesn't send any response until transcription
+        is complete. The previous hard-coded value was 30 seconds, which timed out on any call
+        that took longer than that to process.
+        <br><br>
+        <strong>Default: 300 seconds (5 minutes).</strong> Increase for very slow CPUs or long calls.
+        Set to <b>0</b> to use the default.
+      </span>
+    </p>
+    <mat-form-field floatLabel="auto">
+      <input type="number" min="0" step="30" matInput formControlName="timeoutSeconds" placeholder="300">
+      <mat-hint>0 = use default (300 s). Increase for slow local Whisper servers.</mat-hint>
+    </mat-form-field>
+  </div>
+
   <div class="row" *ngIf="form?.get('transcriptionEnabled')?.value" formGroupName="transcriptionConfig">
     <p>
       <span class="mat-body">Minimum Call Duration (seconds)</span><br>

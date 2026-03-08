@@ -40,13 +40,25 @@ type WhisperAPITranscription struct {
 
 // WhisperAPIConfig contains configuration for external Whisper API
 type WhisperAPIConfig struct {
-	BaseURL string // Base URL of the API server
-	APIKey  string // Optional API key
-	Model   string // Model name (e.g., "whisper-1", "gpt-4o-transcribe"); defaults to "whisper-1"
+	BaseURL        string // Base URL of the API server
+	APIKey         string // Optional API key
+	Model          string // Model name (e.g., "whisper-1", "gpt-4o-transcribe"); defaults to "whisper-1"
+	TimeoutSeconds int    // Overall request + response-header timeout; 0 = use default (300s)
 }
 
 // NewWhisperAPITranscription creates a new external Whisper API transcription service
 func NewWhisperAPITranscription(config *WhisperAPIConfig) *WhisperAPITranscription {
+	// Resolve the effective timeout.
+	// ResponseHeaderTimeout is the critical one for slow local servers: Whisper doesn't send
+	// response headers until transcription is complete, so this must be >= the expected
+	// transcription time.  We set it equal to the overall client timeout.
+	const defaultTimeoutSeconds = 300 // 5 minutes
+	timeoutSecs := config.TimeoutSeconds
+	if timeoutSecs <= 0 {
+		timeoutSecs = defaultTimeoutSeconds
+	}
+	timeout := time.Duration(timeoutSecs) * time.Second
+
 	// Configure custom transport with proper connection pooling and timeouts
 	transport := &http.Transport{
 		// Connection pool settings
@@ -62,8 +74,12 @@ func NewWhisperAPITranscription(config *WhisperAPIConfig) *WhisperAPITranscripti
 		}).DialContext,
 
 		// Other important timeouts
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second, // Timeout waiting for response headers
+		TLSHandshakeTimeout: 10 * time.Second,
+		// ResponseHeaderTimeout: how long to wait for the server to start sending response headers.
+		// For local Whisper this must equal the full transcription budget — Whisper sends no headers
+		// until it has finished processing the audio, so the previous 30-second default killed any
+		// call that took longer than 30 s on a slow CPU/GPU.
+		ResponseHeaderTimeout: timeout,
 		ExpectContinueTimeout: 1 * time.Second,
 
 		// Disable HTTP/2 to avoid potential issues with some Whisper servers
@@ -83,7 +99,7 @@ func NewWhisperAPITranscription(config *WhisperAPIConfig) *WhisperAPITranscripti
 		apiKey:  config.APIKey,
 		model:   model,
 		httpClient: &http.Client{
-			Timeout:   5 * time.Minute, // Allow up to 5 minutes for transcription
+			Timeout:   timeout, // Overall request timeout (matches ResponseHeaderTimeout)
 			Transport: transport,
 		},
 	}

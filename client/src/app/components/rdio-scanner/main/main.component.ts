@@ -186,6 +186,32 @@ export class RdioScannerMainComponent implements OnDestroy, OnInit {
         return !!this.rdioScannerService.readPin();
     }
 
+    get isSystemAdmin(): boolean {
+        return this.rdioScannerService.isSystemAdmin();
+    }
+
+    openAdminPanel(): void {
+        const pin = this.rdioScannerService.readPin();
+        if (!pin) return;
+
+        // Exchange the user PIN for an admin SSO token, then open /admin in the current tab.
+        fetch('/api/admin/sso', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin }),
+        })
+            .then(r => r.ok ? r.json() : Promise.reject(r.status))
+            .then((data: any) => {
+                if (data?.token) {
+                    window.open(`/admin?sso_token=${encodeURIComponent(data.token)}`, '_blank');
+                }
+            })
+            .catch(() => {
+                // Fallback: open admin panel and let them log in manually
+                window.open('/admin', '_blank');
+            });
+    }
+
     getEnabledSystems(): Array<{ id: number; label: string }> {
         if (!this.config?.systems || !this.map) {
             return [];

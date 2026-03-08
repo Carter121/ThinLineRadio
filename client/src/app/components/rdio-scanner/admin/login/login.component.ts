@@ -33,7 +33,12 @@ export class RdioScannerAdminLoginComponent implements OnInit, OnDestroy {
     form: FormGroup;
 
     message = '';
-    
+    ssoMessage = '';
+    ssoLoading = false;
+
+    /** True when the server has disabled password-based admin login */
+    adminPasswordLoginDisabled = false;
+
     // Countdown for blocked logins
     isBlocked = false;
     countdownSeconds = 0;
@@ -57,6 +62,11 @@ export class RdioScannerAdminLoginComponent implements OnInit, OnDestroy {
             if (seconds && !isNaN(seconds)) {
                 this.startCountdown(parseInt(seconds, 10));
             }
+        });
+
+        // Check whether password login has been disabled server-side
+        this.adminService.getLoginConfig().then(cfg => {
+            this.adminPasswordLoginDisabled = cfg.adminPasswordLoginDisabled;
         });
     }
     
@@ -91,6 +101,25 @@ export class RdioScannerAdminLoginComponent implements OnInit, OnDestroy {
         const minutes = Math.floor(this.countdownSeconds / 60);
         const seconds = this.countdownSeconds % 60;
         return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    /** SSO login: exchange the stored user PIN for an admin JWT. */
+    async ssoLogin(): Promise<void> {
+        const pin = window.localStorage.getItem('rdio-scanner-pin');
+        const decodedPin = pin ? window.atob(pin) : null;
+        if (!decodedPin) {
+            this.ssoMessage = 'No active TLR session found. Please sign in to TLR first, then return here.';
+            return;
+        }
+        this.ssoLoading = true;
+        this.ssoMessage = '';
+        const ok = await this.adminService.ssoLogin(decodedPin);
+        this.ssoLoading = false;
+        if (ok) {
+            this.loggedIn.emit();
+        } else {
+            this.ssoMessage = 'SSO login failed. Make sure your account has System Admin privileges.';
+        }
     }
 
     async login(password = this.form.get('password')?.value): Promise<void> {

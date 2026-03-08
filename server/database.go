@@ -315,6 +315,16 @@ func (db *Database) migrate() error {
 		return formatError(err, "")
 	}
 
+	// Add alertCooldownSeconds to talkgroups for per-talkgroup alert suppression
+	if err := migrateAlertCooldown(db); err != nil {
+		return formatError(err, "")
+	}
+
+	// Add cross-talkgroup voice association columns (Scenario 2: tones on TGID A, voice on TGID B)
+	if err := migrateLinkedVoiceTalkgroup(db); err != nil {
+		return formatError(err, "")
+	}
+
 	return nil
 }
 

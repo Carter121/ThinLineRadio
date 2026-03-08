@@ -86,6 +86,57 @@
     </div>
     <div class="row">
         <p>
+            <span class="mat-body">Alert Cooldown</span><br>
+            <span class="mat-caption">
+                Suppress repeat alert notifications on this talkgroup for this many seconds after an alert fires.
+                Useful for departments that always double-page. Set to <b>0</b> to disable (default).
+            </span>
+        </p>
+        <mat-form-field floatLabel="auto">
+            <input type="number" min="0" step="1" matInput formControlName="alertCooldownSeconds" placeholder="Seconds">
+        </mat-form-field>
+    </div>
+    <div class="row">
+        <p>
+            <span class="mat-body">Linked Voice Channel (TGID)</span><br>
+            <span class="mat-caption">
+                <b>Cross-channel paging:</b> if this talkgroup transmits paging tones on a dedicated
+                signalling channel but the voice dispatch happens on a different talkgroup, enter
+                that other talkgroup's radio ID here. When tones fire on this channel the server
+                will watch the linked channel for voice and attach the tones to it automatically.
+                Leave at <b>0</b> to disable (default — no change to existing behaviour).
+            </span>
+        </p>
+        <mat-form-field floatLabel="auto">
+            <input type="number" min="0" step="1" matInput formControlName="linkedVoiceTalkgroupRef" placeholder="Talkgroup ID (0 = off)">
+        </mat-form-field>
+    </div>
+    <div class="row" *ngIf="form?.get('linkedVoiceTalkgroupRef')?.value > 0">
+        <p>
+            <span class="mat-body">Voice Watch Window (seconds)</span><br>
+            <span class="mat-caption">
+                How long (in seconds) to listen on the linked voice channel after tones fire.
+                Defaults to <b>30 seconds</b> when left at 0.
+            </span>
+        </p>
+        <mat-form-field floatLabel="auto">
+            <input type="number" min="0" step="1" matInput formControlName="linkedVoiceWindowSeconds" placeholder="Seconds (0 = 30s default)">
+        </mat-form-field>
+    </div>
+    <div class="row" *ngIf="form?.get('linkedVoiceTalkgroupRef')?.value > 0">
+        <p>
+            <span class="mat-body">Minimum Voice Duration (seconds)</span><br>
+            <span class="mat-caption">
+                Ignore voice calls on the linked channel shorter than this many seconds (filters out
+                mic clicks and squelch tails). Leave at <b>0</b> for no minimum.
+            </span>
+        </p>
+        <mat-form-field floatLabel="auto">
+            <input type="number" min="0" step="1" matInput formControlName="linkedVoiceMinDurationSeconds" placeholder="Seconds (0 = no minimum)">
+        </mat-form-field>
+    </div>
+    <div class="row">
+        <p>
             <span class="mat-body">Frequency</span><br>
             <span class="mat-caption">Fake frequency in hertz displayed on the main screen.</span>
         </p>
