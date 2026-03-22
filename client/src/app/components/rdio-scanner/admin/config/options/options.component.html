@@ -11,8 +11,7 @@
   <div class="row">
     <p>
       <span class="mat-body">Audio Conversion</span><br>
-      <span class="mat-caption">Convert incoming audio files with ffmpeg. Loudness normalization makes all channels sound equally loud (both boosts quiet channels and reduces loud ones to target level).</span><br>
-      <span class="mat-caption" style="color: #e6a23c;">⚠ Warning: If your source already sends compressed audio (MP3/M4A), enabling conversion will re-encode it, which degrades audio quality. Only enable if your source sends raw/WAV audio or you need normalization.</span>
+      <span class="mat-caption">Convert incoming audio files to H.264 m4a with ffmpeg.</span>
     </p>
     <mat-form-field floatLabel="auto">
       <mat-select formControlName="audioConversion" placeholder="Audio Conversion">
@@ -21,9 +20,6 @@
         <mat-option [value]="2">Enabled with normalization</mat-option>
         <mat-option [value]="3">Enabled with loud normalization</mat-option>
       </mat-select>
-      <mat-hint *ngIf="form?.get('audioConversion')?.value >= 2" style="color: #aaa; font-size: 0.85em; margin-top: 8px;">
-        Normalization equalizes volume across all channels so quiet and loud transmissions play at a consistent level.
-      </mat-hint>
     </mat-form-field>
   </div>
 
@@ -380,6 +376,16 @@
     </p>
     <div>
       <mat-slide-toggle color="primary" formControlName="transcriptionEnabled"></mat-slide-toggle>
+    </div>
+  </div>
+
+  <div class="row">
+    <p>
+      <span class="mat-body">Transcription Audio Enhancement</span><br>
+      <span class="mat-caption">Pre-process audio before transcription using noise reduction and dynamic compression. Improves accuracy on noisy or low-volume radio audio. Uses ffmpeg — no effect if ffmpeg is not installed.</span>
+    </p>
+    <div>
+      <mat-slide-toggle color="primary" formControlName="transcriptionEnhancement"></mat-slide-toggle>
     </div>
   </div>
 

@@ -18,7 +18,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -30,12 +29,10 @@ import (
 
 // WhisperAPITranscription implements TranscriptionProvider for external OpenAI-compatible Whisper API server
 type WhisperAPITranscription struct {
-	available  bool
 	baseURL    string // Base URL of the Whisper API server (e.g., "http://localhost:8000")
 	apiKey     string // Optional API key (if required)
 	model      string // Model name (e.g., "whisper-1", "gpt-4o-transcribe")
 	httpClient *http.Client
-	warned     bool
 }
 
 // WhisperAPIConfig contains configuration for external Whisper API
@@ -112,46 +109,11 @@ func NewWhisperAPITranscription(config *WhisperAPIConfig) *WhisperAPITranscripti
 	// Remove trailing slash
 	api.baseURL = strings.TrimSuffix(api.baseURL, "/")
 
-	if api.baseURL == "https://api.openai.com" {
-	    api.available = true
-	} else {
-	    // Test availability by checking health endpoint if no OpenAI Official
-    	api.available = api.checkAvailability()
-	}
-
-
 	return api
-}
-
-// checkAvailability checks if the API server is available
-// Uses a short timeout (5 seconds) to avoid blocking server startup
-func (api *WhisperAPITranscription) checkAvailability() bool {
-	healthURL := api.baseURL + "/health"
-
-	// Use a short timeout for health checks to avoid blocking server startup
-	// if the API server is busy processing a transcription
-	healthClient := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	resp, err := healthClient.Get(healthURL)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
 }
 
 // Transcribe transcribes audio using the external Whisper API server
 func (api *WhisperAPITranscription) Transcribe(audio []byte, options TranscriptionOptions) (*TranscriptionResult, error) {
-	if !api.available {
-		if !api.warned {
-			api.warned = true
-			return nil, fmt.Errorf("whisper API server not available at %s. Make sure the server is running", api.baseURL)
-		}
-		return nil, errors.New("whisper API is not available")
-	}
-
 	// Retry logic with exponential backoff for transient network errors
 	maxRetries := 3
 	baseDelay := 1 * time.Second
@@ -426,9 +388,9 @@ func (api *WhisperAPITranscription) attemptTranscribe(audio []byte, options Tran
 	}, nil
 }
 
-// IsAvailable checks if the API server is available
+// IsAvailable always returns true; connectivity errors surface at transcription time
 func (api *WhisperAPITranscription) IsAvailable() bool {
-	return api.available
+	return true
 }
 
 // GetName returns the name of this transcription provider

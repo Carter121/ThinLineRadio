@@ -1,5 +1,58 @@
 # Change log
 
+## Version 7.0 Beta 9.7.24 - Released Mar 22, 2026
+
+### Improvements
+
+- **Audio conversion — processing chain overhaul**
+  - Audio conversion modes now use a full broadcast-quality processing chain: high-pass filter (120 Hz), 4:1 compressor (8 ms attack / 80 ms release), FFT denoiser (`afftdn`), EQ cut at 250 Hz (−3 dB), presence boost at 3 kHz (+5 dB), low-pass at 3.2 kHz, loudnorm, and a hard limiter at −1 dBFS
+  - **Mode 2 (normalization):** loudnorm target −14 LUFS, LRA 11 (natural dynamics)
+  - **Mode 3 (loud normalization):** loudnorm target −14 LUFS, LRA 3 (tight broadcast leveling)
+  - Output bitrate changed to 48 k AAC (was 32 k)
+  - ffmpeg version detection regex aligned with upstream rdio-scanner for consistency
+  - Admin UI description simplified to match upstream wording
+
+- **Audio conversion — transcription enhancement option**
+  - New admin toggle: **Transcription Audio Enhancement** — pre-processes audio before transcription using noise reduction (`afftdn`) and dynamic compression
+  - Outputs 16 kHz mono WAV to the transcription pipeline (optimal format for Whisper, Google, Azure, and AssemblyAI)
+  - Processing runs after the transcription snapshot (Stage 3.5) and before AAC conversion (Stage 4), so stored audio and transcription audio are processed independently
+  - Has no effect if ffmpeg is not installed
+
+- **Client — Transport & status UI**
+  - ThinLine Radio logo moved from toolbar center to the top-right header alongside the Admin and Sign Out buttons
+  - Volume slider moved into the toolbar right zone where the logo previously sat
+  - Volume control redesigned: flat single-row layout (no box/border) — `Volume` label → speaker icon → slider → percentage — matching the visual style of the status strip meta items
+
+- **Auth screen — dark theme**
+  - Full dark theme applied across the entire login / registration screen: `#0f0f0f` screen background, `#1a1a1a` card, `#cc0000` red accents on tabs, form field outlines, and links
+  - Angular Material form field outlines, floating labels, and hint text overridden for dark backgrounds via `::ng-deep`
+  - ThinLine Radio `logo-banner.png` added as a faint watermark at the bottom of the auth card
+
+- **Auth screen — registration success flow (issue #132)**
+  - "Check Your Email" verification notice now appears whenever `emailServiceEnabled` is not explicitly `false` (previously was hidden when the config flag was `undefined` / not yet loaded, leaving users on a blank screen)
+  - "No email service" fallback only shown when the flag is explicitly `false`
+  - "Continue to Sign In" button always visible after successful registration
+
+- **Admin — Push Notification API key dialog (issue #130)**
+  - "Update API Key" button no longer hidden off-screen: dialog panel is now bounded to `90vh` with Angular Material keeping the title and actions bar always in view; content area constrained to `calc(90vh - 130px)` and scrolls independently
+  - Removed the "Localhost Access Required" warning notice — the dialog is accessible from any admin session
+  - Update flow now judges success on the HTTP status code (`2xx`) rather than a `success` flag in the response body, preventing false "failed to update" errors when the relay server returns `204 No Content`
+  - Dialog closes immediately on a successful update (no intermediate "API Key Created" screen); the parent snackbar confirms the result
+  - Configuration is automatically saved after a key is generated, updated, or recovered — no manual save step required
+
+- **Admin — Registration codes (issue #138)**
+  - Admins can now assign a human-readable **Label** to each registration code for easier tracking
+  - Custom registration codes can be entered manually; leave blank to auto-generate
+  - New codes appear in the list immediately after creation without closing and reopening the dialog
+  - "Add Registration Code" form layout refactored to a two-row grid — eliminates overlap between the "One-time use" checkbox and the "Add Code" button
+
+- **Server — Transcription health checks (issue #139)**
+  - Removed `/health` endpoint checks for all OpenAI-compatible transcription providers
+  - `IsAvailable()` always returns `true`; errors are handled per-job with retries instead of permanently disabling the transcription queue at startup
+  - Allows third-party providers (Groq, Together AI, etc.) that do not expose a `/health` endpoint to work without modification
+
+---
+
 ## Version 7.0 Beta 9.7.22 - Released Mar 19, 2026
 
 ### Improvements

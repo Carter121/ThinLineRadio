@@ -307,20 +307,22 @@
     margin: 0 6px;
   }
 
-  /* Fills flex space between transport buttons and volume; banner sits centered without blocking clicks. */
+  /* Fills flex space between transport buttons and volume slider. */
   .toolbar-center-zone {
     flex: 1 1 auto;
-    min-width: 64px;
-    min-height: 4.5rem;
+    min-width: 120px;
     align-self: stretch;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-end;
     padding: 4px 12px;
     box-sizing: border-box;
-    position: relative;
     overflow: hidden;
-    pointer-events: none;
+
+    .transport-volume {
+      max-width: 260px;
+      width: 100%;
+    }
   }
 
   .toolbar-banner-logo {
@@ -339,61 +341,31 @@
 
 /* Output volume — lives in status strip (below transport toolbar). */
 .transport-volume {
-  box-sizing: border-box;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 6px;
-  background: transparent;
   display: flex;
-  align-items: stretch;
-  padding: 0;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+  flex: 1 1 180px;
+  min-width: 8rem;
+  max-width: 22rem;
 
-  &:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.45);
-  }
-
-  .transport-volume-inner {
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 0.45rem;
-    padding: 0.5rem 0.65rem 0.55rem 0.5rem;
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-  }
-
-  .vol-ic-top {
-    font-size: 1.375rem;
-    width: 1.375rem;
-    height: 1.375rem;
-    margin: 0;
-    align-self: center;
-    color: rgba(255, 255, 255, 0.78);
+  .transport-volume-title {
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.6);
+    white-space: nowrap;
     flex: 0 0 auto;
   }
 
-  .transport-volume-right {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: center;
-    gap: 0.2rem;
-  }
-
-  .transport-volume-title {
-    font-size: 0.5625rem;
-    font-weight: 700;
-    line-height: 1.1;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    text-align: left;
-    color: rgba(255, 255, 255, 0.82);
+  .vol-ic-top {
+    font-size: 1rem;
+    width: 1rem;
+    height: 1rem;
+    color: rgba(255, 255, 255, 0.78);
+    flex: 0 0 auto;
   }
 
   .volume-slider-compact {
@@ -426,33 +398,14 @@
   }
 
   .vol-val {
-    font-size: 0.5rem;
+    font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: 0.02em;
-    text-transform: uppercase;
     color: #69f0ae;
+    white-space: nowrap;
+    flex: 0 0 auto;
+    min-width: 2rem;
     text-align: right;
-    line-height: 1;
-    margin-top: -0.05rem;
-  }
-
-  &.transport-volume--status {
-    flex: 1 1 180px;
-    min-width: 10rem;
-    max-width: 28rem;
-    min-height: auto;
-    align-self: center;
-    margin-left: auto;
-
-    .transport-volume-inner {
-      padding: 0.35rem 0.5rem 0.4rem;
-    }
-
-    .vol-ic-top {
-      font-size: 1.15rem;
-      width: 1.15rem;
-      height: 1.15rem;
-    }
   }
 }
 
@@ -976,6 +929,13 @@
   gap: 8px;
   margin-bottom: 8px;
   padding: 0 8px;
+
+  .signout-banner-logo {
+    height: 36px;
+    width: auto;
+    display: block;
+    margin-right: 4px;
+  }
 
   /* Stroked admin control: default Material theme was near-invisible on dark header */
   .admin-panel-button.mat-mdc-outlined-button {

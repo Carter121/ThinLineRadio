@@ -5724,9 +5724,11 @@ func (api *Api) GroupAdminGenerateCodeHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	var request struct {
-		ExpiresAt int64 `json:"expiresAt"` // Unix timestamp, 0 for no expiration
-		MaxUses   int   `json:"maxUses"`   // 0 for unlimited
-		IsOneTime bool  `json:"isOneTime"`
+		Label     string `json:"label"`
+		Code      string `json:"code"`      // Optional custom code; auto-generated if empty
+		ExpiresAt int64  `json:"expiresAt"` // Unix timestamp, 0 for no expiration
+		MaxUses   int    `json:"maxUses"`   // 0 for unlimited
+		IsOneTime bool   `json:"isOneTime"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -5734,9 +5736,9 @@ func (api *Api) GroupAdminGenerateCodeHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	regCode, err := api.Controller.RegistrationCodes.GenerateCode(group.Id, user.Id, request.ExpiresAt, request.MaxUses, request.IsOneTime)
+	regCode, err := api.Controller.RegistrationCodes.GenerateCode(group.Id, user.Id, request.Label, request.Code, request.ExpiresAt, request.MaxUses, request.IsOneTime)
 	if err != nil {
-		api.exitWithError(w, http.StatusInternalServerError, "Failed to generate code")
+		api.exitWithError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -5772,6 +5774,7 @@ func (api *Api) GroupAdminCodesHandler(w http.ResponseWriter, r *http.Request) {
 			groupCodes = append(groupCodes, map[string]interface{}{
 				"id":          code.Id,
 				"code":        code.Code,
+				"label":       code.Label,
 				"expiresAt":   code.ExpiresAt,
 				"maxUses":     code.MaxUses,
 				"currentUses": code.CurrentUses,
@@ -6618,6 +6621,7 @@ func (api *Api) AdminGroupCodesHandler(w http.ResponseWriter, r *http.Request) {
 			groupCodes = append(groupCodes, map[string]interface{}{
 				"id":          code.Id,
 				"code":        code.Code,
+				"label":       code.Label,
 				"expiresAt":   code.ExpiresAt,
 				"maxUses":     code.MaxUses,
 				"currentUses": code.CurrentUses,
@@ -6700,9 +6704,11 @@ func (api *Api) AdminGroupGenerateCodeHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	var request struct {
-		ExpiresAt int64 `json:"expiresAt"` // Unix timestamp, 0 for no expiration
-		MaxUses   int   `json:"maxUses"`   // 0 for unlimited
-		IsOneTime bool  `json:"isOneTime"`
+		Label     string `json:"label"`
+		Code      string `json:"code"`      // Optional custom code; auto-generated if empty
+		ExpiresAt int64  `json:"expiresAt"` // Unix timestamp, 0 for no expiration
+		MaxUses   int    `json:"maxUses"`   // 0 for unlimited
+		IsOneTime bool   `json:"isOneTime"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -6716,10 +6722,10 @@ func (api *Api) AdminGroupGenerateCodeHandler(w http.ResponseWriter, r *http.Req
 		createdBy = client.User.Id
 	}
 
-	regCode, err := api.Controller.RegistrationCodes.GenerateCode(groupID, createdBy, request.ExpiresAt, request.MaxUses, request.IsOneTime)
+	regCode, err := api.Controller.RegistrationCodes.GenerateCode(groupID, createdBy, request.Label, request.Code, request.ExpiresAt, request.MaxUses, request.IsOneTime)
 	if err != nil {
 		log.Printf("Error generating registration code: %v", err)
-		api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to generate code: %v", err))
+		api.exitWithError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
