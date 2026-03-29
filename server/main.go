@@ -434,8 +434,8 @@ func main() {
 	http.HandleFunc("/api/keyword-lists", wrapHandler(http.HandlerFunc(controller.Api.KeywordListsHandler)).ServeHTTP)
 
 	// System alert routes (system admins only)
-	http.HandleFunc("/api/system-alerts", wrapHandler(http.HandlerFunc(controller.Api.SystemAlertsHandler)).ServeHTTP)
-	http.HandleFunc("/api/system-alerts/", wrapHandler(http.HandlerFunc(controller.Api.SystemAlertDismissHandler)).ServeHTTP)
+	http.HandleFunc("/api/system-alerts", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.SystemAlertsHandler))).ServeHTTP)
+	http.HandleFunc("/api/system-alerts/", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.SystemAlertDismissHandler))).ServeHTTP)
 	http.HandleFunc("/api/keyword-lists/", wrapHandler(http.HandlerFunc(controller.Api.KeywordListHandler)).ServeHTTP)
 
 	// User settings routes — wrapped with CORS so Central Management can call across origins
