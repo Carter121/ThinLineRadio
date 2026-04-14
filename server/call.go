@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"rdio-scanner/server/internal/models"
 	"strconv"
 	"strings"
 	"time"
@@ -85,8 +86,9 @@ type Call struct {
 	Transcript           string
 	TranscriptConfidence float64
 	TranscriptionStatus  string
-	AlertSummary         string  // Optional short LLM summary for alerts (when summarized alerts enabled)
-	ApiKeyId             *uint64 // API key used for upload (for preferred API key logic)
+	AlertSummary         string                // Optional short LLM summary for alerts (when summarized alerts enabled)
+	ParsedAddr           *models.ParsedAddress // Address extracted from transcript (nil if not parsed)
+	ApiKeyId             *uint64               // API key used for upload (for preferred API key logic)
 
 	// Add back simple fields for compatibility with v6 uploads
 	SystemId    uint `json:"system"`
@@ -187,6 +189,9 @@ func (call *Call) MarshalJSON() ([]byte, error) {
 	}
 	if call.AlertSummary != "" {
 		callMap["alertSummary"] = call.AlertSummary
+	}
+	if call.ParsedAddr != nil {
+		callMap["parsedAddress"] = call.ParsedAddr
 	}
 
 	if len(call.Frequencies) > 0 {
@@ -323,6 +328,9 @@ func (call *Call) MarshalJSONWithEncryption(key []byte) ([]byte, error) {
 	}
 	if call.AlertSummary != "" {
 		callMap["alertSummary"] = call.AlertSummary
+	}
+	if call.ParsedAddr != nil {
+		callMap["parsedAddress"] = call.ParsedAddr
 	}
 	if len(call.Frequencies) > 0 {
 		freqs := []map[string]any{}
@@ -523,10 +531,10 @@ func (calls *Calls) GetCall(id uint64) (*Call, error) {
 	call := Call{Id: id}
 
 	if calls.controller.Database.Config.DbType == DbTypePostgresql {
-		query = fmt.Sprintf(`SELECT c."audio", c."audioFilename", c."audioMime", c."siteRef", c."timestamp", STRING_AGG(CAST(COALESCE(cpt."talkgroupRef", 0) AS text), ','), sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary" FROM "calls" AS c LEFT JOIN "callPatches" AS cp on cp."callId" = c."callId" LEFT JOIN "talkgroups" AS cpt ON cpt."talkgroupId" = cp."talkgroupId" LEFT JOIN "systems" AS sy ON sy."systemId" = c."systemId" LEFT JOIN "talkgroups" AS t ON t."talkgroupId" = c."talkgroupId" WHERE c."callId" = %d GROUP BY c."callId", c."audio", c."audioFilename", c."audioMime", c."siteRef", c."timestamp", sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary"`, id)
+		query = fmt.Sprintf(`SELECT c."audio", c."audioFilename", c."audioMime", c."siteRef", c."timestamp", STRING_AGG(CAST(COALESCE(cpt."talkgroupRef", 0) AS text), ','), sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary", c."parsedAddress" FROM "calls" AS c LEFT JOIN "callPatches" AS cp on cp."callId" = c."callId" LEFT JOIN "talkgroups" AS cpt ON cpt."talkgroupId" = cp."talkgroupId" LEFT JOIN "systems" AS sy ON sy."systemId" = c."systemId" LEFT JOIN "talkgroups" AS t ON t."talkgroupId" = c."talkgroupId" WHERE c."callId" = %d GROUP BY c."callId", c."audio", c."audioFilename", c."audioMime", c."siteRef", c."timestamp", sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary", c."parsedAddress"`, id)
 
 	} else {
-		query = fmt.Sprintf(`SELECT c."audio", c."audioFilename", c."audioMime", c."siteRef", c."timestamp", GROUP_CONCAT(COALESCE(cpt."talkgroupRef", 0)), sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary" FROM "calls" AS c LEFT JOIN "callPatches" AS cp on cp."callId" = c."callId" LEFT JOIN "talkgroups" AS cpt ON cpt."talkgroupId" = cp."talkgroupId" LEFT JOIN "systems" AS sy ON sy."systemId" = c."systemId" LEFT JOIN "talkgroups" AS t ON t."talkgroupId" = c."talkgroupId" WHERE c."callId" = %d GROUP BY c."callId", c."audio", c."audioFilename", c."audioMime", c."siteRef", c."timestamp", sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary"`, id)
+		query = fmt.Sprintf(`SELECT c."audio", c."audioFilename", c."audioMime", c."siteRef", c."timestamp", GROUP_CONCAT(COALESCE(cpt."talkgroupRef", 0)), sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary", c."parsedAddress" FROM "calls" AS c LEFT JOIN "callPatches" AS cp on cp."callId" = c."callId" LEFT JOIN "talkgroups" AS cpt ON cpt."talkgroupId" = cp."talkgroupId" LEFT JOIN "systems" AS sy ON sy."systemId" = c."systemId" LEFT JOIN "talkgroups" AS t ON t."talkgroupId" = c."talkgroupId" WHERE c."callId" = %d GROUP BY c."callId", c."audio", c."audioFilename", c."audioMime", c."siteRef", c."timestamp", sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary", c."parsedAddress"`, id)
 	}
 
 	var toneSequenceJson sql.NullString
@@ -534,8 +542,9 @@ func (calls *Calls) GetCall(id uint64) (*Call, error) {
 	var transcriptConfidence sql.NullFloat64
 	var transcriptionStatus sql.NullString
 	var alertSummary sql.NullString
+	var parsedAddressJson sql.NullString
 
-	if err = tx.QueryRow(query).Scan(&call.Audio, &call.AudioFilename, &call.AudioMime, &call.SiteRef, &timestamp, &patch, &systemId, &talkgroupId, &frequency, &toneSequenceJson, &call.HasTones, &transcript, &transcriptConfidence, &transcriptionStatus, &alertSummary); err != nil && err != sql.ErrNoRows {
+	if err = tx.QueryRow(query).Scan(&call.Audio, &call.AudioFilename, &call.AudioMime, &call.SiteRef, &timestamp, &patch, &systemId, &talkgroupId, &frequency, &toneSequenceJson, &call.HasTones, &transcript, &transcriptConfidence, &transcriptionStatus, &alertSummary, &parsedAddressJson); err != nil && err != sql.ErrNoRows {
 		tx.Rollback()
 		return nil, formatError(err, query)
 	}
@@ -572,6 +581,12 @@ func (calls *Calls) GetCall(id uint64) (*Call, error) {
 	}
 	if alertSummary.Valid {
 		call.AlertSummary = alertSummary.String
+	}
+	if parsedAddressJson.Valid && parsedAddressJson.String != "" {
+		var addr models.ParsedAddress
+		if json.Unmarshal([]byte(parsedAddressJson.String), &addr) == nil {
+			call.ParsedAddr = &addr
+		}
 	}
 
 	if len(patch) > 0 {
@@ -668,9 +683,9 @@ func (calls *Calls) GetCallsBulk(ids []uint64) []*Call {
 	// for every row in the aggregation).
 	var metaQuery string
 	if calls.controller.Database.Config.DbType == DbTypePostgresql {
-		metaQuery = `SELECT c."callId", c."timestamp", STRING_AGG(CAST(COALESCE(cpt."talkgroupRef", 0) AS text), ','), sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary" FROM "calls" AS c LEFT JOIN "callPatches" AS cp ON cp."callId" = c."callId" LEFT JOIN "talkgroups" AS cpt ON cpt."talkgroupId" = cp."talkgroupId" LEFT JOIN "systems" AS sy ON sy."systemId" = c."systemId" LEFT JOIN "talkgroups" AS t ON t."talkgroupId" = c."talkgroupId" WHERE c."callId" IN (` + inClause + `) GROUP BY c."callId", c."timestamp", sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary" ORDER BY c."timestamp" ASC`
+		metaQuery = `SELECT c."callId", c."timestamp", STRING_AGG(CAST(COALESCE(cpt."talkgroupRef", 0) AS text), ','), sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary", c."parsedAddress" FROM "calls" AS c LEFT JOIN "callPatches" AS cp ON cp."callId" = c."callId" LEFT JOIN "talkgroups" AS cpt ON cpt."talkgroupId" = cp."talkgroupId" LEFT JOIN "systems" AS sy ON sy."systemId" = c."systemId" LEFT JOIN "talkgroups" AS t ON t."talkgroupId" = c."talkgroupId" WHERE c."callId" IN (` + inClause + `) GROUP BY c."callId", c."timestamp", sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary", c."parsedAddress" ORDER BY c."timestamp" ASC`
 	} else {
-		metaQuery = `SELECT c."callId", c."timestamp", GROUP_CONCAT(COALESCE(cpt."talkgroupRef", 0)), sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary" FROM "calls" AS c LEFT JOIN "callPatches" AS cp ON cp."callId" = c."callId" LEFT JOIN "talkgroups" AS cpt ON cpt."talkgroupId" = cp."talkgroupId" LEFT JOIN "systems" AS sy ON sy."systemId" = c."systemId" LEFT JOIN "talkgroups" AS t ON t."talkgroupId" = c."talkgroupId" WHERE c."callId" IN (` + inClause + `) GROUP BY c."callId" ORDER BY c."timestamp" ASC`
+		metaQuery = `SELECT c."callId", c."timestamp", GROUP_CONCAT(COALESCE(cpt."talkgroupRef", 0)), sy."systemId", t."talkgroupId", c."frequency", c."toneSequence", c."hasTones", c."transcript", c."transcriptConfidence", c."transcriptionStatus", c."alertSummary", c."parsedAddress" FROM "calls" AS c LEFT JOIN "callPatches" AS cp ON cp."callId" = c."callId" LEFT JOIN "talkgroups" AS cpt ON cpt."talkgroupId" = cp."talkgroupId" LEFT JOIN "systems" AS sy ON sy."systemId" = c."systemId" LEFT JOIN "talkgroups" AS t ON t."talkgroupId" = c."talkgroupId" WHERE c."callId" IN (` + inClause + `) GROUP BY c."callId" ORDER BY c."timestamp" ASC`
 	}
 
 	metaRows, err := calls.controller.Database.Sql.Query(metaQuery)
@@ -688,11 +703,11 @@ func (calls *Calls) GetCallsBulk(ids []uint64) []*Call {
 		var systemId, talkgroupId uint64
 		var timestamp int64
 		var frequency sql.NullInt64
-		var toneSeqJson, transcript, transcriptionStatus, alertSummary sql.NullString
+		var toneSeqJson, transcript, transcriptionStatus, alertSummary, parsedAddrJson sql.NullString
 		var transcriptConfidence sql.NullFloat64
 		var hasTones bool
 
-		if err = metaRows.Scan(&id, &timestamp, &patch, &systemId, &talkgroupId, &frequency, &toneSeqJson, &hasTones, &transcript, &transcriptConfidence, &transcriptionStatus, &alertSummary); err != nil {
+		if err = metaRows.Scan(&id, &timestamp, &patch, &systemId, &talkgroupId, &frequency, &toneSeqJson, &hasTones, &transcript, &transcriptConfidence, &transcriptionStatus, &alertSummary, &parsedAddrJson); err != nil {
 			continue
 		}
 
@@ -723,6 +738,12 @@ func (calls *Calls) GetCallsBulk(ids []uint64) []*Call {
 		}
 		if alertSummary.Valid {
 			call.AlertSummary = alertSummary.String
+		}
+		if parsedAddrJson.Valid && parsedAddrJson.String != "" {
+			var addr models.ParsedAddress
+			if json.Unmarshal([]byte(parsedAddrJson.String), &addr) == nil {
+				call.ParsedAddr = &addr
+			}
 		}
 		if len(patch) > 0 {
 			for _, s := range strings.Split(patch, ",") {
