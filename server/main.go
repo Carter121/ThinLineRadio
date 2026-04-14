@@ -377,6 +377,8 @@ func main() {
 
 	http.HandleFunc("/api/admin/purge", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.PurgeHandler)).ServeHTTP)
 
+	http.HandleFunc("/api/admin/backfill-addresses", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.BackfillAddressesHandler)).ServeHTTP)
+
 	http.HandleFunc("/api/admin/password", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.PasswordHandler)).ServeHTTP)
 
 	http.HandleFunc("/api/admin/users", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.UsersListHandler)).ServeHTTP)

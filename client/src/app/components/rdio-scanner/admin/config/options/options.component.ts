@@ -61,6 +61,11 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     centralConnectionMessage: string = '';
     showExternalAPIKey: boolean = false;
 
+    // Address backfill
+    backfillingAddresses = false;
+    backfillResult: string | null = null;
+    backfillError = false;
+
     constructor(
         private snackBar: MatSnackBar,
         private dialog: MatDialog,
@@ -957,6 +962,29 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
                 this.snackBar.open('Connection test failed', 'Close', { duration: 5000 });
             }
         });
+    }
+
+    backfillAddresses(): void {
+        const token = sessionStorage.getItem('rdio-scanner-admin-token');
+        if (!token) return;
+
+        this.backfillingAddresses = true;
+        this.backfillResult = null;
+        this.backfillError = false;
+
+        const headers = new HttpHeaders({ Authorization: token, 'Content-Type': 'application/json' });
+        this.http.post(`${window.location.origin}/api/admin/backfill-addresses`, {}, { headers })
+            .subscribe({
+                next: (res: any) => {
+                    this.backfillingAddresses = false;
+                    this.backfillResult = `Done: ${res.processed} calls processed, ${res.geocoded} geocoded.`;
+                },
+                error: (err) => {
+                    this.backfillingAddresses = false;
+                    this.backfillError = true;
+                    this.backfillResult = err?.error?.error || 'Backfill failed.';
+                }
+            });
     }
 
     // Helper methods for array handling in templates

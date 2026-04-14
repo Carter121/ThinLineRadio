@@ -1330,6 +1330,18 @@
         <mat-form-field floatLabel="auto">
           <input type="text" matInput formControlName="nominatimUrl" placeholder="http://localhost:8088" autocomplete="off">
         </mat-form-field>
+        <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <button mat-raised-button color="accent" type="button"
+                  (click)="backfillAddresses()"
+                  [disabled]="backfillingAddresses || !form?.get('nominatimUrl')?.value">
+            <mat-icon *ngIf="!backfillingAddresses">travel_explore</mat-icon>
+            <mat-spinner *ngIf="backfillingAddresses" diameter="18" style="display:inline-block;"></mat-spinner>
+            <span style="margin-left: 8px;">{{ backfillingAddresses ? 'Backfilling...' : 'Backfill Past Addresses' }}</span>
+          </button>
+          <span *ngIf="backfillResult" [style.color]="backfillError ? '#f44336' : '#4caf50'" class="mat-caption">
+            {{ backfillResult }}
+          </span>
+        </div>
       </div>
 
     </div>
