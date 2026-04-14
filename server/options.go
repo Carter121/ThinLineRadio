@@ -87,6 +87,7 @@ type Options struct {
 	TranscriptionConfig           TranscriptionConfig `json:"transcriptionConfig"`
 	TranscriptionEnhancement      bool                `json:"transcriptionEnhancement"`
 	TranscriptionFailureThreshold uint                `json:"transcriptionFailureThreshold"`
+	TranscriptParserConfig        TranscriptConfig    `json:"transcriptParserConfig"`
 	ToneDetectionIssueThreshold   uint                `json:"toneDetectionIssueThreshold"`
 	AlertRetentionDays            uint                `json:"alertRetentionDays"`
 	NoAudioThresholdMinutes       uint                `json:"noAudioThresholdMinutes"`
@@ -1391,6 +1392,11 @@ func (options *Options) Read(db *Database) error {
 			if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
 				options.TranscriptionConfig = cfg
 			}
+		case "transcriptParserConfig":
+			var cfg TranscriptConfig
+			if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
+				options.TranscriptParserConfig = cfg
+			}
 		case "transcriptionEnhancement":
 			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
 				switch v := f.(type) {
@@ -1783,6 +1789,7 @@ func (options *Options) Write(db *Database) error {
 	// Persist entire transcription config as a single JSON blob
 	set("transcriptionConfig", options.TranscriptionConfig)
 	set("transcriptionEnhancement", options.TranscriptionEnhancement)
+	set("transcriptParserConfig", options.TranscriptParserConfig)
 
 	if setErr != nil {
 		tx.Rollback()

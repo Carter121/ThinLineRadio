@@ -6201,3 +6201,45 @@ func (api *Api) TestPagerAlertHandler(w http.ResponseWriter, r *http.Request) {
 		"tokensSent":     len(tokens),
 	})
 }
+
+// TranscriptParserHandler handles GET and PUT for the transcript parser config.
+//
+// GET  /api/admin/transcript-parser — returns the current TranscriptConfig as JSON.
+// PUT  /api/admin/transcript-parser — replaces the config, rebuilds the active parser.
+func (admin *Admin) TranscriptParserHandler(w http.ResponseWriter, r *http.Request) {
+	t := admin.GetAuthorization(r)
+	if !admin.ValidateToken(t) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		json.NewEncoder(w).Encode(admin.Controller.Options.TranscriptParserConfig)
+
+	case http.MethodPut:
+		var cfg TranscriptConfig
+		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+			return
+		}
+
+		admin.Controller.Options.TranscriptParserConfig = cfg
+
+		if err := admin.Controller.Options.Write(admin.Controller.Database); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to save config: %v", err)})
+			return
+		}
+
+		admin.Controller.rebuildTranscriptParser()
+
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}

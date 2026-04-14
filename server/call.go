@@ -173,9 +173,17 @@ func (call *Call) MarshalJSON() ([]byte, error) {
 	}
 
 	if call.Transcript != "" {
-		callMap["transcript"] = call.Transcript
+		transcript := call.Transcript
 		callMap["transcriptConfidence"] = call.TranscriptConfidence
 		callMap["transcriptionStatus"] = call.TranscriptionStatus
+		if p := activeTranscriptParser.Load(); p != nil {
+			corrected, annotations := p.AnnotateTranscript(call.Transcript)
+			transcript = corrected
+			if len(annotations) > 0 {
+				callMap["transcriptAnnotations"] = annotations
+			}
+		}
+		callMap["transcript"] = transcript
 	}
 	if call.AlertSummary != "" {
 		callMap["alertSummary"] = call.AlertSummary
@@ -301,9 +309,17 @@ func (call *Call) MarshalJSONWithEncryption(key []byte) ([]byte, error) {
 		callMap["toneSequence"] = call.ToneSequence
 	}
 	if call.Transcript != "" {
-		callMap["transcript"] = call.Transcript
+		transcript := call.Transcript
 		callMap["transcriptConfidence"] = call.TranscriptConfidence
 		callMap["transcriptionStatus"] = call.TranscriptionStatus
+		if p := activeTranscriptParser.Load(); p != nil {
+			corrected, annotations := p.AnnotateTranscript(call.Transcript)
+			transcript = corrected
+			if len(annotations) > 0 {
+				callMap["transcriptAnnotations"] = annotations
+			}
+		}
+		callMap["transcript"] = transcript
 	}
 	if call.AlertSummary != "" {
 		callMap["alertSummary"] = call.AlertSummary

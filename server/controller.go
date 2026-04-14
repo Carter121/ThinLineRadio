@@ -3055,6 +3055,9 @@ func (controller *Controller) Start() error {
 		controller.Logs.LogEvent(LogLevelInfo, "transcription is disabled in config")
 	}
 
+	// Build the transcript parser from saved config (no-op if config is empty)
+	controller.rebuildTranscriptParser()
+
 	// Initialize Hydra transcription retrieval queue if enabled
 	if controller.Options.HydraTranscriptionEnabled && controller.Options.HydraAPIKey != "" {
 		controller.HydraTranscriptionRetrievalQueue = NewHydraTranscriptionRetrievalQueue(controller)
@@ -3176,6 +3179,13 @@ func (controller *Controller) Start() error {
 	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: server ready in %s", time.Since(startupStart).Round(time.Millisecond)))
 
 	return nil
+}
+
+// rebuildTranscriptParser compiles a new TranscriptParser from the current
+// Options.TranscriptParserConfig and stores it as the active parser.
+func (controller *Controller) rebuildTranscriptParser() {
+	p := NewTranscriptParser(controller.Options.TranscriptParserConfig)
+	activeTranscriptParser.Store(p)
 }
 
 // RestartTranscriptionQueue restarts the transcription queue with updated settings

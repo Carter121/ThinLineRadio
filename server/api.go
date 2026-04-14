@@ -2837,8 +2837,16 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 			if talkgroupName.Valid {
 				alertMap["talkgroupName"] = talkgroupName.String
 			}
-			if callTranscript.Valid {
-				alertMap["transcript"] = callTranscript.String
+			if callTranscript.Valid && callTranscript.String != "" {
+				t := callTranscript.String
+				if p := activeTranscriptParser.Load(); p != nil {
+					corrected, annotations := p.AnnotateTranscript(t)
+					t = corrected
+					if len(annotations) > 0 {
+						alertMap["transcriptAnnotations"] = annotations
+					}
+				}
+				alertMap["transcript"] = t
 			}
 			if callTranscriptionStatus.Valid {
 				alertMap["transcriptionStatus"] = callTranscriptionStatus.String
@@ -3306,8 +3314,18 @@ func (api *Api) TranscriptsHandler(w http.ResponseWriter, r *http.Request) {
 			"callId":              callId,
 			"systemId":            sysId,
 			"talkgroupId":         tgId,
-			"transcript":          transcript.String,
 			"transcriptionStatus": transcriptionStatus.String,
+		}
+		if transcript.Valid && transcript.String != "" {
+			t := transcript.String
+			if p := activeTranscriptParser.Load(); p != nil {
+				corrected, annotations := p.AnnotateTranscript(t)
+				t = corrected
+				if len(annotations) > 0 {
+					entry["transcriptAnnotations"] = annotations
+				}
+			}
+			entry["transcript"] = t
 		}
 		if callTimestamp.Valid {
 			entry["timestamp"] = callTimestamp.Int64
