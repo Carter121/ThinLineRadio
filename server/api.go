@@ -2671,6 +2671,15 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Fetch all alerts (no pagination - client will display in scrollable view)
+		// Use a reasonable maximum (10000), or the limit parameter, to avoid memory issues
+		var maxAlerts = uint(10000)
+		if limit := r.URL.Query().Get("limit"); limit != "" {
+			if v, err := strconv.ParseUint(limit, 10, 64); err == nil {
+				maxAlerts = uint(v)
+			}
+		}
+
 		// Get user's alert preferences from cache
 		type userPref struct {
 			systemId       uint64
@@ -2700,10 +2709,6 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				keywordListIds: cachePref.KeywordListIds,
 			}
 		}
-
-		// Fetch all alerts (no pagination - client will display in scrollable view)
-		// Use a reasonable maximum (10000) to avoid memory issues
-		maxAlerts := uint(10000)
 
 		// Query alerts with optional since filter
 		// If sinceTimestamp > 0, only fetch alerts created at or after that timestamp

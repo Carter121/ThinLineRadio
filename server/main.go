@@ -436,7 +436,7 @@ func main() {
 	userLoginHandler := LoginAttemptMiddleware(controller.LoginAttemptTracker)(
 		recoveryMiddleware(http.HandlerFunc(controller.Api.UserLoginHandler)),
 	)
-	http.HandleFunc("/api/user/login", securityHeadersWrapper(rateLimitWrapper(userLoginHandler)).ServeHTTP)
+	http.HandleFunc("/api/user/login", wrapHandler(rateLimitWrapper(userLoginHandler)).ServeHTTP)
 	http.HandleFunc("/api/public-registration-info", wrapHandler(http.HandlerFunc(controller.Api.PublicRegistrationInfoHandler)).ServeHTTP)
 	http.HandleFunc("/api/public-registration-channels", wrapHandler(http.HandlerFunc(controller.Api.PublicRegistrationChannelsHandler)).ServeHTTP)
 	http.HandleFunc("/api/registration-settings", wrapHandler(http.HandlerFunc(controller.Api.RegistrationSettingsHandler)).ServeHTTP)
