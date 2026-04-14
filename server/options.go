@@ -88,6 +88,7 @@ type Options struct {
 	TranscriptionEnhancement      bool                `json:"transcriptionEnhancement"`
 	TranscriptionFailureThreshold uint                `json:"transcriptionFailureThreshold"`
 	TranscriptParserConfig        TranscriptConfig    `json:"transcriptParserConfig"`
+	NominatimURL                  string              `json:"nominatimUrl"`
 	ToneDetectionIssueThreshold   uint                `json:"toneDetectionIssueThreshold"`
 	AlertRetentionDays            uint                `json:"alertRetentionDays"`
 	NoAudioThresholdMinutes       uint                `json:"noAudioThresholdMinutes"`
@@ -845,6 +846,10 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		options.TranscriptionEnhancement = v
 	}
 
+	if v, ok := m["nominatimUrl"].(string); ok {
+		options.NominatimURL = v
+	}
+
 	// Transcription: allow flat toggle and nested config from admin UI
 	if v, ok := m["transcriptionEnabled"].(bool); ok {
 		options.TranscriptionConfig.Enabled = v
@@ -1407,6 +1412,13 @@ func (options *Options) Read(db *Database) error {
 					options.BaseUrl = v
 				}
 			}
+		case "nominatimUrl":
+			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
+				switch v := f.(type) {
+				case string:
+					options.NominatimURL = v
+				}
+			}
 		case "transcriptionConfig":
 			var cfg TranscriptionConfig
 			if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
@@ -1810,6 +1822,7 @@ func (options *Options) Write(db *Database) error {
 	set("transcriptionConfig", options.TranscriptionConfig)
 	set("transcriptionEnhancement", options.TranscriptionEnhancement)
 	set("transcriptParserConfig", options.TranscriptParserConfig)
+	set("nominatimUrl", options.NominatimURL)
 
 	if setErr != nil {
 		tx.Rollback()

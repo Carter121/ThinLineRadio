@@ -1317,6 +1317,21 @@
 
       </ng-container>
 
+      <!-- Address Parsing / Geocoding -->
+      <div class="row" style="margin-top: 24px;">
+        <p>
+          <span class="mat-body">Nominatim Geocoding URL</span><br>
+          <span class="mat-caption">
+            Optional URL of a Nominatim geocoding server (e.g., <code>http://localhost:8088</code>).
+            When set, addresses extracted from transcripts will be geocoded and stored with the call.
+            Leave blank to disable geocoding (address parsing still runs without coordinates).
+          </span>
+        </p>
+        <mat-form-field floatLabel="auto">
+          <input type="text" matInput formControlName="nominatimUrl" placeholder="http://localhost:8088" autocomplete="off">
+        </mat-form-field>
+      </div>
+
     </div>
   </mat-expansion-panel>
 

@@ -408,6 +408,11 @@ func (db *Database) migrate() error {
 		return formatError(err, "")
 	}
 
+	// Add parsedAddress JSON column for address extraction results
+	if err := migrateCallsParsedAddress(db); err != nil {
+		return formatError(err, "")
+	}
+
 	return nil
 }
 

@@ -2690,3 +2690,18 @@ func migrateCallsAudioHash(db *Database) error {
 	}
 	return nil
 }
+
+// migrateCallsParsedAddress adds a parsedAddress JSON column to calls and
+// transcriptions tables for storing address extraction results.
+func migrateCallsParsedAddress(db *Database) error {
+	qs := []string{
+		`ALTER TABLE "calls" ADD COLUMN IF NOT EXISTS "parsedAddress" text NOT NULL DEFAULT ''`,
+		`ALTER TABLE "transcriptions" ADD COLUMN IF NOT EXISTS "parsedAddress" text NOT NULL DEFAULT ''`,
+	}
+	for _, q := range qs {
+		if _, err := db.Sql.Exec(q); err != nil {
+			return fmt.Errorf("migrateCallsParsedAddress: %w", err)
+		}
+	}
+	return nil
+}

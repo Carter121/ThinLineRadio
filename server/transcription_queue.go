@@ -16,7 +16,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"rdio-scanner/server/internal/address"
+	"rdio-scanner/server/internal/models"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,13 +41,14 @@ type TranscriptionJob struct {
 
 // TranscriptionQueue manages transcription jobs with a worker pool
 type TranscriptionQueue struct {
-	jobs           chan TranscriptionJob
-	workers        int
-	provider       TranscriptionProvider
-	controller     *Controller
-	mutex          sync.Mutex
-	running        bool
-	processedCount atomic.Uint64 // total transcriptions completed since startup
+	jobs            chan TranscriptionJob
+	workers         int
+	provider        TranscriptionProvider
+	controller      *Controller
+	nominatimClient *address.NominatimClient
+	mutex           sync.Mutex
+	running         bool
+	processedCount  atomic.Uint64 // total transcriptions completed since startup
 }
 
 // NewTranscriptionQueue creates a new transcription queue with worker pool
@@ -64,6 +68,12 @@ func NewTranscriptionQueue(controller *Controller, config TranscriptionConfig) *
 		workers:    workerCount,
 		controller: controller,
 		running:    true,
+	}
+
+	// Initialize Nominatim client for address geocoding if configured
+	if nominatimURL := controller.Options.NominatimURL; nominatimURL != "" {
+		queue.nominatimClient = address.NewNominatimClient(nominatimURL)
+		controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("address geocoding enabled via Nominatim at %s", nominatimURL))
 	}
 
 	// Initialize provider based on config
@@ -459,20 +469,50 @@ func (queue *TranscriptionQueue) storeTranscription(callId uint64, result *Trans
 		return
 	}
 
-	// Update call table (and optional alert summary when provided by Whisper server)
+	// Parse address from transcript and optionally geocode via Nominatim
 	transcript := strings.ToUpper(result.Transcript) // Ensure ALL CAPS
+	parsedAddr := queue.parseAddress(transcript)
+
+	parsedAddressJSON := ""
+	if parsedAddr != nil {
+		if b, err := json.Marshal(parsedAddr); err == nil {
+			parsedAddressJSON = string(b)
+		} else {
+			queue.controller.Logs.LogEvent(LogLevelError, fmt.Sprintf("failed to marshal parsed address for call %d: %v", callId, err))
+		}
+	}
+
+	// Update call table (and optional alert summary when provided by Whisper server)
 	if queue.controller.Database.Config.DbType == DbTypePostgresql {
-		query := `UPDATE "calls" SET "transcript" = $1, "transcriptConfidence" = $2, "transcriptionStatus" = 'completed', "alertSummary" = $4 WHERE "callId" = $3`
-		if _, err := queue.controller.Database.Sql.Exec(query, transcript, result.Confidence, callId, result.AlertSummary); err != nil {
+		query := `UPDATE "calls" SET "transcript" = $1, "transcriptConfidence" = $2, "transcriptionStatus" = 'completed', "alertSummary" = $4, "parsedAddress" = $5 WHERE "callId" = $3`
+		if _, err := queue.controller.Database.Sql.Exec(query, transcript, result.Confidence, callId, result.AlertSummary, parsedAddressJSON); err != nil {
 			queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to update call transcript: %v", err))
 		}
 	}
 
 	// Store detailed transcription (optional, for history)
-	insertQuery := `INSERT INTO "transcriptions" ("callId", "transcript", "confidence", "language", "createdAt") VALUES ($1, $2, $3, $4, $5)`
-	if _, err := queue.controller.Database.Sql.Exec(insertQuery, callId, transcript, result.Confidence, result.Language, time.Now().UnixMilli()); err != nil {
+	insertQuery := `INSERT INTO "transcriptions" ("callId", "transcript", "confidence", "language", "parsedAddress", "createdAt") VALUES ($1, $2, $3, $4, $5, $6)`
+	if _, err := queue.controller.Database.Sql.Exec(insertQuery, callId, transcript, result.Confidence, result.Language, parsedAddressJSON, time.Now().UnixMilli()); err != nil {
 		queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to insert transcription record: %v", err))
 	}
+}
+
+// parseAddress extracts and optionally geocodes an address from a transcript
+func (queue *TranscriptionQueue) parseAddress(transcript string) *models.ParsedAddress {
+	parsedAddr := address.ParseAddress(transcript)
+	if parsedAddr == nil {
+		return nil
+	}
+
+	if queue.nominatimClient != nil {
+		if match, err := queue.nominatimClient.Lookup(parsedAddr); err == nil {
+			parsedAddr.Match = match
+		} else {
+			queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("nominatim lookup failed: %v", err))
+		}
+	}
+
+	return parsedAddr
 }
 
 // processKeywords processes keywords after transcription completes

@@ -368,6 +368,8 @@ export interface Options {
     centralManagementAPIKey?: string;
     centralManagementServerName?: string;
     centralManagementServerID?: string;
+    // Address parsing / geocoding
+    nominatimUrl?: string;
 }
 
 export interface ToneImportResponse {
@@ -1379,6 +1381,7 @@ export class RdioScannerAdminService implements OnDestroy {
             centralManagementAPIKey: this.ngFormBuilder.control(options?.centralManagementAPIKey || ''),
             centralManagementServerName: this.ngFormBuilder.control(options?.centralManagementServerName || ''),
             centralManagementServerID: this.ngFormBuilder.control(options?.centralManagementServerID || ''),
+            nominatimUrl: this.ngFormBuilder.control(options?.nominatimUrl || ''),
         });
     }
 
