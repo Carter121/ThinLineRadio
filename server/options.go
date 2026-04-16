@@ -152,10 +152,14 @@ type Options struct {
 	// Hydra transcription integration (provisioned from Central Management)
 	HydraAPIKey               string `json:"hydraAPIKey"`               // Hydra API key for transcription retrieval
 	HydraTranscriptionEnabled bool   `json:"hydraTranscriptionEnabled"` // Per-server toggle for Hydra transcription
-	adminPassword             string
-	adminPasswordNeedChange   bool
-	mutex                     sync.Mutex
-	secret                    string
+	// Web Push (VAPID) for PWA notifications — loaded from env vars only, not stored in DB.
+	VapidPublicKey          string `json:"-"`
+	VapidPrivateKey         string `json:"-"`
+	VapidSubject            string `json:"-"` // e.g. "mailto:carter@cartercarling.com"
+	adminPassword           string
+	adminPasswordNeedChange bool
+	mutex                   sync.Mutex
+	secret                  string
 }
 
 // TranscriptionConfig contains configuration for transcription

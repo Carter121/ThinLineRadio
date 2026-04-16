@@ -413,6 +413,11 @@ func (db *Database) migrate() error {
 		return formatError(err, "")
 	}
 
+	// Create webPushSubscriptions table for PWA Web Push (VAPID) delivery
+	if err := migrateWebPushSubscriptions(db); err != nil {
+		return formatError(err, "")
+	}
+
 	return nil
 }
 

@@ -433,6 +433,9 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 		// Process keywords if needed - use cleaned transcript
 		go queue.processKeywords(job.CallId, job.SystemId, job.TalkgroupId, cleanedResult)
 
+		// Send Web Push notification if transcript contains a battalion unit
+		go queue.controller.sendWebPushIfBattalion(call, cleanedTranscript)
+
 		duration := time.Since(startTime)
 		count := queue.processedCount.Add(1)
 		queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(

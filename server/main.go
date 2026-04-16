@@ -575,6 +575,11 @@ func main() {
 	http.HandleFunc("/api/account/password", wrapHandler(http.HandlerFunc(controller.Api.AccountUpdatePasswordHandler)).ServeHTTP)
 	http.HandleFunc("/api/billing/portal", wrapHandler(http.HandlerFunc(controller.Api.BillingPortalSessionHandler)).ServeHTTP)
 
+	// Web Push (VAPID) routes for PWA notifications
+	http.HandleFunc("/api/webpush/vapid-public-key", wrapHandler(corsMiddleware(http.HandlerFunc(controller.WebPushApi.VapidPublicKeyHandler))).ServeHTTP)
+	http.HandleFunc("/api/webpush/subscribe", wrapHandler(corsMiddleware(http.HandlerFunc(controller.WebPushApi.SubscribeHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/webpush/test", wrapHandler(controller.Admin.requireLocalhost(controller.WebPushApi.TestWebPushHandler)).ServeHTTP)
+
 	// Log that routes have been registered
 	log.Printf("All HTTP routes registered successfully")
 

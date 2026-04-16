@@ -62,6 +62,8 @@ type Controller struct {
 	RegistrationCodes                *RegistrationCodes
 	TransferRequests                 *TransferRequests
 	DeviceTokens                     *DeviceTokens
+	WebPushSubscriptions             *WebPushSubscriptions
+	WebPushApi                       *WebPushApi
 	EmailService                     *EmailService
 	ToneDetector                     *ToneDetector
 	TranscriptionQueue               *TranscriptionQueue
@@ -179,6 +181,7 @@ func NewController(config *Config) *Controller {
 	controller.RegistrationCodes = NewRegistrationCodes()
 	controller.TransferRequests = NewTransferRequests()
 	controller.DeviceTokens = NewDeviceTokens()
+	controller.WebPushSubscriptions = NewWebPushSubscriptions()
 	controller.EmailService = NewEmailService(controller)
 	controller.CentralManagement = NewCentralManagementService(controller)
 	controller.Delayer = NewDelayer(controller)
@@ -3278,7 +3281,7 @@ func (controller *Controller) readAllData() error {
 		}
 	}
 
-	wg.Add(16)
+	wg.Add(17)
 	go readFunc(func() error { return controller.Apikeys.Read(controller.Database) }, "apikeys")
 	go readFunc(func() error { return controller.Dirwatches.Read(controller.Database) }, "dirwatches")
 	go readFunc(func() error { return controller.Downstreams.Read(controller.Database) }, "downstreams")
@@ -3293,6 +3296,7 @@ func (controller *Controller) readAllData() error {
 	go readFunc(func() error { return controller.RegistrationCodes.Load(controller.Database) }, "registrationCodes")
 	go readFunc(func() error { return controller.TransferRequests.Load(controller.Database) }, "transferRequests")
 	go readFunc(func() error { return controller.DeviceTokens.Load(controller.Database) }, "deviceTokens")
+	go readFunc(func() error { return controller.WebPushSubscriptions.Load(controller.Database) }, "webPushSubscriptions")
 
 	// Load performance caches
 	go readFunc(func() error { return controller.PreferencesCache.Read(controller.Database) }, "preferencesCache")
@@ -3313,6 +3317,12 @@ func (controller *Controller) readAllData() error {
 
 	// Check for duplicate emails and log them
 	controller.checkDuplicateEmails()
+
+	// Load VAPID keys from environment (not stored in DB — set in .env or system env)
+	controller.Options.VapidPublicKey = os.Getenv("VAPID_PUBLIC_KEY")
+	controller.Options.VapidPrivateKey = os.Getenv("VAPID_PRIVATE_KEY")
+	controller.Options.VapidSubject = os.Getenv("VAPID_SUBJECT")
+	controller.WebPushApi = NewWebPushApi(controller)
 
 	// Update reconnection manager settings from options
 	if controller.ReconnectionMgr != nil {
