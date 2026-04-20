@@ -43,7 +43,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     private originalRadioReferencePassword = '';
     faviconUrl: string = '';
     window = window;
-    
+
     // Expansion panel state - all collapsed by default
     generalExpanded = false;
     brandingExpanded = false;
@@ -55,11 +55,25 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     stripeExpanded = false;
     integrationsExpanded = false;
     securityExpanded = false;
-    
+
     // Central Management Integration
     centralConnectionStatus: 'success' | 'error' | null = null;
     centralConnectionMessage: string = '';
     showExternalAPIKey: boolean = false;
+
+    /** Populated from GET /api/admin/relay-suspension when relay has fully suspended this scanner. */
+    relaySuspensionStatus: {
+        fully_suspended: boolean;
+        suspend_message?: string;
+        relay_owner_unlocked_public?: boolean;
+        public_listener_blocked?: boolean;
+        push_notifications_blocked?: boolean;
+    } | null = null;
+
+    get relaySuspensionBannerVisible(): boolean {
+        const s = this.relaySuspensionStatus;
+        return !!s && s.fully_suspended === true && s.push_notifications_blocked === true;
+    }
 
     // Address backfill
     backfillingAddresses = false;
@@ -117,6 +131,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
     ngAfterViewInit(): void {
         setTimeout(() => {
             this.panelsReady = true;
+            this.refreshRelaySuspensionStatus();
             this.cdr.detectChanges();
         }, 80);
     }
@@ -175,10 +190,10 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
                     usernameControl.clearValidators();
                     passwordControl.clearValidators();
                 }
-                
+
                 usernameControl.updateValueAndValidity();
                 passwordControl.updateValueAndValidity();
-                
+
                 // Force form to detect changes
                 if (this.form) {
                     this.form.markAsDirty();
@@ -222,7 +237,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
                 usernameControl.clearValidators();
                 passwordControl.clearValidators();
             }
-            
+
             usernameControl.updateValueAndValidity();
             passwordControl.updateValueAndValidity();
         }
@@ -230,7 +245,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
 
     private storeOriginalCredentials(): void {
         if (!this.form) return;
-        
+
         // Store the current values as original values
         this.originalRadioReferenceUsername = this.form.get('radioReferenceUsername')?.value || '';
         this.originalRadioReferencePassword = this.form.get('radioReferencePassword')?.value || '';
@@ -238,13 +253,13 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
 
     editRadioReferenceLogin(): void {
         if (!this.form) return;
-        
+
         // Store current values as original before editing
         this.storeOriginalCredentials();
-        
+
         // Enter edit mode
         this.isEditingRadioReference = true;
-        
+
         // Keep the username but clear the password for editing
         this.form.get('radioReferencePassword')?.setValue('');
         this.form.markAsDirty();
@@ -252,24 +267,24 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
 
     cancelEditRadioReference(): void {
         if (!this.form) return;
-        
+
         // Restore the original username and password values
         this.form.get('radioReferenceUsername')?.setValue(this.originalRadioReferenceUsername);
         this.form.get('radioReferencePassword')?.setValue(this.originalRadioReferencePassword);
-        
+
         // Exit edit mode
         this.isEditingRadioReference = false;
-        
+
         // Mark form as pristine since we've restored original values
         this.form.markAsPristine();
     }
 
     removeRadioReferenceAccount(): void {
         if (!this.form) return;
-        
+
         // Exit edit mode if we were editing
         this.isEditingRadioReference = false;
-        
+
         // Clear credentials and disable Radio Reference
         this.form.get('radioReferenceEnabled')?.setValue(false);
         this.form.get('radioReferenceUsername')?.setValue('');
@@ -285,7 +300,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
 
     private setHardcodedRelayServerURL(): void {
         if (!this.form) return;
-        
+
         const relayServerURLControl = this.form.get('relayServerURL');
         if (relayServerURLControl) {
             relayServerURLControl.setValue('https://tlradioserver.thinlineds.com', { emitEvent: false });
@@ -385,7 +400,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         // Use hardcoded relay server URL
         const relayServerURL = 'https://tlradioserver.thinlineds.com';
         const existingAPIKey = this.form.get('relayServerAPIKey')?.value;
-        
+
         // Ensure the form control has the hardcoded value
         const relayServerURLControl = this.form.get('relayServerURL');
         if (relayServerURLControl) {
@@ -443,7 +458,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         const input = event.target as HTMLInputElement;
         if (input.files && input.files.length > 0) {
             const file = input.files[0];
-            
+
             // Validate file size (max 2MB)
             if (file.size > 2 * 1024 * 1024) {
                 alert('File is too large. Maximum size is 2MB.');
@@ -582,7 +597,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
         const input = event.target as HTMLInputElement;
         if (input.files && input.files.length > 0) {
             const file = input.files[0];
-            
+
             if (!file.type.match(/^image\/(png|jpeg|jpg|svg\+xml)$/)) {
                 alert('Please select a PNG, JPG, or SVG image file.');
                 return;
@@ -609,7 +624,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
                 let width = img.width;
                 let height = img.height;
                 const maxSize = 300;
-                
+
                 if (width > maxSize || height > maxSize) {
                     if (width > height) {
                         height = (height / width) * maxSize;
@@ -783,8 +798,8 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             'Content-Type': 'application/json'
         });
 
-        this.http.post(`${window.location.origin}/api/admin/email-test`, 
-            { toEmail: this.testEmailAddress.trim() }, 
+        this.http.post(`${window.location.origin}/api/admin/email-test`,
+            { toEmail: this.testEmailAddress.trim() },
             { headers })
             .subscribe({
                 next: (response: any) => {
@@ -802,7 +817,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
                     this.sendingTestEmail = false;
                     console.error('Test email error:', error);
                     let errorMsg = 'Failed to send test email.';
-                    
+
                     if (error.error) {
                         if (typeof error.error === 'string') {
                             errorMsg = error.error;
@@ -814,7 +829,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
                     } else if (error.message) {
                         errorMsg = error.message;
                     }
-                    
+
                     if (errorMsg === 'Failed to send test email.') {
                         if (error.status === 0) {
                             errorMsg = 'Connection error. Please check your network connection.';
@@ -824,7 +839,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
                             errorMsg = 'Server error occurred. Check server logs for details.';
                         }
                     }
-                    
+
                     this.testEmailError = errorMsg;
                     this.testEmailSuccess = '';
                     this.cdr.detectChanges();
@@ -854,7 +869,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             // Create an image element to load the logo
             const img = new Image();
             img.crossOrigin = 'anonymous';
-            
+
             await new Promise<void>((resolve, reject) => {
                 img.onload = () => resolve();
                 img.onerror = () => reject(new Error('Failed to load server logo'));
@@ -866,14 +881,14 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             canvas.width = 32;
             canvas.height = 32;
             const ctx = canvas.getContext('2d');
-            
+
             if (!ctx) {
                 throw new Error('Failed to create canvas context');
             }
 
             // Get the border radius setting
             const borderRadius = this.form?.get('emailLogoBorderRadius')?.value || '0px';
-            
+
             // Parse border radius (handle px, %, or unitless numbers)
             let radius = 0;
             if (borderRadius.includes('%')) {
@@ -891,7 +906,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             // Apply border radius clipping if set
             if (radius > 0) {
                 ctx.beginPath();
-                
+
                 // Create rounded rectangle path
                 const x = 0, y = 0, width = 32, height = 32;
                 ctx.moveTo(x + radius, y);
@@ -904,7 +919,7 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
                 ctx.lineTo(x, y + radius);
                 ctx.quadraticCurveTo(x, y, x + radius, y);
                 ctx.closePath();
-                
+
                 ctx.clip();
             }
 
@@ -930,6 +945,61 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             console.error('Error generating favicon:', error);
             this.snackBar.open('Failed to generate favicon. Please try uploading manually.', 'Close', { duration: 5000 });
         }
+    }
+
+    refreshRelaySuspensionStatus(): void {
+        const token = sessionStorage.getItem('rdio-scanner-admin-token');
+        if (!token) {
+            return;
+        }
+        const headers = new HttpHeaders({ Authorization: token });
+        this.http
+            .get<{
+                fully_suspended: boolean;
+                suspend_message?: string;
+                relay_owner_unlocked_public?: boolean;
+                public_listener_blocked?: boolean;
+                push_notifications_blocked?: boolean;
+            }>(`${window.location.origin}/api/admin/relay-suspension`, { headers })
+            .subscribe({
+                next: (s) => {
+                    this.relaySuspensionStatus = s;
+                    this.cdr.markForCheck();
+                },
+                error: () => {
+                    this.relaySuspensionStatus = null;
+                    this.cdr.markForCheck();
+                },
+            });
+    }
+
+    unlockPublicWebListener(): void {
+        const token = sessionStorage.getItem('rdio-scanner-admin-token');
+        if (!token) {
+            this.snackBar.open('Not authenticated.', 'Close', { duration: 4000 });
+            return;
+        }
+        const headers = new HttpHeaders({ Authorization: token });
+        this.http
+            .post<{ success: boolean; error?: string }>(
+                `${window.location.origin}/api/admin/relay-unlock-public-client`,
+                {},
+                { headers },
+            )
+            .subscribe({
+                next: (res) => {
+                    if (res?.success) {
+                        this.snackBar.open('Public web listener unlocked.', 'Close', { duration: 5000 });
+                        this.refreshRelaySuspensionStatus();
+                    } else {
+                        this.snackBar.open(res?.error || 'Unlock failed', 'Close', { duration: 6000 });
+                    }
+                },
+                error: (err) => {
+                    const msg = err?.error?.error || err?.message || 'Unlock failed';
+                    this.snackBar.open(msg, 'Close', { duration: 6000 });
+                },
+            });
     }
 
     testCentralConnection(): void {

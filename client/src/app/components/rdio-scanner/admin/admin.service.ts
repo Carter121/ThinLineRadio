@@ -25,6 +25,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { firstValueFrom, timer, timeout, Observable, race } from 'rxjs';
 import { AppUpdateService } from '../../../shared/update/update.service';
 import { RdioScannerToneSet } from '../rdio-scanner';
+import type { TranscriptConfig } from './config/transcript-parser/transcript-parser.types';
 
 /** Align duplicate-detection ms values with admin form validators (min 100 / 1000). */
 function normalizedDuplicateTimestampWindowMs(value: unknown): number {
@@ -368,6 +369,8 @@ export interface Options {
     centralManagementAPIKey?: string;
     centralManagementServerName?: string;
     centralManagementServerID?: string;
+    /** Word lists for transcript unit/channel parsing (full admin config includes this). */
+    transcriptParserConfig?: TranscriptConfig;
     // Address parsing / geocoding
     nominatimUrl?: string;
 }
@@ -997,7 +1000,7 @@ export class RdioScannerAdminService implements OnDestroy {
                 window.location.href = `${currentUrl}?seconds=${error.error.retryAfter}`;
                 return false;
             }
-            
+
             this.errorHandler(error);
 
             return false;
@@ -1074,7 +1077,7 @@ export class RdioScannerAdminService implements OnDestroy {
             if (isFullImport) {
                 headers = headers.set('X-Full-Import', 'true');
             }
-            
+
             const res = await firstValueFrom(this.ngHttpClient.put<{ config: Config }>(
                 this.getUrl(url.config),
                 config,
@@ -1094,7 +1097,7 @@ export class RdioScannerAdminService implements OnDestroy {
         try {
             await firstValueFrom(this.ngHttpClient.post(
                 this.getUrl(url.systemNoAudioSettings),
-                { 
+                {
                     systemId,
                     noAudioAlertsEnabled,
                     noAudioThresholdMinutes
@@ -1259,7 +1262,7 @@ export class RdioScannerAdminService implements OnDestroy {
             assemblyAISpeechModel: '',
             assemblyAIWordBoost: [],
         };
-        
+
 		return this.ngFormBuilder.group({
 		audioConversion: this.ngFormBuilder.control(options?.audioConversion),
 		autoPopulate: this.ngFormBuilder.control(options?.autoPopulate),
@@ -1286,9 +1289,9 @@ export class RdioScannerAdminService implements OnDestroy {
             sortTalkgroups: this.ngFormBuilder.control(options?.sortTalkgroups),
             time12hFormat: this.ngFormBuilder.control(options?.time12hFormat),
             radioReferenceEnabled: this.ngFormBuilder.control(options?.radioReferenceEnabled),
-            radioReferenceUsername: this.ngFormBuilder.control(options?.radioReferenceUsername, 
+            radioReferenceUsername: this.ngFormBuilder.control(options?.radioReferenceUsername,
                 options?.radioReferenceEnabled ? [Validators.required] : []),
-            radioReferencePassword: this.ngFormBuilder.control(options?.radioReferencePassword, 
+            radioReferencePassword: this.ngFormBuilder.control(options?.radioReferencePassword,
                 options?.radioReferenceEnabled ? [Validators.required] : []),
             radioReferenceAPIKey: this.ngFormBuilder.control(options?.radioReferenceAPIKey || ''),
             userRegistrationEnabled: this.ngFormBuilder.control(options?.userRegistrationEnabled),
@@ -1457,7 +1460,7 @@ export class RdioScannerAdminService implements OnDestroy {
                 toneSetsArray.push(toneSetForm as any);
             });
         }
-        
+
         return this.ngFormBuilder.group({
             id: this.ngFormBuilder.control(talkgroup?.id),
             alert: this.ngFormBuilder.control(talkgroup?.alert),
@@ -1605,7 +1608,7 @@ export class RdioScannerAdminService implements OnDestroy {
         // FORCE REBUILD - URL duplication fix
         // Get the base URL without the current path
         const baseUrl = window.location.origin;
-        
+
         // Construct the final URL
         let finalUrl;
         if (path.startsWith('/api/admin')) {
@@ -1615,13 +1618,13 @@ export class RdioScannerAdminService implements OnDestroy {
         } else {
             finalUrl = `${baseUrl}/api/admin/${path}`;
         }
-        
+
         // Add timestamp to force cache refresh
         const timestamp = Date.now();
         // Check if the URL already has query parameters
         const separator = finalUrl.includes('?') ? '&' : '?';
         finalUrl = `${finalUrl}${separator}_t=${timestamp}`;
-        
+
         return finalUrl;
     }
 
@@ -1791,7 +1794,7 @@ export class RdioScannerAdminService implements OnDestroy {
                 // If tags array doesn't exist yet, allow any value
                 return null;
             }
-            
+
             const tags = tagsFormArray.value || [];
             const tagIds = tags.map((tag: Tag) => tag.id).filter((id: number | undefined) => id !== undefined && id !== null);
 
@@ -1918,24 +1921,24 @@ export class RdioScannerAdminService implements OnDestroy {
 
 	async importRadioReferenceData(systemID: number, importType: string, categoryID?: number, categoryName?: string): Promise<any> {
 		try {
-			const payload: any = { 
-				systemID, 
-				importType, 
+			const payload: any = {
+				systemID,
+				importType,
 				destinationType: 'system',
 				loadAll: true  // Use non-streaming mode (streaming has flusher compatibility issues)
 			};
-			
+
 			if (categoryID && categoryName) {
 				payload.categoryID = categoryID;
 				payload.categoryName = categoryName;
 			}
-			
+
 			// Use a much longer timeout for large imports (15 minutes)
 			const res = await firstValueFrom(this.ngHttpClient.post<any>(
 				this.getUrl('/radioreference/import'),
 				payload,
-				{ 
-					headers: this.getHeaders(), 
+				{
+					headers: this.getHeaders(),
 					responseType: 'json'
 				},
 			).pipe(
@@ -2115,14 +2118,14 @@ export class RdioScannerAdminService implements OnDestroy {
   async getAllGroups(): Promise<any> {
     try {
       const url = this.getUrl('/groups');
-      
+
       const response = await firstValueFrom(
         this.ngHttpClient.get<any>(
           url,
           { headers: this.getHeaders(), responseType: 'json' }
         ).pipe(timeout(10000))
       );
-      
+
       // The backend returns { groups: [...] }, so extract groups array
       if (response && response.groups) {
         return response.groups;

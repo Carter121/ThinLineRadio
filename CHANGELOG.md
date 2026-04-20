@@ -1,5 +1,51 @@
 # Change log
 
+## Version 26.04.037 - Released Apr 15, 2026
+
+### Changed
+
+- **Server — Arrival-time-only duplicate detection**
+  - Duplicate detection now uses server arrival time (`receivedAt`) exclusively — PCM content hash and P25 radio timestamp checks have been removed
+  - Two-pass approach: in-memory cache check first (catches simultaneous uploads before either is written to the database), then database check (catches near-simultaneous uploads within 1 second)
+  - Duplicate calls are dropped immediately — no database write, no downstream delivery, no transcription, no tone detection
+
+- **Server — Downstream forwarding loop prevention**
+  - Calls forwarded to a downstream TLR server are tagged with a `tlrForwarded=1` form field in the multipart upload
+  - Receiving servers honour this tag: the call is saved and emitted to local clients but is never re-forwarded, preventing circular call loops between two servers that downstream to each other
+  - The forwarded tag travels in the call's form data (not an HTTP header) so it survives proxy forwarding
+
+- **Server — Background purge of legacy duplicate rows on startup**
+  - Any `isDuplicate = true` rows left in the database from before duplicates were dropped at ingest are deleted in small batches (100 rows, 250 ms pause) by a background goroutine at startup
+
+---
+
+## Version 26.04.036 - Released Apr 17, 2026
+
+### Changed
+
+- **Admin — Transcript Parser configuration loads with the main config**
+  - Hydrates from `options.transcriptParserConfig` already returned on the initial admin load instead of a separate `GET /api/admin/transcript-parser`, so the panel opens immediately like other configuration sections
+
+### Fixed
+
+- **Server — Interactive setup wizard on Windows (and when `psql` is not on PATH)**
+  - Choosing local database setup (`1`) no longer exits the process with `Setup failed: PostgreSQL not installed` when only the `psql` CLI is missing; the wizard uses the Go driver and does not require `psql`
+  - Clearer choice text between local wizard (create DB/user) vs remote credentials; Windows-specific PATH guidance
+  - Password prompts use `os.Stdin` for `term.ReadPassword` (correct console handle)
+
+---
+
+## Version 26.04.035 - Released Apr 15, 2026
+
+### New Features
+
+- **Configurable transcript parser with unit and dispatch-channel annotations** — contributed by [Carter (@Carter121)](https://github.com/Carter121) ([#181](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/pull/181))
+  - **Server:** `TranscriptConfig` (word lists, aliases, corrections, reject list), fuzzy matching (Levenshtein), `AnnotateTranscript` with corrections and canonical substitutions, Unicode rune offsets for clients; `GET`/`PUT` `/api/admin/transcript-parser`; `transcriptAnnotations` on call, alert, and transcript API payloads
+  - **Admin:** Transcript Parser configuration screen (lists, aliases, inline docs)
+  - **Client:** shared `transcript-utils` / `renderAnnotatedTranscript()`; highlighted spans for units and dispatch channels in now-playing, call detail, alerts, and transcripts views
+
+---
+
 ## Version 26.04.034 - Released Apr 15, 2026
 
 ### Changed
