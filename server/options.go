@@ -78,16 +78,16 @@ type Options struct {
 	EmailLogoFilename     string `json:"emailLogoFilename"`     // Filename of logo file (stored in base directory)
 	EmailLogoBorderRadius string `json:"emailLogoBorderRadius"` // Border radius for email logo (e.g., "0px", "8px", "50%")
 	// Favicon settings
-	FaviconFilename               string              `json:"faviconFilename"` // Filename of favicon file (stored in base directory)
-	StripePublishableKey          string              `json:"stripePublishableKey"`
-	StripeSecretKey               string              `json:"stripeSecretKey"`
-	StripeWebhookSecret           string              `json:"stripeWebhookSecret"`
-	StripeGracePeriodDays         uint                `json:"stripeGracePeriodDays"`
-	StripePriceId                 string              `json:"stripePriceId"`
-	BaseUrl                       string              `json:"baseUrl"`
+	FaviconFilename       string `json:"faviconFilename"` // Filename of favicon file (stored in base directory)
+	StripePublishableKey  string `json:"stripePublishableKey"`
+	StripeSecretKey       string `json:"stripeSecretKey"`
+	StripeWebhookSecret   string `json:"stripeWebhookSecret"`
+	StripeGracePeriodDays uint   `json:"stripeGracePeriodDays"`
+	StripePriceId         string `json:"stripePriceId"`
+	BaseUrl               string `json:"baseUrl"`
 	// Optional overrides for mobile app store links (shown on post-verify welcome, emails, etc.)
-	IOSAppStoreURL     string `json:"iosAppStoreUrl"`
-	AndroidPlayStoreURL string `json:"androidPlayStoreUrl"`
+	IOSAppStoreURL                string              `json:"iosAppStoreUrl"`
+	AndroidPlayStoreURL           string              `json:"androidPlayStoreUrl"`
 	TranscriptionConfig           TranscriptionConfig `json:"transcriptionConfig"`
 	TranscriptionEnhancement      bool                `json:"transcriptionEnhancement"`
 	TranscriptionFailureThreshold uint                `json:"transcriptionFailureThreshold"`
@@ -162,9 +162,13 @@ type Options struct {
 	HydraAPIKey               string `json:"hydraAPIKey"`               // Hydra API key for transcription retrieval
 	HydraTranscriptionEnabled bool   `json:"hydraTranscriptionEnabled"` // Per-server toggle for Hydra transcription
 	// Web Push (VAPID) for PWA notifications — loaded from env vars only, not stored in DB.
-	VapidPublicKey          string `json:"-"`
-	VapidPrivateKey         string `json:"-"`
-	VapidSubject            string `json:"-"` // e.g. "mailto:carter@cartercarling.com"
+	VapidPublicKey  string `json:"-"`
+	VapidPrivateKey string `json:"-"`
+	VapidSubject    string `json:"-"` // e.g. "mailto:carter@cartercarling.com"
+	// ntfy push notifications — loaded from env vars only, not stored in DB.
+	NtfyServer              string `json:"-"`
+	NtfyTopic               string `json:"-"`
+	NtfyToken               string `json:"-"`
 	adminPassword           string
 	adminPasswordNeedChange bool
 	mutex                   sync.Mutex
@@ -1933,7 +1937,7 @@ func (options *Options) WriteKey(db *Database, key string, val any, setInMemory 
 }
 
 const (
-	defaultIOSAppStoreURL     = "https://apps.apple.com/us/app/ohiorsn/id6740734031"
+	defaultIOSAppStoreURL      = "https://apps.apple.com/us/app/ohiorsn/id6740734031"
 	defaultAndroidPlayStoreURL = "https://play.google.com/store/apps/details?id=com.thinlinedynamicsolutions.ohiorsn"
 )
 

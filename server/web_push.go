@@ -383,16 +383,32 @@ func hasBattalionUnit(parser *TranscriptParser, transcript string) bool {
 }
 
 // sendWebPushIfBattalion checks whether the transcript contains a battalion
-// unit and, if so, sends a Web Push notification to all registered browsers.
+// unit and, if so, sends a Web Push notification to all registered browsers
+// and an ntfy notification (if configured).
 // Called as a goroutine from the transcription queue after transcription.
 func (controller *Controller) sendWebPushIfBattalion(call *Call, transcript string) {
-	if controller.Options.VapidPublicKey == "" || controller.Options.VapidPrivateKey == "" {
-		return // Web Push not configured
-	}
-
 	parser := activeTranscriptParser.Load()
 	if !hasBattalionUnit(parser, transcript) {
 		return
+	}
+
+	// Build title from parsed battalion units
+	battalionTitle := ""
+	if parser != nil {
+		units := parser.ParseUnits(strings.ToUpper(transcript))
+		var names []string
+		for _, u := range units {
+			if u.Apparatus == "BATTALION" {
+				name := u.Apparatus
+				if u.Number != "" {
+					name += " " + u.Number
+				}
+				names = append(names, name)
+			}
+		}
+		if len(names) > 0 {
+			battalionTitle = strings.Join(names, ", ")
+		}
 	}
 
 	// Build title from system / talkgroup labels
@@ -403,6 +419,22 @@ func (controller *Controller) sendWebPushIfBattalion(call *Call, transcript stri
 			strings.ToUpper(call.Talkgroup.Label))
 	}
 
+	body := strings.ToUpper(transcript)
+
+	// Send ntfy notification
+	if controller.Options.NtfyTopic != "" {
+		ntfyTitle := battalionTitle
+		if ntfyTitle == "" {
+			ntfyTitle = title
+		}
+		go controller.sendNtfy(ntfyTitle, body, 3, []string{"fire_engine"})
+	}
+
+	// Send Web Push notifications
+	if controller.Options.VapidPublicKey == "" || controller.Options.VapidPrivateKey == "" {
+		return
+	}
+
 	subs := controller.WebPushSubscriptions.GetAll()
 	if len(subs) == 0 {
 		return
@@ -411,7 +443,7 @@ func (controller *Controller) sendWebPushIfBattalion(call *Call, transcript stri
 	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("web push: battalion detected — sending to %d subscriber(s)", len(subs)))
 
 	for _, sub := range subs {
-		go controller.sendWebPush(sub, title, strings.ToUpper(transcript))
+		go controller.sendWebPush(sub, title, body)
 	}
 }
 
