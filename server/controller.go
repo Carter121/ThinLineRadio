@@ -549,34 +549,33 @@ func (controller *Controller) IngestCall(call *Call) {
 
 			system.Talkgroups.List = append(system.Talkgroups.List, talkgroup)
 		}
+	}
 
-		// Handle units (v6 style)
-		// Always populate Units from Meta.UnitRefs if Units is empty
-		// This ensures source information is available when emitting calls
-		// Include all unitRefs, even 0, to match v6 behavior
-		if len(call.Units) == 0 && len(call.Meta.UnitRefs) > 0 {
-			for _, unitRef := range call.Meta.UnitRefs {
-				call.Units = append(call.Units, CallUnit{
-					UnitRef: unitRef,
-					Offset:  0,
-				})
-			}
+	// Populate call.Units from Meta.UnitRefs when empty (for processing / emit before WriteCall).
+	if len(call.Units) == 0 && len(call.Meta.UnitRefs) > 0 {
+		for _, unitRef := range call.Meta.UnitRefs {
+			call.Units = append(call.Units, CallUnit{
+				UnitRef: unitRef,
+				Offset:  0,
+			})
 		}
+	}
 
-		if system != nil {
-			units := NewUnits()
-			if len(call.Meta.UnitRefs) > 0 {
-				for i, unitRef := range call.Meta.UnitRefs {
-					if len(call.Meta.UnitLabels)-1 >= i {
-						if len(call.Meta.UnitLabels[i]) > 0 {
-							units.Add(unitRef, call.Meta.UnitLabels[i])
-						}
+	// Merge heard units into system config when per-system autoPopulateUnits is enabled
+	// (independent of talkgroup/system auto-populate).
+	if system != nil && system.AutoPopulateUnits {
+		units := NewUnits()
+		if len(call.Meta.UnitRefs) > 0 {
+			for i, unitRef := range call.Meta.UnitRefs {
+				if len(call.Meta.UnitLabels)-1 >= i {
+					if len(call.Meta.UnitLabels[i]) > 0 {
+						units.Add(unitRef, call.Meta.UnitLabels[i])
 					}
 				}
 			}
-			if ok := system.Units.Merge(units); ok {
-				populated = true
-			}
+		}
+		if ok := system.Units.Merge(units); ok {
+			populated = true
 		}
 	}
 
@@ -3056,6 +3055,13 @@ func (controller *Controller) Start() error {
 		return err
 	}
 	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: database load completed in %s", time.Since(dbReadStart).Round(time.Millisecond)))
+
+	controller.Users.SetRelayListenerEmailSyncCallbacks(
+		controller.relayListenerEmailAdded,
+		controller.relayListenerEmailRemoved,
+		controller.relayListenerEmailChanged,
+	)
+	go controller.maybeBootstrapRelayListenerEmails()
 
 	// Fetch Radio Reference API key from relay server if not already stored.
 	// Run in background — the server does not need this key to start accepting calls.
