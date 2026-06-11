@@ -103,6 +103,14 @@ func NewTranscriptionQueue(controller *Controller, config TranscriptionConfig) *
 		queue.provider = NewAssemblyAITranscription(&AssemblyAIConfig{
 			APIKey: config.AssemblyAIKey,
 		})
+	case "cloudflare":
+		// Cloudflare Workers AI Whisper
+		queue.provider = NewCloudflareTranscription(&CloudflareConfig{
+			AccountID:      config.CloudflareAccountID,
+			APIToken:       config.CloudflareAPIToken,
+			Model:          config.CloudflareModel,
+			TimeoutSeconds: config.TimeoutSeconds,
+		})
 	case "hydra":
 		// Hydra transcription uses a separate retrieval queue, not the transcription queue
 		// This provider case should not be used, but we handle it gracefully
@@ -328,32 +336,40 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 				call.Transcript = cleanedTranscript
 				call.TranscriptionStatus = "completed"
 
-				// Check if this call has actual voice (not just tones being transcribed)
-				hasVoice := queue.controller.isActualVoice(cleanedTranscript)
+				// Tone attach uses a lenient check (short dispatch); keywords keep isActualVoice.
+				hasVoiceForTones := queue.controller.isVoiceForToneAlerts(cleanedTranscript)
+				hasVoiceForKeywords := queue.controller.isActualVoice(cleanedTranscript)
+
+				if hasVoiceForTones && !hasVoiceForKeywords {
+					queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
+						"call %d: short dispatch transcript accepted for tone alerts (%d words, %d chars)",
+						job.CallId, len(strings.Fields(strings.TrimSpace(cleanedTranscript))), len(strings.TrimSpace(cleanedTranscript)),
+					))
+				}
 
 				// Track this phrase for hallucination detection (if enabled)
 				// Track with the original transcript before cleaning to catch hallucinations
 				if call.System != nil && queue.controller.HallucinationDetector != nil {
-					queue.controller.HallucinationDetector.TrackPhrase(result.Transcript, hasVoice, call.System.Id)
+					queue.controller.HallucinationDetector.TrackPhrase(result.Transcript, hasVoiceForKeywords, call.System.Id)
 				}
 
 				// Debug log voice check result with call ID - ONLY for tone-enabled talkgroups
 				if queue.controller.DebugLogger != nil && call.Talkgroup != nil && call.Talkgroup.ToneDetectionEnabled {
-					logMsg := "Transcription completed - voice detected"
+					logMsg := "Transcription completed - voice detected for tone alerts"
 					if hadHallucinations {
 						logMsg += " (after cleaning hallucinations)"
 					}
 
-					if hasVoice {
+					if hasVoiceForTones {
 						queue.controller.DebugLogger.LogVoiceDetection(job.CallId, cleanedTranscript, true, logMsg)
 						// Save audio file labeled as voice
 						go queue.controller.DebugLogger.SaveAudioFile(job.CallId, job.Audio, job.AudioMime, "voice")
 					} else {
-						queue.controller.DebugLogger.LogVoiceDetection(job.CallId, cleanedTranscript, false, "Transcription completed - rejected as not voice")
+						queue.controller.DebugLogger.LogVoiceDetection(job.CallId, cleanedTranscript, false, "Transcription completed - rejected as not voice for tone alerts")
 					}
 				}
 
-				if hasVoice {
+				if hasVoiceForTones {
 					// Reload call from DB to get latest HasTones state
 					// (may have been updated by tone detection earlier)
 					dbCall, err := queue.controller.Calls.GetCall(job.CallId)
@@ -363,21 +379,35 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 						call.TranscriptionStatus = "completed"
 					}
 
-					// Check for pending tones from previous tone-only calls (from other calls)
-					attachedPending := queue.controller.checkAndAttachPendingTones(call)
+					if call.Talkgroup != nil && call.Talkgroup.AlertingTalkgroup {
+						go queue.controller.AlertEngine.TriggerTranscriptAlerts(call)
+					} else {
+						// Check for pending tones from previous tone-only calls (from other calls)
+						attachedPending := queue.controller.checkAndAttachPendingTones(call)
 
-					if attachedPending {
-						// Pending tones from a different call were attached - trigger tone alerts
-						go queue.controller.AlertEngine.TriggerToneAlerts(call)
-					} else if call.HasTones {
-						// This call has its own tones (from this same call or already attached)
-						// Trigger alert for this voice call with tones
-						go queue.controller.AlertEngine.TriggerToneAlerts(call)
+						if attachedPending {
+							go queue.controller.AlertEngine.TriggerToneAlerts(call)
+						} else if call.HasTones {
+							go queue.controller.AlertEngine.TriggerToneAlerts(call)
+						}
 					}
 				} else {
-					// No voice - if this call has tones, they should have been stored as pending earlier
-					// No alert needed for tone-only calls
+					// No voice on this clip — matched tones are stored as pending; DB alerts fire when a
+					// later voice call attaches them or when the orphan timer fires (~60s).
 					queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("transcription completed for call %d: no voice detected (tone-only), no alert created", job.CallId))
+
+					if dbCall, err := queue.controller.Calls.GetCall(job.CallId); err == nil && dbCall != nil && dbCall.HasTones {
+						matched := 0
+						if dbCall.ToneSequence != nil {
+							matched = len(dbCall.ToneSequence.MatchedToneSets)
+							if matched == 0 && dbCall.ToneSequence.MatchedToneSet != nil {
+								matched = 1
+							}
+						}
+						if matched > 0 {
+							queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d tone-only with %d matched tone set(s) on talkgroup %d — pending until voice or orphan alert", job.CallId, matched, call.Talkgroup.TalkgroupRef))
+						}
+					}
 				}
 
 				// UNLOCK PENDING TONES: Transcription is complete, allow new tones to merge
@@ -387,15 +417,14 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 					queue.controller.pendingTonesMutex.Lock()
 					if pending, exists := queue.controller.pendingTones[key]; exists && pending != nil && pending.Locked {
 						pending.Locked = false
-						queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("transcription worker %d: unlocked pending tones for talkgroup %d (call %d transcription complete, hasVoice=%t)", workerId, call.Talkgroup.TalkgroupRef, job.CallId, hasVoice))
+						queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("transcription worker %d: unlocked pending tones for talkgroup %d (call %d transcription complete, hasVoiceForTones=%t)", workerId, call.Talkgroup.TalkgroupRef, job.CallId, hasVoiceForTones))
 
 						// If there are "next pending" tones that arrived during the lock, merge them now
 						nextKey := key + ":next"
 						if nextPending, nextExists := queue.controller.pendingTones[nextKey]; nextExists && nextPending != nil {
 							queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("merging next pending tones into current pending for talkgroup %d (lock cleared after call %d)", call.Talkgroup.TalkgroupRef, job.CallId))
 
-							// Merge next pending tone sequences into current pending
-							pending.ToneSequence = queue.controller.mergePendingTones(pending.ToneSequence, nextPending.ToneSequence)
+							queue.controller.mergeNextPendingIntoCurrent(key, pending, nextPending)
 
 							// Clear next pending slot
 							delete(queue.controller.pendingTones, nextKey)
@@ -418,8 +447,7 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 						if nextPending, nextExists := queue.controller.pendingTones[nextKey]; nextExists && nextPending != nil {
 							queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("merging next pending tones into current pending for system:talkgroup %d:%d (lock cleared after call %d, fallback)", jobSystemId, jobTalkgroupId, job.CallId))
 
-							// Merge next pending tone sequences into current pending
-							pending.ToneSequence = queue.controller.mergePendingTones(pending.ToneSequence, nextPending.ToneSequence)
+							queue.controller.mergeNextPendingIntoCurrent(key, pending, nextPending)
 
 							// Clear next pending slot
 							delete(queue.controller.pendingTones, nextKey)
@@ -435,6 +463,34 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 
 		// Send Web Push notification if transcript contains a battalion unit
 		go queue.controller.sendWebPushIfBattalion(call, cleanedTranscript)
+
+		// Auto-learn tone sets (observe patterns, auto-add or log after N voiced calls)
+		go func() {
+			if postCall != nil {
+				call := postCall
+				call.Transcript = cleanedTranscript
+				queue.controller.processToneAutoLearn(call, cleanedTranscript)
+				return
+			}
+			if dbCall, err := queue.controller.Calls.GetCall(job.CallId); err == nil && dbCall != nil {
+				dbCall.Transcript = cleanedTranscript
+				queue.controller.processToneAutoLearn(dbCall, cleanedTranscript)
+			}
+		}()
+
+		// Auto-learn unit aliases (radio unitRef → human label)
+		go func() {
+			if postCall != nil {
+				call := postCall
+				call.Transcript = cleanedTranscript
+				queue.controller.processUnitAutoLearn(call, cleanedTranscript)
+				return
+			}
+			if dbCall, err := queue.controller.Calls.GetCall(job.CallId); err == nil && dbCall != nil {
+				dbCall.Transcript = cleanedTranscript
+				queue.controller.processUnitAutoLearn(dbCall, cleanedTranscript)
+			}
+		}()
 
 		duration := time.Since(startTime)
 		count := queue.processedCount.Add(1)
@@ -524,6 +580,13 @@ func (queue *TranscriptionQueue) processKeywords(callId uint64, systemId uint64,
 	if result == nil || result.Transcript == "" {
 		queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("keyword processing skipped for call %d: no transcript", callId))
 		return
+	}
+
+	if system, ok := queue.controller.Systems.GetSystemById(systemId); ok {
+		if talkgroup, _ := system.Talkgroups.GetTalkgroupById(talkgroupId); talkgroup != nil && talkgroup.AlertingTalkgroup {
+			queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("keyword processing skipped for call %d: alerting talkgroup", callId))
+			return
+		}
 	}
 
 	// Skip keyword processing if transcript is tone-only (no actual voice)
@@ -715,7 +778,22 @@ func (queue *TranscriptionQueue) processKeywords(callId uint64, systemId uint64,
 					queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to get call %d for push notification: %v", callId, err))
 					call = nil // Continue without call object
 				}
-				go queue.controller.sendBatchedPushNotification(eligibleUserIds, "keyword", call, systemLabel, talkgroupLabel, "", keywordsMatched)
+				cooldownTgId := talkgroupId
+				if call != nil && queue.controller.AlertEngine != nil {
+					cooldownTgId = queue.controller.AlertEngine.cooldownTalkgroupId(call)
+				}
+				if queue.controller.AlertEngine != nil && queue.controller.AlertEngine.isToneAlertCooldownActive(cooldownTgId) {
+					secs := queue.controller.AlertEngine.getAlertCooldownSeconds(cooldownTgId)
+					queue.controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf(
+						"keyword alert cooldown active for talkgroup %d (cooldown=%ds) — skipping keyword push for call %d",
+						cooldownTgId, secs, callId,
+					))
+				} else {
+					go queue.controller.sendBatchedPushNotification(eligibleUserIds, "keyword", call, systemLabel, talkgroupLabel, "", keywordsMatched)
+					if queue.controller.AlertEngine != nil {
+						queue.controller.AlertEngine.recordToneAlertCooldown(cooldownTgId)
+					}
+				}
 			}
 
 			// Log users who will get tone alerts instead

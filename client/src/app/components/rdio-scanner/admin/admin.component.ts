@@ -31,7 +31,7 @@ export interface SearchResult {
     keywords: string;
     breadcrumb: string;
     icon: string;
-    tab: number;          // 0=Config, 1=Logs, 2=SystemHealth, 3=Tools
+    tab: number;          // 0=Config, 1=Logs, 2=SystemHealth, 3=Tools, 4=Assistant
     configSection?: string;
     optionPanel?: string;
     toolSection?: string;
@@ -53,7 +53,8 @@ const SETTINGS_INDEX: SearchResult[] = [
     { label: 'Favicon', keywords: 'favicon icon browser tab logo generate', breadcrumb: 'Config → Options → Branding', icon: 'web', tab: 0, configSection: 'options', optionPanel: 'brandingExpanded' },
     // ── Transcription ─────────────────────────────────────────────────────────
     { label: 'Transcription', keywords: 'transcription enable provider whisper deepgram openai', breadcrumb: 'Config → Options → Transcription', icon: 'transcribe', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
-    { label: 'Transcription Provider', keywords: 'whisper deepgram openai provider api', breadcrumb: 'Config → Options → Transcription', icon: 'smart_toy', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
+    { label: 'Transcription Provider', keywords: 'whisper deepgram openai cloudflare workers ai provider api', breadcrumb: 'Config → Options → Transcription', icon: 'smart_toy', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
+    { label: 'Cloudflare Workers AI', keywords: 'cloudflare workers ai whisper account id api token transcription', breadcrumb: 'Config → Options → Transcription', icon: 'cloud', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
     { label: 'Transcription Language', keywords: 'language locale transcription', breadcrumb: 'Config → Options → Transcription', icon: 'language', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
     { label: 'Worker Pool Size', keywords: 'worker pool threads concurrent transcription', breadcrumb: 'Config → Options → Transcription', icon: 'memory', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
     { label: 'Hallucination Detection', keywords: 'hallucination detect filter transcription', breadcrumb: 'Config → Options → Transcription', icon: 'psychology', tab: 0, configSection: 'options', optionPanel: 'transcriptionExpanded' },
@@ -75,6 +76,7 @@ const SETTINGS_INDEX: SearchResult[] = [
     { label: 'Email Verification', keywords: 'email verification required signup verify', breadcrumb: 'Config → Options → User Registration', icon: 'mark_email_read', tab: 0, configSection: 'options', optionPanel: 'userRegistrationExpanded' },
     { label: 'Cloudflare Turnstile', keywords: 'turnstile cloudflare captcha site key secret', breadcrumb: 'Config → Options → User Registration', icon: 'security', tab: 0, configSection: 'options', optionPanel: 'userRegistrationExpanded' },
     { label: 'Invitation Codes', keywords: 'invitation invite code access registration', breadcrumb: 'Config → Options → User Registration', icon: 'card_giftcard', tab: 0, configSection: 'options', optionPanel: 'userRegistrationExpanded' },
+    { label: 'Leave Central Management', keywords: 'central management leave unlink removal code disconnect hub', breadcrumb: 'Config → Options → User Registration', icon: 'link_off', tab: 0, configSection: 'options', optionPanel: 'userRegistrationExpanded' },
     // ── Stripe ────────────────────────────────────────────────────────────────
     { label: 'Stripe Paywall', keywords: 'stripe paywall enable payments billing', breadcrumb: 'Config → Options → Stripe', icon: 'payment', tab: 0, configSection: 'options', optionPanel: 'stripeExpanded' },
     { label: 'Stripe Publishable Key', keywords: 'stripe publishable key pk live test', breadcrumb: 'Config → Options → Stripe', icon: 'vpn_key', tab: 0, configSection: 'options', optionPanel: 'stripeExpanded' },
@@ -102,7 +104,6 @@ const SETTINGS_INDEX: SearchResult[] = [
     { label: 'Groups', keywords: 'groups talkgroup organize category', breadcrumb: 'Config → Groups', icon: 'folder', tab: 0, configSection: 'groups' },
     { label: 'Tags', keywords: 'tags labels talkgroup filter', breadcrumb: 'Config → Tags', icon: 'label', tab: 0, configSection: 'tags' },
     { label: 'Keyword Lists', keywords: 'keyword list alert word filter transcription', breadcrumb: 'Config → Keyword Lists', icon: 'list', tab: 0, configSection: 'keyword-lists' },
-    { label: 'User Registration Settings', keywords: 'user registration options config', breadcrumb: 'Config → User Registration', icon: 'how_to_reg', tab: 0, configSection: 'user-registration' },
     // ── Tools ─────────────────────────────────────────────────────────────────
     { label: 'Import Talkgroups', keywords: 'import talkgroups csv json file upload', breadcrumb: 'Tools → Import Talkgroups', icon: 'description', tab: 3, toolSection: 'import-talkgroups' },
     { label: 'Import Units', keywords: 'import units csv json file upload', breadcrumb: 'Tools → Import Units', icon: 'description', tab: 3, toolSection: 'import-units' },
@@ -112,6 +113,8 @@ const SETTINGS_INDEX: SearchResult[] = [
     { label: 'Config Sync Tool', keywords: 'config sync remote server tool', breadcrumb: 'Tools → Config Sync', icon: 'cloud_sync', tab: 3, toolSection: 'config-sync' },
     { label: 'Stripe Customer Sync', keywords: 'stripe customer sync subscription billing', breadcrumb: 'Tools → Stripe Sync', icon: 'payment', tab: 3, toolSection: 'stripe-sync' },
     { label: 'Purge Data', keywords: 'purge delete data audio calls records', breadcrumb: 'Tools → Purge Data', icon: 'delete_forever', tab: 3, toolSection: 'purge-data' },
+    // ── Assistant ───────────────────────────────────────────────────────────
+    { label: 'Admin Assistant', keywords: 'assistant copilot ai help diagnose chat openai', breadcrumb: 'Assistant', icon: 'smart_toy', tab: 4 },
 ];
 
 @Component({
@@ -123,7 +126,7 @@ const SETTINGS_INDEX: SearchResult[] = [
 export class RdioScannerAdminComponent implements OnDestroy {
     authenticated = false;
 
-    /** Controls which top-level tab is active (0=Config, 1=Logs, 2=System Health, 3=Tools) */
+    /** Controls which top-level tab is active (0=Config, 1=Logs, 2=System Health, 3=Tools, 4=Assistant) */
     selectedTabIndex = 0;
 
     // ── Search ────────────────────────────────────────────────────────────────
@@ -140,9 +143,6 @@ export class RdioScannerAdminComponent implements OnDestroy {
     get formDirty(): boolean { return !!(this.configComponent?.form?.dirty); }
     get formValid(): boolean { return !!(this.configComponent?.form?.valid); }
     get configLoading(): boolean { return !!(this.configComponent?.loading); }
-
-    saveConfig(): void { this.configComponent?.save(); }
-    resetConfig(): void { this.configComponent?.reset(); }
 
     onSearch(): void {
         const q = this.searchQuery.trim().toLowerCase();

@@ -50,7 +50,21 @@ export class RdioScannerAdminImportTalkgroupsComponent implements OnInit {
     }
 
     async import(): Promise<void> {
-        if (this.system === undefined) return;
+        const system = this.system;
+        if (system === undefined) return;
+
+        if (!this.baseConfig.groups) {
+            this.baseConfig.groups = [];
+        }
+
+        if (!this.baseConfig.tags) {
+            this.baseConfig.tags = [];
+        }
+
+        if (!system.talkgroups) {
+            system.talkgroups = [];
+        }
+        const talkgroups = system.talkgroups;
 
         this.csv.forEach((csv) => {
             const group = csv[6];
@@ -74,7 +88,7 @@ export class RdioScannerAdminImportTalkgroupsComponent implements OnInit {
             const groupId = this.baseConfig.groups?.find((g) => g.label === csv[6])?.id;
             const tagId = this.baseConfig.tags?.find((t) => t.label === csv[5])?.id;
 
-            this.system?.talkgroups?.push({
+            talkgroups.push({
                 talkgroupRef: +csv[0],
                 label: csv[2],
                 name: csv[4],
@@ -84,6 +98,18 @@ export class RdioScannerAdminImportTalkgroupsComponent implements OnInit {
         });
 
         this.csv = [];
+
+        // Persist directly — the global Save bar was removed. Bulk imports are a
+        // whole-config write (the loaded config holds every system/talkgroup).
+        // Strip the user-scoped collections so we never clobber them; they are
+        // managed by their own dedicated endpoints.
+        const payload: any = { ...this.baseConfig };
+        delete payload.users;
+        delete payload.userGroups;
+        delete payload.keywordLists;
+        delete payload.userAlertPreferences;
+        delete payload.deviceTokens;
+        await this.adminService.saveConfig(payload);
 
         this.config.emit(this.baseConfig);
     }

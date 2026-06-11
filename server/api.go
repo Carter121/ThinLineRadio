@@ -3214,6 +3214,10 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				}
 
 				matchesPreference = toneMatches && keywordMatches
+			} else if alertType == "transcript" {
+				// Alerting-talkgroup transcript alerts: alertEnabled on this talkgroup
+				// is enough (no tone/keyword prefs required).
+				matchesPreference = true
 			}
 
 			// Only add alert if it matches user's preferences
@@ -3288,8 +3292,8 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				toneGroupMap[toneSetKey] = append(toneGroupMap[toneSetKey], alert)
-			} else if alertType == "keyword" {
-				// Group keyword alerts by channel (system + talkgroup)
+			} else if alertType == "keyword" || alertType == "transcript" {
+				// Group keyword and alerting-talkgroup transcript alerts by channel
 				systemLabel, _ := alert["systemLabel"].(string)
 				if systemLabel == "" {
 					systemId, _ := alert["systemId"].(uint64)
@@ -3378,6 +3382,21 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// transcriptReleasedForUser matches CAL / LCL playback: do not expose transcript text until the
+// call would be playable for this account (per-call effective delay). Rows still in the global
+// delayed queue are excluded in SQL (LEFT JOIN delayed … d."callId" IS NULL).
+func (api *Api) transcriptReleasedForUser(user *User, call *Call) bool {
+	if api.Controller == nil || user == nil || call == nil || call.Timestamp.IsZero() {
+		return true
+	}
+	def := api.Controller.Options.DefaultSystemDelay
+	ed := api.Controller.userEffectiveDelay(user, call, def)
+	if ed == 0 {
+		return true
+	}
+	return !time.Now().Before(call.Timestamp.Add(time.Duration(ed) * time.Minute))
+}
+
 // TranscriptsHandler handles GET /api/transcripts - list recent call transcripts for user
 func (api *Api) TranscriptsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -3406,6 +3425,9 @@ func (api *Api) TranscriptsHandler(w http.ResponseWriter, r *http.Request) {
 		if v, err := strconv.ParseUint(l, 10, 32); err == nil {
 			limit = uint(v)
 		}
+	}
+	if limit > 200 {
+		limit = 200
 	}
 	if o := r.URL.Query().Get("offset"); o != "" {
 		if v, err := strconv.ParseUint(o, 10, 32); err == nil {
@@ -3459,7 +3481,10 @@ func (api *Api) TranscriptsHandler(w http.ResponseWriter, r *http.Request) {
 	// Search query (searches in transcript text)
 	search = strings.TrimSpace(r.URL.Query().Get("search"))
 
-	where := []string{`(c."transcript" IS NOT NULL AND c."transcript" <> '')`}
+	where := []string{
+		`(c."transcript" IS NOT NULL AND c."transcript" <> '')`,
+		`d."callId" IS NULL`,
+	}
 	if systemId > 0 {
 		where = append(where, fmt.Sprintf(`c."systemId" = %d`, systemId))
 	}
@@ -3481,94 +3506,142 @@ func (api *Api) TranscriptsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	whereClause := strings.Join(where, " AND ")
 
-	query := fmt.Sprintf(`SELECT c."callId", c."systemId", c."talkgroupId", c."transcriptionStatus", c."transcript", c."timestamp", c."alertSummary", s."label" as "systemLabel", t."label" as "talkgroupLabel", t."name" as "talkgroupName" FROM "calls" c LEFT JOIN "systems" s ON s."systemId" = c."systemId" LEFT JOIN "talkgroups" t ON t."talkgroupId" = c."talkgroupId" WHERE %s ORDER BY c."callId" DESC LIMIT %d OFFSET %d`, whereClause, limit, offset)
+	const chunkSize uint = 250
+	const maxChunks = 120
+	var skipVisible uint = offset
+	results := make([]map[string]any, 0, limit)
+	var dbScanOffset uint64
 
-	rows, err := api.Controller.Database.Sql.Query(query)
-	if err != nil {
-		log.Printf("TranscriptsHandler: SQL query error: %v, query: %s", err, query)
-		api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to query transcripts: %v", err))
-		return
-	}
-	defer rows.Close()
-
-	results := []map[string]any{}
-	for rows.Next() {
-		var (
-			callId              uint64
-			sysId               uint64
-			tgId                uint64
-			transcriptionStatus sql.NullString
-			transcript          sql.NullString
-			callTimestamp       sql.NullInt64
-			alertSummary        sql.NullString
-			systemLabel         sql.NullString
-			talkgroupLabel      sql.NullString
-			talkgroupName       sql.NullString
+	for chunk := 0; uint(len(results)) < limit && chunk < maxChunks; chunk++ {
+		query := fmt.Sprintf(
+			`SELECT c."callId", c."systemId", c."talkgroupId", c."transcriptionStatus", c."transcript", COALESCE(c."reviewedTranscript", ''), COALESCE(c."trainingReviewStatus", ''), c."timestamp", c."alertSummary", s."label" as "systemLabel", t."label" as "talkgroupLabel", t."name" as "talkgroupName" `+
+				`FROM "calls" c `+
+				`LEFT JOIN "delayed" AS d ON d."callId" = c."callId" `+
+				`LEFT JOIN "systems" s ON s."systemId" = c."systemId" `+
+				`LEFT JOIN "talkgroups" t ON t."talkgroupId" = c."talkgroupId" `+
+				`WHERE %s ORDER BY c."callId" DESC LIMIT %d OFFSET %d`,
+			whereClause, chunkSize, dbScanOffset,
 		)
 
-		if err := rows.Scan(&callId, &sysId, &tgId, &transcriptionStatus, &transcript, &callTimestamp, &alertSummary, &systemLabel, &talkgroupLabel, &talkgroupName); err != nil {
-			continue
+		rows, err := api.Controller.Database.Sql.Query(query)
+		if err != nil {
+			log.Printf("TranscriptsHandler: SQL query error: %v, query: %s", err, query)
+			api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to query transcripts: %v", err))
+			return
 		}
 
-		// Same access rules as audio/call playback (user + group system/talkgroup scope).
-		system, sysOk := api.Controller.Systems.GetSystemById(sysId)
-		if !sysOk {
-			continue
-		}
-		talkgroup, tgOk := system.Talkgroups.GetTalkgroupById(tgId)
-		if !tgOk {
-			continue
-		}
-		minimalCall := &Call{
-			System:    system,
-			Talkgroup: talkgroup,
-		}
-		if !api.Controller.userHasAccess(client.User, minimalCall) {
-			continue
-		}
+		rowCount := 0
+		for rows.Next() {
+			rowCount++
+			var (
+				callId              uint64
+				sysId               uint64
+				tgId                uint64
+				transcriptionStatus sql.NullString
+				transcript          sql.NullString
+				reviewedTranscript  sql.NullString
+				trainingReviewStatus sql.NullString
+				callTimestamp       sql.NullInt64
+				alertSummary        sql.NullString
+				systemLabel         sql.NullString
+				talkgroupLabel      sql.NullString
+				talkgroupName       sql.NullString
+			)
 
-		entry := map[string]any{
-			"callId":              callId,
-			"systemId":            sysId,
-			"talkgroupId":         tgId,
-			"transcriptionStatus": transcriptionStatus.String,
-		}
-		if transcript.Valid && transcript.String != "" {
-			t := transcript.String
-			if p := activeTranscriptParser.Load(); p != nil {
-				corrected, annotations := p.AnnotateTranscript(t)
-				t = corrected
-				if len(annotations) > 0 {
-					entry["transcriptAnnotations"] = annotations
-				}
+			if err := rows.Scan(&callId, &sysId, &tgId, &transcriptionStatus, &transcript, &reviewedTranscript, &trainingReviewStatus, &callTimestamp, &alertSummary, &systemLabel, &talkgroupLabel, &talkgroupName); err != nil {
+				continue
 			}
-			entry["transcript"] = t
-		}
-		if callTimestamp.Valid {
-			entry["timestamp"] = callTimestamp.Int64
-		} else {
-			entry["timestamp"] = nil
-		}
-		if alertSummary.Valid && alertSummary.String != "" {
-			entry["alertSummary"] = alertSummary.String
-		}
-		if systemLabel.Valid {
-			entry["systemLabel"] = systemLabel.String
-		}
-		if talkgroupLabel.Valid {
-			entry["talkgroupLabel"] = talkgroupLabel.String
-		}
-		if talkgroupName.Valid {
-			entry["talkgroupName"] = talkgroupName.String
-		}
-		results = append(results, entry)
-	}
 
-	// Check for errors from iteration
-	if err := rows.Err(); err != nil {
-		log.Printf("TranscriptsHandler: error iterating rows: %v", err)
-		api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to process transcripts: %v", err))
-		return
+			system, sysOk := api.Controller.Systems.GetSystemById(sysId)
+			if !sysOk {
+				continue
+			}
+			talkgroup, tgOk := system.Talkgroups.GetTalkgroupById(tgId)
+			if !tgOk {
+				continue
+			}
+			if !callTimestamp.Valid {
+				continue
+			}
+
+			minimalCall := &Call{
+				Id:        callId,
+				Timestamp: time.UnixMilli(callTimestamp.Int64),
+				System:    system,
+				Talkgroup: talkgroup,
+			}
+			if !api.Controller.userHasAccess(client.User, minimalCall) {
+				continue
+			}
+			if !api.transcriptReleasedForUser(client.User, minimalCall) {
+				continue
+			}
+
+			if skipVisible > 0 {
+				skipVisible--
+				continue
+			}
+
+			entry := map[string]any{
+				"callId":              callId,
+				"systemId":            sysId,
+				"talkgroupId":         tgId,
+				"transcriptionStatus": transcriptionStatus.String,
+			}
+			if transcript.Valid && transcript.String != "" {
+				t := transcript.String
+				if p := activeTranscriptParser.Load(); p != nil {
+					corrected, annotations := p.AnnotateTranscript(t)
+					t = corrected
+					if len(annotations) > 0 {
+						entry["transcriptAnnotations"] = annotations
+					}
+				}
+				entry["transcript"] = t
+			}
+			entry["timestamp"] = callTimestamp.Int64
+			if alertSummary.Valid && alertSummary.String != "" {
+				entry["alertSummary"] = alertSummary.String
+			}
+			if systemLabel.Valid {
+				entry["systemLabel"] = systemLabel.String
+			}
+			if talkgroupLabel.Valid {
+				entry["talkgroupLabel"] = talkgroupLabel.String
+			}
+			if talkgroupName.Valid {
+				entry["talkgroupName"] = talkgroupName.String
+			}
+			if reviewedTranscript.Valid && reviewedTranscript.String != "" {
+				entry["reviewedTranscript"] = reviewedTranscript.String
+			}
+			if trainingReviewStatus.Valid && trainingReviewStatus.String != "" {
+				entry["trainingReviewStatus"] = trainingReviewStatus.String
+			}
+			results = append(results, entry)
+			if uint(len(results)) >= limit {
+				break
+			}
+		}
+
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			log.Printf("TranscriptsHandler: error iterating rows: %v", err)
+			api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to process transcripts: %v", err))
+			return
+		}
+		rows.Close()
+
+		if uint(len(results)) >= limit {
+			break
+		}
+		if rowCount == 0 {
+			break
+		}
+		if rowCount < int(chunkSize) {
+			break
+		}
+		dbScanOffset += uint64(chunkSize)
 	}
 
 	if b, err := json.Marshal(results); err == nil {
@@ -3578,6 +3651,37 @@ func (api *Api) TranscriptsHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("TranscriptsHandler: failed to marshal results: %v", err)
 		api.exitWithError(w, http.StatusInternalServerError, "failed to marshal transcripts")
 	}
+}
+
+// TranscriptsTrainingProgressHandler returns community-wide Whisper training progress from the transcript collector.
+func (api *Api) TranscriptsTrainingProgressHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	client := api.getClient(r)
+	if client == nil || client.User == nil {
+		api.exitWithError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	collectorURL := defaultTranscriptCollectorURL
+	api.Controller.Options.mutex.Lock()
+	if u := strings.TrimSpace(api.Controller.Options.TranscriptionConfig.CollectorURL); u != "" {
+		collectorURL = u
+	}
+	api.Controller.Options.mutex.Unlock()
+
+	progress, err := fetchCollectorGlobalProgress(collectorURL)
+	if err != nil {
+		log.Printf("TranscriptsTrainingProgressHandler: %v", err)
+		api.exitWithError(w, http.StatusBadGateway, "could not load training progress")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(progress)
 }
 
 // AlertPreferencesHandler handles GET/PUT /api/alerts/preferences

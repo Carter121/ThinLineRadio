@@ -72,12 +72,14 @@ type Controller struct {
 	AlertEngine                      *AlertEngine
 	HallucinationDetector            *HallucinationDetector
 	CentralManagement                *CentralManagementService
+	Health                           *HealthService
 	// Performance caches
 	PreferencesCache  *PreferencesCache
 	KeywordListsCache *KeywordListsCache
 	IdLookupsCache    *IdLookupsCache
 	RecentAlertsCache *RecentAlertsCache
 	DedupCache        *DedupCache
+	PagerAlertDedup   *PagerAlertDedup
 	Register          chan *Client
 	Unregister        chan *Client
 	Ingest            chan *Call
@@ -90,6 +92,10 @@ type Controller struct {
 		totalCalls     int64
 		avgProcessTime time.Duration
 	}
+	// RecentCalls is a per-second ring buffer used to publish a "calls/min"
+	// stat on the central management heartbeat. Independent of workerStats so
+	// it can be read without contending the worker hot path's lock.
+	RecentCalls *RecentCallsRing
 	// Pending tone sequences per talkgroup (for associating tones with subsequent voice calls)
 	// Tones detected on tone-only calls are stored here and attached to the first subsequent voice call
 	pendingTones      map[string]*PendingToneSequence // Key: "systemId:talkgroupId"
@@ -153,6 +159,9 @@ const (
 	// If tones don't get attached to a voice call within this time, they're considered orphaned
 	// Set to 2 minutes to prevent unrelated incidents from merging together
 	pendingToneTimeoutMinutes = 2
+	// orphanedToneAlertSeconds is how long to wait after the last stacked tone clip before
+	// creating DB alerts when no voice dispatch arrives on this talkgroup.
+	orphanedToneAlertSeconds = 60
 	// shortCallWaitSeconds is how long to wait for a longer voice call before attaching to a short one
 	shortCallWaitSeconds = 15
 )
@@ -175,6 +184,7 @@ func NewController(config *Config) *Controller {
 		pendingTones:      make(map[string]*PendingToneSequence),
 		waitingShortCalls: make(map[string]*WaitingShortCall),
 		authMutexes:       make(map[uint64]*sync.Mutex),
+		RecentCalls:       NewRecentCallsRing(),
 	}
 
 	controller.Admin = NewAdmin(controller)
@@ -189,6 +199,7 @@ func NewController(config *Config) *Controller {
 	controller.WebPushSubscriptions = NewWebPushSubscriptions()
 	controller.EmailService = NewEmailService(controller)
 	controller.CentralManagement = NewCentralManagementService(controller)
+	controller.Health = NewHealthService(controller)
 	controller.Delayer = NewDelayer(controller)
 	controller.Downstreams = NewDownstreams(controller)
 	controller.Scheduler = NewScheduler(controller)
@@ -199,9 +210,11 @@ func NewController(config *Config) *Controller {
 	controller.IdLookupsCache = NewIdLookupsCache(controller)
 	controller.RecentAlertsCache = NewRecentAlertsCache(controller)
 	controller.DedupCache = NewDedupCache(defaults.options.duplicateDetectionTimeFrame)
+	controller.PagerAlertDedup = NewPagerAlertDedup()
 
 	controller.Logs.setDaemon(config.daemon)
 	controller.Logs.setDatabase(controller.Database)
+	controller.Logs.InstallLogCapture()
 
 	// Initialize debug logger for tones/keywords if enabled in config
 	if config.EnableDebugLog {
@@ -579,6 +592,11 @@ func (controller *Controller) IngestCall(call *Call) {
 		}
 	}
 
+	// Unit alias auto-learn: record radio unitRef observations (transcript filled in later).
+	if unitLearnEnabled(call) && callHasUnitRefs(call) {
+		go controller.processUnitAutoLearn(call, "")
+	}
+
 	if populated {
 		if err = controller.Systems.Write(controller.Database); err != nil {
 			logError(err)
@@ -792,23 +810,13 @@ func (controller *Controller) processCallAfterDuplicateCheck(call *Call) {
 		system = call.System
 	}
 
-	// Stage 1: Snapshot RAW audio for tone detection.
-	// Tone detection must use the unprocessed signal — tones are strong narrowband signals
-	// that survive noise well, and we don't want any filtering to alter their frequency profile.
+	// Snapshot RAW audio for tone detection (must run on unprocessed signal before AAC conversion).
 	rawAudio := make([]byte, len(call.Audio))
 	copy(rawAudio, call.Audio)
 	rawAudioMime := call.AudioMime
-
-	// Stage 2: Kick off tone detection on raw audio asynchronously (doesn't block call processing).
 	shouldDetectTones := call.Talkgroup != nil && call.Talkgroup.ToneDetectionEnabled && len(call.Talkgroup.ToneSets) > 0
-	if shouldDetectTones {
-		toneDetectionCall := *call
-		toneDetectionCall.Audio = rawAudio
-		toneDetectionCall.AudioMime = rawAudioMime
-		go controller.processToneDetectionAsync(&toneDetectionCall, call)
-	}
 
-	// Stage 3: Snapshot audio for transcription (before AAC conversion).
+	// Stage 2: Snapshot audio for transcription (before AAC conversion).
 	call.OriginalAudio = make([]byte, len(call.Audio))
 	copy(call.OriginalAudio, call.Audio)
 	call.OriginalAudioMime = call.AudioMime
@@ -860,7 +868,22 @@ func (controller *Controller) processCallAfterDuplicateCheck(call *Call) {
 		// IMMEDIATE: Emit call to clients (users can play NOW - zero delay)
 		controller.EmitCall(call)
 
-		// Note: Tone detection already completed above (before encoding)
+		// Tone detection runs after WriteCall so call.Id is valid for DB updates, pending tones, and orphan alerts.
+		if shouldDetectTones {
+			toneDetectionCall := *call
+			toneDetectionCall.Audio = rawAudio
+			toneDetectionCall.AudioMime = rawAudioMime
+			go controller.processToneDetectionAsync(&toneDetectionCall, call)
+		}
+
+		// Auto-learn tone sets from raw ingest audio (does not require configured tone sets).
+		if toneAutoLearnEnabled(call) {
+			learnCall := *call
+			learnCall.Audio = rawAudio
+			learnCall.AudioMime = rawAudioMime
+			go controller.processToneAutoLearnAsync(&learnCall, call, "")
+		}
+
 		// Queue transcription with tone-aware decision
 		go controller.queueTranscriptionIfNeeded(call)
 
@@ -919,6 +942,19 @@ func (controller *Controller) purgeLegacyDuplicates() {
 
 // processToneDetectionAsync runs tone detection asynchronously and updates the original call object
 func (controller *Controller) processToneDetectionAsync(toneDetectionCall *Call, originalCall *Call) {
+	// Ensure a real database callId (detection is started after WriteCall; this guards legacy races).
+	if toneDetectionCall.Id == 0 && originalCall != nil && originalCall.Id > 0 {
+		toneDetectionCall.Id = originalCall.Id
+	}
+	if toneDetectionCall.Id == 0 && originalCall != nil {
+		for i := 0; i < 100 && originalCall.Id == 0; i++ {
+			time.Sleep(2 * time.Millisecond)
+		}
+		if originalCall.Id > 0 {
+			toneDetectionCall.Id = originalCall.Id
+		}
+	}
+
 	startTime := time.Now()
 	systemId := uint64(0)
 	if toneDetectionCall.System != nil {
@@ -927,6 +963,11 @@ func (controller *Controller) processToneDetectionAsync(toneDetectionCall *Call,
 	talkgroupRef := uint(0)
 	if toneDetectionCall.Talkgroup != nil {
 		talkgroupRef = toneDetectionCall.Talkgroup.TalkgroupRef
+	}
+
+	if toneDetectionCall.Id == 0 {
+		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("tone detection skipped: call id not assigned (system=%d, talkgroup=%d)", systemId, talkgroupRef))
+		return
 	}
 
 	// Run tone detection on the temporary call
@@ -1414,9 +1455,7 @@ func (controller *Controller) storePendingTones(call *Call, toneSequence *ToneSe
 			controller.DebugLogger.LogPendingTones("STORED", call.Id, call.Talkgroup.TalkgroupRef, fmt.Sprintf("New pending tones stored | ToneSets: %v", toneSetLabels))
 		}
 
-		// Start a timer to check if tones are orphaned (no new tones within 60 seconds)
-		// If they're still pending after 60 seconds, send an alert for "tones detected but no voice call"
-		go controller.checkOrphanedTones(key, call.Id, call.Timestamp.UnixMilli())
+		controller.scheduleOrphanedToneCheck(key, call.Id, call.Timestamp.UnixMilli())
 
 		// Cross-talkgroup voice association (Scenario 2).
 		// If this talkgroup is configured to watch a different talkgroup for its voice dispatch,
@@ -1472,6 +1511,8 @@ func (controller *Controller) storePendingTones(call *Call, toneSequence *ToneSe
 			if controller.DebugLogger != nil {
 				controller.DebugLogger.LogPendingTones("REPLACED", call.Id, call.Talkgroup.TalkgroupRef, fmt.Sprintf("Replaced expired pending tones from call %d (age: %.1f min)", existing.CallId, ageMinutes))
 			}
+
+			controller.scheduleOrphanedToneCheck(key, call.Id, call.Timestamp.UnixMilli())
 			return
 		}
 
@@ -1506,9 +1547,6 @@ func (controller *Controller) storePendingTones(call *Call, toneSequence *ToneSe
 
 		// Update to use the most recent tone sequence structure but with combined tones
 		existing.ToneSequence.Tones = combinedTones
-		existing.CallId = call.Id // Use the most recent call ID
-		// IMPORTANT: Keep the original timestamp! Don't update to now, or it may be AFTER the voice call that's already transcribing
-		// existing.Timestamp = time.Now().UnixMilli() // DON'T DO THIS - it breaks timestamp comparison
 
 		// Accumulate ALL matched tone sets across calls (don't overwrite, merge)
 		// Create a map to track unique tone set IDs
@@ -1556,7 +1594,38 @@ func (controller *Controller) storePendingTones(call *Call, toneSequence *ToneSe
 			}
 			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("merged pending tones result: %d tone set(s) - %s", len(existing.ToneSequence.MatchedToneSets), strings.Join(mergedToneSetLabels, ", ")))
 		}
+
+		// Reset the orphan timer to the latest tone clip in the stack (earlier goroutines exit via timestamp mismatch).
+		controller.refreshPendingStackAnchor(key, existing, call.Id, call.Timestamp.UnixMilli())
 	}
+}
+
+// scheduleOrphanedToneCheck starts a timer that creates DB tone alerts if no voice call claims pending tones.
+func (controller *Controller) scheduleOrphanedToneCheck(key string, callId uint64, anchorTimestamp int64) {
+	if callId == 0 || anchorTimestamp == 0 {
+		return
+	}
+	go controller.checkOrphanedTones(key, callId, anchorTimestamp)
+}
+
+// refreshPendingStackAnchor moves the stack anchor to the latest tone clip and resets the orphan timer.
+func (controller *Controller) refreshPendingStackAnchor(key string, pending *PendingToneSequence, callId uint64, anchorTimestamp int64) {
+	if pending == nil || callId == 0 || anchorTimestamp == 0 {
+		return
+	}
+	pending.CallId = callId
+	pending.Timestamp = anchorTimestamp
+	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("pending tone stack for %s: anchor moved to call %d (orphan timer reset to %ds)", key, callId, orphanedToneAlertSeconds))
+	controller.scheduleOrphanedToneCheck(key, callId, anchorTimestamp)
+}
+
+// mergeNextPendingIntoCurrent merges the :next slot into the active pending entry after transcription unlock.
+func (controller *Controller) mergeNextPendingIntoCurrent(key string, current, next *PendingToneSequence) {
+	if current == nil || next == nil {
+		return
+	}
+	current.ToneSequence = controller.mergePendingTones(current.ToneSequence, next.ToneSequence)
+	controller.refreshPendingStackAnchor(key, current, next.CallId, next.Timestamp)
 }
 
 // mergePendingTones merges two tone sequences together (for stacked tones across multiple calls)
@@ -1614,18 +1683,23 @@ func (controller *Controller) mergePendingTones(existing *ToneSequence, new *Ton
 		for _, ts := range matchedToneSetMap {
 			merged.MatchedToneSets = append(merged.MatchedToneSets, ts)
 		}
-		// Set first one for backward compatibility
-		merged.MatchedToneSet = merged.MatchedToneSets[0]
+		// Voice attach uses the most recent tone-page match (closest preceding page).
+		if new.MatchedToneSet != nil {
+			merged.MatchedToneSet = new.MatchedToneSet
+		} else if existing.MatchedToneSet != nil {
+			merged.MatchedToneSet = existing.MatchedToneSet
+		} else if len(merged.MatchedToneSets) > 0 {
+			merged.MatchedToneSet = merged.MatchedToneSets[0]
+		}
 	}
 
 	return merged
 }
 
-// checkOrphanedTones waits 60 seconds and checks if pending tones are still there without being attached
-// If so, triggers an alert for "tones detected but no voice call available"
+// checkOrphanedTones waits after the stack anchor timestamp and checks if pending tones are still unclaimed.
+// Stale invocations exit when refreshPendingStackAnchor advances pending.Timestamp.
 func (controller *Controller) checkOrphanedTones(key string, callId uint64, timestamp int64) {
-	// Wait 60 seconds
-	time.Sleep(60 * time.Second)
+	time.Sleep(time.Duration(orphanedToneAlertSeconds) * time.Second)
 
 	controller.pendingTonesMutex.Lock()
 	pending, exists := controller.pendingTones[key]
@@ -1636,32 +1710,42 @@ func (controller *Controller) checkOrphanedTones(key string, callId uint64, time
 		return
 	}
 
-	// Check if this is still the same pending tone sequence (same timestamp)
-	// If timestamp changed, it means new tones were added (merged), so don't trigger alert yet
+	// If the stack anchor moved (another tone clip merged), this timer is stale.
 	if pending.Timestamp != timestamp {
-		// Timestamp changed - new tones were merged, so not orphaned
+		return
+	}
+
+	loadCallId := pending.CallId
+	if loadCallId == 0 {
+		loadCallId = callId
+	}
+	if loadCallId == 0 {
+		controller.Logs.LogEvent(LogLevelWarn, "orphaned tones: no valid call id on pending entry, cannot trigger alert")
 		return
 	}
 
 	// Tones have been sitting for 60 seconds without new tones or voice call
 	// Trigger an alert for the tone-only call
-	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("orphaned tones detected after 60 seconds for call %d - triggering alert without voice", callId))
+	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("orphaned tones detected after %d seconds for call %d - triggering alert without voice", orphanedToneAlertSeconds, loadCallId))
 
 	if controller.DebugLogger != nil {
-		controller.DebugLogger.LogPendingTones("ORPHANED", callId, 0, "Tones pending for 60+ seconds without voice - triggering alert")
+		controller.DebugLogger.LogPendingTones("ORPHANED", loadCallId, 0, "Tones pending for 60+ seconds without voice - triggering alert")
 	}
 
-	// Load the original call that had the tones
-	call, err := controller.Calls.GetCall(callId)
+	// Load the original call that had the tones (use pending.CallId — updated on stacked-tone merges)
+	call, err := controller.Calls.GetCall(loadCallId)
 	if err != nil || call == nil {
-		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to load orphaned tone call %d: %v", callId, err))
+		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to load orphaned tone call %d: %v", loadCallId, err))
 		return
 	}
 
-	// Ensure the call has the tone sequence attached
-	if call.ToneSequence == nil && pending.ToneSequence != nil {
+	// Ensure the call has the merged pending tone sequence (stacked pages accumulate multiple tone sets)
+	if pending.ToneSequence != nil {
 		call.ToneSequence = pending.ToneSequence
-		call.HasTones = true
+		call.HasTones = len(pending.ToneSequence.Tones) > 0
+		if len(pending.ToneSequence.MatchedToneSets) > 0 || pending.ToneSequence.MatchedToneSet != nil {
+			controller.updateCallToneSequence(loadCallId, pending.ToneSequence)
+		}
 	}
 
 	// Set a special transcript to indicate no voice was available
@@ -1670,19 +1754,41 @@ func (controller *Controller) checkOrphanedTones(key string, callId uint64, time
 
 		// Update the call in the database with this transcript
 		query := fmt.Sprintf(`UPDATE "calls" SET "transcript" = '%s', "transcriptionStatus" = 'completed' WHERE "callId" = %d`,
-			escapeQuotes(call.Transcript), callId)
+			escapeQuotes(call.Transcript), loadCallId)
 		if _, err := controller.Database.Sql.Exec(query); err != nil {
 			controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to update orphaned call transcript: %v", err))
 		}
 	}
 
-	// Don't remove from pending yet - let the normal timeout (5 minutes) handle that
-	// This allows a late voice call to still attach if it comes in
+	// Orphan alert is final for this stack — expire pending so late voice cannot attach stale tone sets.
+	controller.clearPendingToneStack(key, pending)
 
 	// Trigger tone alerts for this orphaned call
 	if controller.AlertEngine != nil && call.System != nil && call.System.AlertsEnabled && call.Talkgroup != nil && call.Talkgroup.AlertsEnabled {
 		go controller.AlertEngine.TriggerToneAlerts(call)
 	}
+}
+
+// clearPendingToneStack removes pending tone entries for a talkgroup after orphan (or other terminal events).
+func (controller *Controller) clearPendingToneStack(key string, pending *PendingToneSequence) {
+	controller.cancelWaitingShortCall(key)
+
+	controller.pendingTonesMutex.Lock()
+	delete(controller.pendingTones, key)
+	delete(controller.pendingTones, key+":next")
+	if pending != nil && pending.CrossTalkgroupSourceKey != "" {
+		delete(controller.pendingTones, pending.CrossTalkgroupSourceKey)
+		delete(controller.pendingTones, pending.CrossTalkgroupSourceKey+":next")
+	}
+	for k, p := range controller.pendingTones {
+		if p != nil && p.CrossTalkgroupSourceKey == key {
+			delete(controller.pendingTones, k)
+			delete(controller.pendingTones, k+":next")
+		}
+	}
+	controller.pendingTonesMutex.Unlock()
+
+	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("cleared pending tones for %s after orphan alert", key))
 }
 
 // checkAndAttachPendingTones checks if there are pending tones for this call's talkgroup and attaches them if this is a voice call
@@ -1801,6 +1907,18 @@ func (controller *Controller) checkAndAttachPendingTones(call *Call) bool {
 	call.ToneSequence = pending.ToneSequence
 	call.HasTones = pending.ToneSequence != nil && len(pending.ToneSequence.Tones) > 0
 
+	// Cooldown is configured on the talkgroup where tones were detected.
+	if pending.CrossTalkgroupSourceKey != "" {
+		parts := strings.Split(pending.CrossTalkgroupSourceKey, ":")
+		if len(parts) == 2 {
+			if id, err := strconv.ParseUint(parts[1], 10, 64); err == nil {
+				call.ToneSourceTalkgroupId = id
+			}
+		}
+	} else {
+		call.ToneSourceTalkgroupId = pending.TalkgroupId
+	}
+
 	// Use the matched tone sets that were already accumulated during merging
 	// Do NOT re-match here (neither A-B pairs nor long tones), as merging tones from multiple calls can cause false matches
 	// where A-tones from one call incorrectly pair with B-tones from another call
@@ -1886,33 +2004,9 @@ const (
 
 // callHasVoice determines if a call contains voice/audio content (not just tones)
 func (controller *Controller) callHasVoice(call *Call) bool {
-	// If call already has a transcript, check if it's actual voice (not tones being transcribed)
+	// If call already has a transcript, check if it's voice for tone-alert attach (lenient for short dispatch).
 	if call.Transcript != "" {
-		if !controller.isActualVoice(call.Transcript) {
-			return false
-		}
-
-		if !controller.hasMeaningfulVoiceContent(call.Transcript) {
-			words := len(strings.Fields(call.Transcript))
-			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d transcript too short (%d words) - waiting 15 seconds for longer voice call", call.Id, words))
-
-			// Check if there are pending tones to attach
-			if call.System != nil && call.Talkgroup != nil {
-				key := fmt.Sprintf("%d:%d", call.System.Id, call.Talkgroup.Id)
-				controller.pendingTonesMutex.Lock()
-				pending, hasPending := controller.pendingTones[key]
-				controller.pendingTonesMutex.Unlock()
-
-				if hasPending && pending != nil {
-					// Store this short call and start a 15-second timer
-					controller.storeWaitingShortCall(call, pending)
-				}
-			}
-
-			return false
-		}
-
-		return true
+		return controller.isVoiceForToneAlerts(call.Transcript)
 	}
 
 	// If transcription is completed with no transcript, it's tone-only
@@ -2009,27 +2103,18 @@ func (controller *Controller) cleanTranscript(transcript string, callId uint64) 
 	return transcript, false
 }
 
-// isActualVoice determines if a transcript contains actual voice content (not just tones being transcribed)
-func (controller *Controller) isActualVoice(transcript string) bool {
+// transcriptLooksLikeTonesOnly detects empty transcripts, tone hallucinations (BEEP), and
+// repeating-character / same-word patterns. Used by both keyword and tone-alert voice checks.
+func (controller *Controller) transcriptLooksLikeTonesOnly(transcript string) bool {
 	if transcript == "" {
-		if controller.DebugLogger != nil {
-			controller.DebugLogger.LogVoiceDetection(0, "", false, "Empty transcript")
-		}
-		return false
+		return true
 	}
 
 	transcript = strings.TrimSpace(transcript)
-
-	// Too short to be voice
 	if len(transcript) < 10 {
-		if controller.DebugLogger != nil {
-			controller.DebugLogger.LogVoiceDetection(0, transcript, false, fmt.Sprintf("Too short (%d chars)", len(transcript)))
-		}
-		return false
+		return true
 	}
 
-	// Check if transcript is mostly repeating the same character (e.g., "BEEEEEE..." from tone transcription)
-	// If a single character makes up more than 70% of the transcript, it's likely just tones
 	transcriptUpper := strings.ToUpper(transcript)
 	runes := []rune(transcriptUpper)
 	if len(runes) > 0 {
@@ -2049,28 +2134,12 @@ func (controller *Controller) isActualVoice(transcript string) bool {
 			}
 		}
 
-		// If most characters are the same (e.g., "BEEEEEE..."), it's likely tones
 		if totalChars > 0 && float64(maxCount)/float64(totalChars) > 0.7 {
-			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("transcript appears to be tones (repeating characters: %.1f%%), not voice", float64(maxCount)/float64(totalChars)*100))
-			if controller.DebugLogger != nil {
-				controller.DebugLogger.LogVoiceDetection(0, transcript, false, fmt.Sprintf("Repeating characters: %.1f%%", float64(maxCount)/float64(totalChars)*100))
-			}
-			return false
+			return true
 		}
 	}
 
-	// Check if transcript has actual words (contains spaces or multiple distinct words)
 	words := strings.Fields(transcriptUpper)
-	if len(words) < 8 {
-		// Very few words - likely not actual voice
-		controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("transcript has too few words (%d), likely not voice", len(words)))
-		if controller.DebugLogger != nil {
-			controller.DebugLogger.LogVoiceDetection(0, transcript, false, fmt.Sprintf("Too few words (%d)", len(words)))
-		}
-		return false
-	}
-
-	// Check if transcript has meaningful diversity (different words)
 	uniqueWords := make(map[string]bool)
 	for _, word := range words {
 		if len(word) > 1 {
@@ -2078,18 +2147,55 @@ func (controller *Controller) isActualVoice(transcript string) bool {
 		}
 	}
 
-	// If all words are the same (e.g., "BEE BEE BEE..."), it's likely tones
 	if len(uniqueWords) < 2 && len(words) >= 3 {
-		controller.Logs.LogEvent(LogLevelInfo, "transcript has no word diversity (all same), likely not voice")
+		return true
+	}
+
+	return false
+}
+
+// isVoiceForToneAlerts decides whether a transcript is dispatch voice for pending-tone attach
+// and tone DB alerts. Accepts short pages (e.g. station + box) that fail the 8-word isActualVoice rule.
+// Keyword alerts and other paths still use isActualVoice.
+func (controller *Controller) isVoiceForToneAlerts(transcript string) bool {
+	if controller.transcriptLooksLikeTonesOnly(transcript) {
+		return false
+	}
+	// Check meaningful short dispatch before isActualVoice so we do not require 8 words for tone attach.
+	if controller.hasMeaningfulVoiceContent(transcript) {
+		return true
+	}
+	return controller.isActualVoice(transcript)
+}
+
+// isActualVoice determines if a transcript contains actual voice content (not just tones being transcribed)
+func (controller *Controller) isActualVoice(transcript string) bool {
+	if controller.transcriptLooksLikeTonesOnly(transcript) {
 		if controller.DebugLogger != nil {
-			controller.DebugLogger.LogVoiceDetection(0, transcript, false, "No word diversity")
+			controller.DebugLogger.LogVoiceDetection(0, strings.TrimSpace(transcript), false, "Tone-like transcript")
 		}
 		return false
 	}
 
-	// Voice detected - log success
+	transcriptUpper := strings.ToUpper(strings.TrimSpace(transcript))
+	words := strings.Fields(transcriptUpper)
+	if len(words) < 8 {
+		controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("transcript has too few words (%d), likely not voice", len(words)))
+		if controller.DebugLogger != nil {
+			controller.DebugLogger.LogVoiceDetection(0, transcriptUpper, false, fmt.Sprintf("Too few words (%d)", len(words)))
+		}
+		return false
+	}
+
+	uniqueWords := make(map[string]bool)
+	for _, word := range words {
+		if len(word) > 1 {
+			uniqueWords[word] = true
+		}
+	}
+
 	if controller.DebugLogger != nil {
-		controller.DebugLogger.LogVoiceDetection(0, transcript, true, fmt.Sprintf("Valid voice: %d words, %d unique", len(words), len(uniqueWords)))
+		controller.DebugLogger.LogVoiceDetection(0, transcriptUpper, true, fmt.Sprintf("Valid voice: %d words, %d unique", len(words), len(uniqueWords)))
 	}
 
 	return true
@@ -2384,6 +2490,11 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 	// Do this check asynchronously to avoid blocking the worker
 	minDuration := controller.Options.TranscriptionConfig.MinCallDuration
 	toneDetectionEnabled := call.Talkgroup != nil && call.Talkgroup.ToneDetectionEnabled
+	alertingTalkgroup := call.Talkgroup != nil && call.Talkgroup.AlertingTalkgroup
+	autoLearnToneSets := call.System != nil && call.Talkgroup != nil &&
+		call.Talkgroup.AutoLearnToneSets &&
+		call.System.AlertsEnabled && call.Talkgroup.AlertsEnabled
+	autoLearnUnitAliases := unitLearnEnabled(call) && callHasUnitRefs(call)
 
 	if minDuration > 0 {
 		// Check duration in a separate goroutine to avoid blocking
@@ -2427,6 +2538,12 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 				// the voice dispatch that follows a tone page on a separate call
 				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on tone-enabled talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
 				// Continue to alert checks
+			} else if alertingTalkgroup && audioDuration < minDuration {
+				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on alerting talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
+			} else if autoLearnToneSets && audioDuration < minDuration {
+				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on auto-learn talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
+			} else if autoLearnUnitAliases && audioDuration < minDuration {
+				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d on unit alias auto-learn talkgroup: bypassing global minimum (%.1fs < %.1fs)", call.Id, audioDuration, minDuration))
 			} else if audioDuration < minDuration {
 				// Normal check for non-tone-enabled talkgroups or calls without tones
 				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("skipping transcription for call %d: duration %.1fs is less than minimum %.1fs", call.Id, audioDuration, minDuration))
@@ -2456,20 +2573,10 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("call %d has sufficient remaining audio after tone removal (%.1fs of %.1fs total, %.1fs tones)", call.Id, remainingDuration, audioDuration, toneDuration))
 			}
 
-			// Duration check passed, now check if any user has alerts enabled
-			hasToneAlerts := controller.hasUsersWithToneAlerts(call.System.Id, call.Talkgroup.Id)
-			hasKeywordAlerts := controller.hasUsersWithKeywordAlerts(call.System.Id, call.Talkgroup.Id)
-
-			localReasons := []string{}
-			if hasToneAlerts {
-				localReasons = append(localReasons, "tone_alerts")
-			}
-			if hasKeywordAlerts {
-				localReasons = append(localReasons, "keyword_alerts")
-			}
-
+			// Duration check passed, now check transcription reasons
+			localReasons := controller.transcriptionReasonsForCall(call)
 			if len(localReasons) == 0 {
-				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("no users with alerts enabled for call %d (system=%d, talkgroup=%d)", call.Id, call.System.Id, call.Talkgroup.Id))
+				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("no transcription reasons for call %d (system=%d, talkgroup=%d)", call.Id, call.System.Id, call.Talkgroup.Id))
 				return
 			}
 
@@ -2479,23 +2586,12 @@ func (controller *Controller) queueTranscriptionIfNeeded(call *Call) {
 		return // Exit early, goroutine will handle queueing
 	}
 
-	// Reason 2: Any user has tone alerts OR keyword alerts enabled for this talkgroup
+	// Reason 2: alerting talkgroup, tone alerts, or keyword alerts
 	if !needsTranscription {
-		hasToneAlerts := controller.hasUsersWithToneAlerts(call.System.Id, call.Talkgroup.Id)
-		hasKeywordAlerts := controller.hasUsersWithKeywordAlerts(call.System.Id, call.Talkgroup.Id)
-
-		if hasToneAlerts {
-			needsTranscription = true
-			reasons = append(reasons, "tone_alerts")
-		}
-
-		if hasKeywordAlerts {
-			needsTranscription = true
-			reasons = append(reasons, "keyword_alerts")
-		}
-
+		reasons = controller.transcriptionReasonsForCall(call)
+		needsTranscription = len(reasons) > 0
 		if !needsTranscription {
-			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("no users with alerts enabled for call %d (system=%d, talkgroup=%d)", call.Id, call.System.Id, call.Talkgroup.Id))
+			controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("no transcription reasons for call %d (system=%d, talkgroup=%d)", call.Id, call.System.Id, call.Talkgroup.Id))
 		}
 	}
 
@@ -2532,6 +2628,42 @@ func (controller *Controller) queueTranscriptionJobIfNeeded(call *Call, priority
 	} else {
 		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("transcription queue became unavailable while processing call %d", call.Id))
 	}
+}
+
+func (controller *Controller) transcriptionReasonsForCall(call *Call) []string {
+	if call == nil || call.System == nil || call.Talkgroup == nil {
+		return nil
+	}
+	reasons := []string{}
+	if call.Talkgroup.AutoLearnToneSets &&
+		call.System.AlertsEnabled && call.Talkgroup.AlertsEnabled {
+		reasons = append(reasons, "auto_learn_tone_sets")
+	}
+	if unitLearnEnabled(call) && callHasUnitRefs(call) {
+		reasons = append(reasons, "auto_learn_unit_aliases")
+	}
+	if call.Talkgroup.AlertingTalkgroup && controller.hasUsersWithAlertsEnabled(call.System.Id, call.Talkgroup.Id) {
+		reasons = append(reasons, "alerting_talkgroup")
+	}
+	if controller.hasUsersWithToneAlerts(call.System.Id, call.Talkgroup.Id) {
+		reasons = append(reasons, "tone_alerts")
+	}
+	if controller.hasUsersWithKeywordAlerts(call.System.Id, call.Talkgroup.Id) {
+		reasons = append(reasons, "keyword_alerts")
+	}
+	return reasons
+}
+
+// hasUsersWithAlertsEnabled checks if any user has alertEnabled for this talkgroup.
+func (controller *Controller) hasUsersWithAlertsEnabled(systemId uint64, talkgroupId uint64) bool {
+	userIds := controller.PreferencesCache.GetUsersForTalkgroup(systemId, talkgroupId)
+	for _, userId := range userIds {
+		pref := controller.PreferencesCache.GetPreference(userId, systemId, talkgroupId)
+		if pref != nil && pref.AlertEnabled {
+			return true
+		}
+	}
+	return false
 }
 
 // hasUsersWithToneAlerts checks if any user has tone alerts enabled for this talkgroup
@@ -3051,9 +3183,11 @@ func (controller *Controller) Start() error {
 
 	// Batch database reads for better performance
 	dbReadStart := time.Now()
+	log.Printf("startup: loading configuration from database...")
 	if err = controller.readAllData(); err != nil {
 		return err
 	}
+	log.Printf("startup: database load completed in %s", time.Since(dbReadStart).Round(time.Millisecond))
 	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: database load completed in %s", time.Since(dbReadStart).Round(time.Millisecond)))
 
 	controller.Users.SetRelayListenerEmailSyncCallbacks(
@@ -3134,24 +3268,15 @@ func (controller *Controller) Start() error {
 	// Runs once in the background at startup; deletes in small batches to avoid locking.
 	go controller.purgeLegacyDuplicates()
 
-	if err = controller.Admin.Start(); err != nil {
-		return err
-	}
-	if err := controller.Delayer.Start(); err != nil {
-		return err
-	}
-	if err := controller.Scheduler.Start(); err != nil {
-		return err
-	}
-
 	// Create a context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	controller.workerCancel = cancel
 
-	// Create worker pool to process calls from Ingest channel
-	// Use 2x CPU cores to prevent worker pool exhaustion during blocking operations
+	// Start call workers before any optional restore work so ingest and clients
+	// are not blocked behind delayed-call replay or maintenance tasks.
 	workerCount := runtime.NumCPU() * 2
 	controller.workerStats.activeWorkers = workerCount
+	log.Printf("startup: starting %d call processing workers", workerCount)
 	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("Starting %d call processing workers", workerCount))
 
 	for i := 0; i < workerCount; i++ {
@@ -3180,6 +3305,7 @@ func (controller *Controller) Start() error {
 							controller.workerStats.avgProcessTime = (controller.workerStats.avgProcessTime + processTime) / 2
 						}
 						controller.workerStats.Unlock()
+						controller.RecentCalls.Bump()
 					}
 				case <-ctx.Done():
 					return
@@ -3188,6 +3314,7 @@ func (controller *Controller) Start() error {
 		}(i)
 	}
 
+	log.Printf("startup: worker pool ready")
 	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("Worker pool started - %d workers ready", workerCount))
 
 	// Start client management goroutine
@@ -3228,7 +3355,19 @@ func (controller *Controller) Start() error {
 
 	controller.Dirwatches.Start(controller)
 
-	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: server ready in %s", time.Since(startupStart).Round(time.Millisecond)))
+	if err = controller.Admin.Start(); err != nil {
+		return err
+	}
+	if err := controller.Delayer.Start(); err != nil {
+		return err
+	}
+	if err := controller.Scheduler.Start(); err != nil {
+		return err
+	}
+
+	readyIn := time.Since(startupStart).Round(time.Millisecond)
+	log.Printf("startup: server ready in %s", readyIn)
+	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("startup: server ready in %s", readyIn))
 
 	return nil
 }

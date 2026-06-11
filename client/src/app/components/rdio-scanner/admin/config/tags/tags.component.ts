@@ -21,6 +21,7 @@
 import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
 import { Component, Input } from '@angular/core';
 import { FormArray, FormGroup } from '@angular/forms';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { RdioScannerAdminService } from '../../admin.service';
 
 @Component({
@@ -47,7 +48,12 @@ export class RdioScannerAdminTagsComponent {
         { value: '#ffffff', label: 'White',         hex: '#ffffff' },
     ];
 
-    constructor(private adminService: RdioScannerAdminService) {}
+    saving = false;
+
+    constructor(
+        private adminService: RdioScannerAdminService,
+        private snackBar: MatSnackBar,
+    ) {}
 
     get tags(): FormGroup[] {
         if (!this.form) return [];
@@ -88,6 +94,7 @@ export class RdioScannerAdminTagsComponent {
     remove(index: number): void {
         this.form?.removeAt(index);
         this.form?.markAsDirty();
+        this.saveAll(false);
     }
 
     drop(event: CdkDragDrop<FormGroup[]>): void {
@@ -95,26 +102,67 @@ export class RdioScannerAdminTagsComponent {
         moveItemInArray(event.container.data, event.previousIndex, event.currentIndex);
         event.container.data.forEach((dat, idx) => dat.get('order')?.setValue(idx + 1, { emitEvent: false }));
         this.form?.markAsDirty();
+        this.saveAll(false);
+    }
+
+    /** Color select changes auto-save. */
+    onColorChange(): void {
+        this.form?.markAsDirty();
+        this.saveAll(false);
+    }
+
+    /**
+     * API-driven save: PUT /api/admin/tags with the full list. Auto-invoked for
+     * structural changes (reorder/remove/color/cleanup); the Save button covers
+     * label text edits.
+     */
+    async saveAll(showToast = true): Promise<void> {
+        if (!this.form) return;
+        if (this.form.invalid) {
+            if (showToast) {
+                this.snackBar.open('Fix the highlighted fields before saving.', 'Close', { duration: 4000 });
+            }
+            return;
+        }
+
+        this.saving = true;
+        const updated = await this.adminService.saveTags(this.form.getRawValue());
+        this.saving = false;
+
+        if (updated) {
+            this.form.markAsPristine();
+            if (showToast) {
+                this.snackBar.open('Tags saved', 'Close', { duration: 1500 });
+            }
+        } else if (showToast) {
+            this.snackBar.open('Failed to save tags. Please try again.', 'Close', { duration: 4000 });
+        }
     }
 
     cleanupUnused(): void {
-        if (!this.form) return;
-        const systemsArray = this.form.root.get('systems') as FormArray;
-        if (!systemsArray) return;
+        if (!this.form || !this.originalConfig?.systems) return;
+
         const usedTagIds = new Set<number>();
-        systemsArray.controls.forEach(sys => {
-            const tgs = sys.get('talkgroups') as FormArray;
-            if (tgs) {
-                tgs.controls.forEach(tg => {
-                    const id = tg.get('tagId')?.value;
-                    if (id) usedTagIds.add(id);
-                });
+        for (const system of this.originalConfig.systems) {
+            if (!system.talkgroups || !Array.isArray(system.talkgroups)) {
+                continue;
             }
-        });
+            for (const talkgroup of system.talkgroups) {
+                const tagId = talkgroup.tagId ?? talkgroup.tag;
+                if (tagId) {
+                    usedTagIds.add(tagId);
+                }
+            }
+        }
+
         for (let i = this.form.controls.length - 1; i >= 0; i--) {
             const id = this.form.at(i).get('id')?.value;
-            if (id && !usedTagIds.has(id)) this.form.removeAt(i);
+            if (id && !usedTagIds.has(id)) {
+                this.form.removeAt(i);
+            }
         }
+
         this.form.markAsDirty();
+        this.saveAll(false);
     }
 }

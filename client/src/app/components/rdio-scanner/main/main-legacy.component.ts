@@ -17,7 +17,7 @@
  * ****************************************************************************
  */
 
-import { ChangeDetectorRef, Component, EventEmitter, OnDestroy, OnInit, Output, ViewChild } from '@angular/core';
+import { ChangeDetectorRef, Component, EventEmitter, Input, OnDestroy, OnInit, Output, ViewChild } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
 import { MatInput } from '@angular/material/input';
 import { MatSnackBar } from '@angular/material/snack-bar';
@@ -35,6 +35,7 @@ import {
 } from '../rdio-scanner';
 import { RdioScannerService } from '../rdio-scanner.service';
 import { TagColorService } from '../tag-color.service';
+import { findUnitLabelForSrc } from '../unit-utils';
 import { RdioScannerSupportComponent } from './support/support.component';
 import { AlertsService } from '../alerts/alerts.service';
 import { RdioScannerAlert } from '../rdio-scanner';
@@ -49,7 +50,7 @@ interface MergedAlert {
     systemLabel?: string;
     talkgroupIds: number[];
     talkgroupLabels: string[];
-    alertType: 'tone' | 'keyword' | 'tone+keyword';
+    alertType: 'tone' | 'keyword' | 'tone+keyword' | 'transcript';
     toneDetected: boolean;
     matchedToneSetNames: string[];
     keywordsMatched: string[];
@@ -76,7 +77,6 @@ interface ButtonVisibility {
     selector: 'rdio-scanner-main-legacy',
     styleUrls: [
         '../common.scss',
-        './main.component.scss',
         './main-legacy.component.scss',
     ],
     templateUrl: './main-legacy.component.html',
@@ -334,6 +334,15 @@ export class RdioScannerMainLegacyComponent implements OnDestroy, OnInit {
     @Output() signOut = new EventEmitter<void>();
 
     @Output() toggleClassicViewRequest = new EventEmitter<void>();
+
+    /**
+     * True when this view is the one currently shown to the user. The parent
+     * keeps both classic and console views mounted simultaneously so toggling
+     * is instant. Each view must skip user-visible side effects (snackbar
+     * errors, PWA auto-livefeed) when it is the hidden one, otherwise events
+     * fire twice.
+     */
+    @Input() viewActive = true;
 
     @ViewChild('password', { read: MatInput }) private authPassword: MatInput | undefined;
 
@@ -835,6 +844,12 @@ export class RdioScannerMainLegacyComponent implements OnDestroy, OnInit {
                 return;
             }
 
+            // Only the visible view should auto-start livefeed; the sibling view
+            // is mounted but hidden and must not race for the singleton service.
+            if (!this.viewActive) {
+                return;
+            }
+
             // Check if auto livefeed is enabled and if running as PWA
             this.settingsService.shouldAutoStartLivefeed().subscribe({
                 next: async (shouldAutoStart) => {
@@ -1331,6 +1346,13 @@ export class RdioScannerMainLegacyComponent implements OnDestroy, OnInit {
 
             this.branding = this.config?.branding ?? '';
 
+            // Prefer the running server's version over the client's stamped
+            // build version (which can drift between releases). The server
+            // sends this via the VER websocket message; see server/version.go.
+            if (this.config?.version) {
+                this.version = this.config.version;
+            }
+
             const brandingText = this.branding.trim() || 'ThinLine Radio';
             const pageTitle = `TLR-${brandingText}`;
             this.titleService.setTitle(pageTitle);
@@ -1381,8 +1403,9 @@ export class RdioScannerMainLegacyComponent implements OnDestroy, OnInit {
             }
         }
 
-        if ('error' in event && event.error) {
-            // Display error message in snackbar
+        if ('error' in event && event.error && this.viewActive) {
+            // Display error message in snackbar — only the visible view; the hidden
+            // sibling view also receives this event but must not double-toast.
             this.matSnackBar.open(event.error, 'Close', {
                 duration: 5000,
                 panelClass: ['error-snackbar']
@@ -1597,13 +1620,9 @@ export class RdioScannerMainLegacyComponent implements OnDestroy, OnInit {
                         this.callUnit = firstAvailableAlias;
                     } else if (Array.isArray(this.call.systemData?.units)) {
                         // Fall back to admin-configured static unit table
-                        this.callUnit = this.call.systemData?.units?.find((u) => {
-                            if (typeof u.unitFrom === 'number' && typeof u.unitTo === 'number')
-                                if (u.unitFrom <= (source.src as number) && u.unitTo >= (source.src as number))
-                                    return true;
-
-                            return u.id === source.src;
-                        })?.label ?? `${source.src}`;
+                        const units = this.call.systemData!.units;
+                        this.callUnit = findUnitLabelForSrc(units, source.src as number)
+                            ?? `${source.src}`;
                     } else {
                         this.callUnit = `${source.src}`;
                     }
@@ -1612,7 +1631,9 @@ export class RdioScannerMainLegacyComponent implements OnDestroy, OnInit {
             } else {
                 this.callTalkgroupId = isAfs ? this.formatAfs(this.call.talkgroup) : this.call.talkgroup.toString();
 
-                this.callUnit = this.call.systemData?.units?.find((u) => u.id === this.call?.source)?.label ?? `${this.call.source ?? ''}`;
+                this.callUnit = typeof this.call.source === 'number'
+                    ? (findUnitLabelForSrc(this.call.systemData?.units, this.call.source) ?? `${this.call.source}`)
+                    : '';
             }
         }
 
@@ -2028,6 +2049,8 @@ export class RdioScannerMainLegacyComponent implements OnDestroy, OnInit {
                 return 'KEYWORD';
             case 'tone+keyword':
                 return 'TONE & KEYWORD';
+            case 'transcript':
+                return 'TRANSCRIPT';
             default:
                 return 'ALERT';
         }

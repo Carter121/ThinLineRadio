@@ -66,6 +66,17 @@ export interface Alerts {
     [key: string]: Alert[];
 }
 
+export interface CopilotMessage {
+    role: 'user' | 'assistant';
+    content: string;
+}
+
+export interface CopilotChatResponse {
+    message: CopilotMessage;
+    toolsUsed?: string[];
+    error?: string;
+}
+
 export interface AdminEvent {
     authenticated?: boolean;
     config?: Config;
@@ -210,8 +221,14 @@ export interface Group {
 export interface Log {
     id?: number;
     dateTime: Date;
-    level: number;
+    level: 'error' | 'info' | 'warn' | string;
+    category?: string;
     message: string;
+}
+
+export interface LogCategory {
+    key: string;
+    label: string;
 }
 
 export interface LogsQuery {
@@ -223,10 +240,12 @@ export interface LogsQuery {
 }
 
 export interface LogsQueryOptions {
+    categories?: string[];
     date?: Date;
     level?: 'error' | 'info' | 'warn';
     limit: number;
     offset: number;
+    search?: string;
     sort: number;
 }
 
@@ -329,10 +348,15 @@ export interface Options {
         assemblyAIKey?: string;
         assemblyAISpeechModel?: string;
         assemblyAIWordBoost?: string[];
+        cloudflareAccountID?: string;
+        cloudflareAPIToken?: string;
+        cloudflareModel?: string;
         hallucinationPatterns?: string[];
         hallucinationDetectionMode?: string;
         hallucinationMinOccurrences?: number;
         timeoutSeconds?: number;
+        collectorURL?: string;
+        collectorAPIKey?: string;
     };
     alertRetentionDays?: number;
     systemHealthAlertsEnabled?: boolean;
@@ -373,6 +397,44 @@ export interface Options {
     transcriptParserConfig?: TranscriptConfig;
     // Address parsing / geocoding
     nominatimUrl?: string;
+    openAIIntegration?: OpenAIIntegration;
+    autoLearnToneSetConfig?: AutoLearnToneSetConfig;
+}
+
+export interface OpenAIIntegration {
+    apiKey?: string;
+    baseUrl?: string;
+    /** Chat model for tone/unit auto-learn naming (default gpt-5.4-mini). */
+    model?: string;
+}
+
+export interface OpenAIChatModelOption {
+    id: string;
+    label: string;
+    inputPerM: number;
+    outputPerM: number;
+    estPerNamingUSD: number;
+}
+
+export const OPENAI_CHAT_MODEL_OPTIONS: OpenAIChatModelOption[] = [
+    { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini (recommended)', inputPerM: 0.75, outputPerM: 4.50, estPerNamingUSD: 0.002 },
+    { id: 'gpt-4o-mini', label: 'GPT-4o mini (lowest cost)', inputPerM: 0.15, outputPerM: 0.60, estPerNamingUSD: 0.0004 },
+    { id: 'gpt-4o', label: 'GPT-4o (highest quality)', inputPerM: 2.50, outputPerM: 10.00, estPerNamingUSD: 0.006 },
+];
+
+export interface AutoLearnToneSetConfig {
+    aToneMinDuration?: number;
+    aToneMaxDuration?: number;
+    bToneMinDuration?: number;
+    bToneMaxDuration?: number;
+    longToneMinDuration?: number;
+    longToneMaxDuration?: number;
+    callsRequired?: number;
+    frequencyToleranceHz?: number;
+    /** @deprecated migrated to openAIIntegration */
+    openAIAPIKey?: string;
+    /** @deprecated migrated to openAIIntegration */
+    openAIAPIURL?: string;
 }
 
 export interface ToneImportResponse {
@@ -380,6 +442,39 @@ export interface ToneImportResponse {
     count: number;
     toneSets: RdioScannerToneSet[];
     warnings?: string[];
+}
+
+export interface ToneHistorySampleCall {
+    callId: number;
+    transcript: string;
+}
+
+export interface ToneHistorySuggestion {
+    patternType: string;
+    patternDesc: string;
+    callCount: number;
+    callIds: number[];
+    label: string;
+    toneSet: RdioScannerToneSet;
+    samples?: ToneHistorySampleCall[];
+}
+
+export interface ToneHistoryPartialPattern {
+    patternDesc: string;
+    callCount: number;
+}
+
+export interface ToneHistoryAnalyzeResponse {
+    callsScanned: number;
+    callsWithTones: number;
+    callsWithCandidates?: number;
+    discoverErrors?: number;
+    patternsBelowThreshold?: number;
+    partialPatterns?: ToneHistoryPartialPattern[];
+    callsRequired: number;
+    lookbackHours?: number;
+    suggestions: ToneHistorySuggestion[];
+    message?: string;
 }
 
 export interface Site {
@@ -414,6 +509,18 @@ export interface System {
     /** When true, merge heard unit ID + label from calls into this system's unit list (default off; independent of autoPopulate) */
     autoPopulateUnits?: boolean;
     transcriptionPrompt?: string;       // Custom Whisper/AssemblyAI prompt; overrides global when non-empty
+    autoLearnToneSets?: boolean;
+    autoLearnToneSetsTagIds?: number[];
+    autoLearnToneSetsAutoOffDays?: number;
+    autoLearnToneSetsExpiresAt?: number;
+    bulkToneDetectionEnabled?: boolean;
+    bulkToneDetectionTagIds?: number[];
+    bulkToneDetectionAutoOffDays?: number;
+    bulkToneDetectionExpiresAt?: number;
+    autoLearnUnitAliases?: boolean;
+    autoLearnUnitAliasesTagIds?: number[];
+    autoLearnUnitAliasesAutoOffDays?: number;
+    autoLearnUnitAliasesExpiresAt?: number;
 }
 
 export interface Tag {
@@ -455,6 +562,9 @@ export interface Talkgroup {
     alertsEnabled?: boolean;
     // Custom transcription prompt; overrides system and global prompts when non-empty
     transcriptionPrompt?: string;
+    autoLearnToneSets?: boolean;
+    autoLearnUnitAliases?: boolean;
+    alertingTalkgroup?: boolean;
 }
 
 export interface Unit {
@@ -474,6 +584,9 @@ enum url {
     login = 'login',
     logout = 'logout',
     logs = 'logs',
+    logsCategories = 'logs/categories',
+    copilotChat = 'copilot/chat',
+    options = 'options',
     password = 'password',
     purge = 'purge',
     systemhealth = 'systemhealth',
@@ -621,11 +734,35 @@ export class RdioScannerAdminService implements OnDestroy {
         return {};
     } // end _fetchConfig
 
+    async getLogCategories(): Promise<LogCategory[]> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.get<{ categories: LogCategory[] }>(
+                this.getUrl(url.logsCategories),
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return res?.categories ?? [];
+        } catch (error) {
+            this.errorHandler(error);
+            return [];
+        }
+    }
+
     async getLogs(options: LogsQueryOptions): Promise<LogsQuery | undefined> {
         try {
+            const payload: Record<string, unknown> = { ...options };
+            if (payload['date'] instanceof Date) {
+                payload['date'] = (payload['date'] as Date).toISOString();
+            }
+            if (Array.isArray(payload['categories']) && (payload['categories'] as string[]).length === 0) {
+                delete payload['categories'];
+            }
+            if (payload['search'] === '') {
+                delete payload['search'];
+            }
+
             const res = await firstValueFrom(this.ngHttpClient.post<LogsQuery>(
                 this.getUrl(url.logs),
-                options,
+                payload,
                 { headers: this.getHeaders(), responseType: 'json' },
             ));
 
@@ -723,6 +860,27 @@ export class RdioScannerAdminService implements OnDestroy {
             ));
         } catch (error) {
             this.errorHandler(error);
+            throw error;
+        }
+    }
+
+    async copilotChat(messages: CopilotMessage[]): Promise<CopilotChatResponse> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.post<CopilotChatResponse>(
+                this.getUrl(url.copilotChat),
+                { messages },
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return res;
+        } catch (error) {
+            this.errorHandler(error);
+            if (error instanceof HttpErrorResponse) {
+                const body = error.error;
+                const msg = typeof body === 'object' && body?.error
+                    ? String(body.error)
+                    : error.message;
+                throw new Error(msg);
+            }
             throw error;
         }
     }
@@ -1095,6 +1253,198 @@ export class RdioScannerAdminService implements OnDestroy {
         }
     }
 
+    /**
+     * API-driven option save. Sends only the provided keys to PATCH /api/admin/options;
+     * the server merges them over current options, persists, and broadcasts the new
+     * config to live clients. Returns the updated full config on success.
+     */
+    async updateOptions(partial: { [key: string]: any }): Promise<Config | undefined> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.patch<{ config: Config }>(
+                this.getUrl(url.options),
+                partial,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+
+            return res.config;
+
+        } catch (error) {
+            this.errorHandler(error);
+
+            return undefined;
+        }
+    }
+
+    /** API-driven save for the API Keys list. Sends the full list; server diffs + persists + emits. */
+    async getApikeys(): Promise<any[]> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.get<{ apikeys: any[] }>(
+                this.getUrl('apikeys'),
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return res.apikeys || [];
+        } catch (error) {
+            this.errorHandler(error);
+            return [];
+        }
+    }
+
+    async saveApikeys(apikeys: any[]): Promise<any[] | undefined> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.put<{ apikeys: any[] }>(
+                this.getUrl('apikeys'),
+                apikeys,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return res.apikeys;
+        } catch (error) {
+            this.errorHandler(error);
+            return undefined;
+        }
+    }
+
+    /** API-driven save for the Tags list. */
+    async saveTags(tags: any[]): Promise<any[] | undefined> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.put<{ tags: any[] }>(
+                this.getUrl('tags'), tags,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return res.tags;
+        } catch (error) {
+            this.errorHandler(error);
+            return undefined;
+        }
+    }
+
+    /** API-driven save for the (talkgroup) Groups list. */
+    async saveGroups(groups: any[]): Promise<any[] | undefined> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.put<{ groups: any[] }>(
+                this.getUrl('talkgroup-groups'), groups,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return res.groups;
+        } catch (error) {
+            this.errorHandler(error);
+            return undefined;
+        }
+    }
+
+    /** API-driven save for the Downstreams list. */
+    async saveDownstreams(downstreams: any[]): Promise<any[] | undefined> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.put<{ downstreams: any[] }>(
+                this.getUrl('downstreams'), downstreams,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return res.downstreams;
+        } catch (error) {
+            this.errorHandler(error);
+            return undefined;
+        }
+    }
+
+    async getKeywordLists(): Promise<KeywordList[] | undefined> {
+        try {
+            return await firstValueFrom(this.ngHttpClient.get<KeywordList[]>(
+                '/api/keyword-lists',
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+        } catch (error) {
+            this.errorHandler(error);
+            return undefined;
+        }
+    }
+
+    async createKeywordList(list: Partial<KeywordList>): Promise<boolean> {
+        try {
+            await firstValueFrom(this.ngHttpClient.post(
+                '/api/keyword-lists',
+                list,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return true;
+        } catch (error) {
+            this.errorHandler(error);
+            return false;
+        }
+    }
+
+    async updateKeywordList(listId: number, list: Partial<KeywordList>): Promise<boolean> {
+        try {
+            await firstValueFrom(this.ngHttpClient.put(
+                `/api/keyword-lists/${listId}`,
+                list,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return true;
+        } catch (error) {
+            this.errorHandler(error);
+            return false;
+        }
+    }
+
+    async deleteKeywordList(listId: number): Promise<boolean> {
+        try {
+            await firstValueFrom(this.ngHttpClient.delete(
+                `/api/keyword-lists/${listId}`,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return true;
+        } catch (error) {
+            this.errorHandler(error);
+            return false;
+        }
+    }
+
+    /** API-driven save for the Dirwatch list. */
+    async saveDirwatch(dirwatch: any[]): Promise<any[] | undefined> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.put<{ dirwatch: any[] }>(
+                this.getUrl('dirwatch'), dirwatch,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return res.dirwatch;
+        } catch (error) {
+            this.errorHandler(error);
+            return undefined;
+        }
+    }
+
+    /**
+     * API-driven save for a SINGLE system. The server merges this one system into
+     * the in-memory list, leaving every other system's talkgroups untouched (which
+     * is essential because the UI lazy-loads talkgroups per system). Returns the
+     * full, freshly-read systems list so the caller can pick up server-assigned ids.
+     */
+    async saveSystem(system: any): Promise<any[] | undefined> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.put<{ systems: any[] }>(
+                this.getUrl('systems/save'), system,
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return res.systems;
+        } catch (error) {
+            this.errorHandler(error);
+            return undefined;
+        }
+    }
+
+    /** API-driven delete for a SINGLE system by id. Returns the updated systems list. */
+    async deleteSystem(id: number): Promise<any[] | undefined> {
+        try {
+            const res = await firstValueFrom(this.ngHttpClient.delete<{ systems: any[] }>(
+                this.getUrl(`systems/delete/${id}`),
+                { headers: this.getHeaders(), responseType: 'json' },
+            ));
+            return res.systems;
+        } catch (error) {
+            this.errorHandler(error);
+            return undefined;
+        }
+    }
+
     async saveSystemNoAudioSettings(systemId: number, noAudioAlertsEnabled: boolean, noAudioThresholdMinutes: number): Promise<void> {
         try {
             await firstValueFrom(this.ngHttpClient.post(
@@ -1263,6 +1613,9 @@ export class RdioScannerAdminService implements OnDestroy {
             assemblyAIKey: '',
             assemblyAISpeechModel: '',
             assemblyAIWordBoost: [],
+            cloudflareAccountID: '',
+            cloudflareAPIToken: '',
+            cloudflareModel: '@cf/openai/whisper-large-v3-turbo',
         };
 
 		return this.ngFormBuilder.group({
@@ -1347,6 +1700,9 @@ export class RdioScannerAdminService implements OnDestroy {
                 assemblyAIWordBoost: this.ngFormBuilder.control(
                     (transcriptionConfig?.assemblyAIWordBoost || []).join('\n')
                 ),
+                cloudflareAccountID: this.ngFormBuilder.control(transcriptionConfig?.cloudflareAccountID || ''),
+                cloudflareAPIToken: this.ngFormBuilder.control(transcriptionConfig?.cloudflareAPIToken || ''),
+                cloudflareModel: this.ngFormBuilder.control(transcriptionConfig?.cloudflareModel || '@cf/openai/whisper-large-v3-turbo'),
                 hallucinationPatterns: this.ngFormBuilder.control(
                     (transcriptionConfig?.hallucinationPatterns || []).join('\n')
                 ),
@@ -1386,6 +1742,31 @@ export class RdioScannerAdminService implements OnDestroy {
             centralManagementAPIKey: this.ngFormBuilder.control(options?.centralManagementAPIKey || ''),
             centralManagementServerName: this.ngFormBuilder.control(options?.centralManagementServerName || ''),
             centralManagementServerID: this.ngFormBuilder.control(options?.centralManagementServerID || ''),
+            openAIIntegration: this.ngFormBuilder.group({
+                baseUrl: this.ngFormBuilder.control(
+                    options?.openAIIntegration?.baseUrl
+                    || options?.autoLearnToneSetConfig?.openAIAPIURL
+                    || 'https://api.openai.com',
+                ),
+                apiKey: this.ngFormBuilder.control(
+                    options?.openAIIntegration?.apiKey
+                    || options?.autoLearnToneSetConfig?.openAIAPIKey
+                    || '',
+                ),
+                model: this.ngFormBuilder.control(
+                    options?.openAIIntegration?.model || 'gpt-5.4-mini',
+                ),
+            }),
+            autoLearnToneSetConfig: this.ngFormBuilder.group({
+                aToneMinDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.aToneMinDuration ?? 0.5, [Validators.min(0.1)]),
+                aToneMaxDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.aToneMaxDuration ?? 1.2, [Validators.min(0.1)]),
+                bToneMinDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.bToneMinDuration ?? 1.5, [Validators.min(0.1)]),
+                bToneMaxDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.bToneMaxDuration ?? 3.3, [Validators.min(0.1)]),
+                longToneMinDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.longToneMinDuration ?? 6, [Validators.min(1)]),
+                longToneMaxDuration: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.longToneMaxDuration ?? 0, [Validators.min(0)]),
+                callsRequired: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.callsRequired ?? 3, [Validators.min(2)]),
+                frequencyToleranceHz: this.ngFormBuilder.control(options?.autoLearnToneSetConfig?.frequencyToleranceHz ?? 20, [Validators.min(1)]),
+            }),
             nominatimUrl: this.ngFormBuilder.control(options?.nominatimUrl || ''),
         });
     }
@@ -1422,6 +1803,18 @@ export class RdioScannerAdminService implements OnDestroy {
             autoPopulateAlertsEnabled: this.ngFormBuilder.control(system?.autoPopulateAlertsEnabled !== false),
             autoPopulateUnits: this.ngFormBuilder.control(system?.autoPopulateUnits === true),
             transcriptionPrompt: this.ngFormBuilder.control(system?.transcriptionPrompt || ''),
+            autoLearnToneSets: this.ngFormBuilder.control(system?.autoLearnToneSets || false),
+            autoLearnToneSetsTagIds: this.ngFormBuilder.control(system?.autoLearnToneSetsTagIds || []),
+            autoLearnToneSetsAutoOffDays: this.ngFormBuilder.control(system?.autoLearnToneSetsAutoOffDays || 0, [Validators.min(0)]),
+            autoLearnToneSetsExpiresAt: this.ngFormBuilder.control(system?.autoLearnToneSetsExpiresAt || 0),
+            bulkToneDetectionEnabled: this.ngFormBuilder.control(system?.bulkToneDetectionEnabled || false),
+            bulkToneDetectionTagIds: this.ngFormBuilder.control(system?.bulkToneDetectionTagIds || []),
+            bulkToneDetectionAutoOffDays: this.ngFormBuilder.control(system?.bulkToneDetectionAutoOffDays || 0, [Validators.min(0)]),
+            bulkToneDetectionExpiresAt: this.ngFormBuilder.control(system?.bulkToneDetectionExpiresAt || 0),
+            autoLearnUnitAliases: this.ngFormBuilder.control(system?.autoLearnUnitAliases || false),
+            autoLearnUnitAliasesTagIds: this.ngFormBuilder.control(system?.autoLearnUnitAliasesTagIds || []),
+            autoLearnUnitAliasesAutoOffDays: this.ngFormBuilder.control(system?.autoLearnUnitAliasesAutoOffDays || 0, [Validators.min(0)]),
+            autoLearnUnitAliasesExpiresAt: this.ngFormBuilder.control(system?.autoLearnUnitAliasesExpiresAt || 0),
         });
     }
 
@@ -1454,7 +1847,6 @@ export class RdioScannerAdminService implements OnDestroy {
                     longToneMinDuration: this.ngFormBuilder.control(toneSet.longTone?.minDuration || null),
                     longToneMaxDuration: this.ngFormBuilder.control(toneSet.longTone?.maxDuration || null),
                     tolerance: this.ngFormBuilder.control(toneSet.tolerance || 10),
-                    minDuration: this.ngFormBuilder.control(toneSet.minDuration || null),
                     // TonesToActive downstream forwarding (per tone set)
                     downstreamEnabled: this.ngFormBuilder.control(toneSet.downstreamEnabled || false),
                     downstreamURL: this.ngFormBuilder.control(toneSet.downstreamURL || ''),
@@ -1489,6 +1881,9 @@ export class RdioScannerAdminService implements OnDestroy {
             linkedVoiceMinDurationSeconds: this.ngFormBuilder.control(talkgroup?.linkedVoiceMinDurationSeconds || 0, Validators.min(0)),
             alertsEnabled: this.ngFormBuilder.control(talkgroup?.alertsEnabled !== false), // Default to true
             transcriptionPrompt: this.ngFormBuilder.control(talkgroup?.transcriptionPrompt || ''),
+            autoLearnToneSets: this.ngFormBuilder.control(talkgroup?.autoLearnToneSets || false),
+            autoLearnUnitAliases: this.ngFormBuilder.control(talkgroup?.autoLearnUnitAliases || false),
+            alertingTalkgroup: this.ngFormBuilder.control(talkgroup?.alertingTalkgroup || false),
         });
     }
 
@@ -1506,6 +1901,14 @@ export class RdioScannerAdminService implements OnDestroy {
             { url, apiKey, toneSets },
             { headers: this.getHeaders() },
         );
+    }
+
+    analyzeToneHistory(systemId: number, talkgroupId: number, limit = 200, hours = 168): Observable<ToneHistoryAnalyzeResponse> {
+        return this.ngHttpClient.post<ToneHistoryAnalyzeResponse>(
+            '/api/admin/tone-history-analyze',
+            { systemId, talkgroupId, limit, hours },
+            { headers: this.getHeaders() },
+        ).pipe(timeout(900000));
     }
 
     private generateToneSetId(): string {
@@ -1677,7 +2080,15 @@ export class RdioScannerAdminService implements OnDestroy {
 
             const type = dirwatch.type;
 
-            return ['dsdplus', 'sdr-trunk', 'trunk-recorder'].includes(type) || control.value !== null || /#SYS/.test(mask) ? null : { required: true };
+            if (['sdr-trunk', 'trunk-recorder'].includes(type)) {
+                return null;
+            }
+
+            if (type === 'default' && /#SYS/.test(mask)) {
+                return null;
+            }
+
+            return control.value !== null ? null : { required: true };
         };
     }
 
@@ -1689,7 +2100,15 @@ export class RdioScannerAdminService implements OnDestroy {
 
             const type = dirwatch.type;
 
-            return ['dsdplus', 'sdr-trunk', 'trunk-recorder'].includes(type) || control.value !== null || /#TG/.test(mask) ? null : { required: true };
+            if (['sdr-trunk', 'trunk-recorder'].includes(type)) {
+                return null;
+            }
+
+            if (type === 'default' && /#TG/.test(mask)) {
+                return null;
+            }
+
+            return control.value !== null ? null : { required: true };
         };
     }
 

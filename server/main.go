@@ -151,6 +151,10 @@ window.initialConfig = {
 }
 
 func main() {
+	// Record process start time as early as possible so /api/health can report
+	// accurate uptime regardless of how long initialization takes.
+	processStartTime = time.Now()
+
 	// Enable multi-core processing
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	log.Printf("Starting ThinLine Radio with %d CPU cores", runtime.NumCPU())
@@ -215,12 +219,6 @@ func main() {
 		controller.Logs.LogEvent(LogLevelInfo, "admin password changed.")
 
 		os.Exit(0)
-	}
-
-	if err := controller.Start(); err != nil {
-		log.Printf("FATAL: Failed to start controller: %v", err)
-		log.Printf("Server cannot continue without a running controller. Exiting.")
-		os.Exit(1)
 	}
 
 	// Create a panic recovery middleware
@@ -320,11 +318,25 @@ func main() {
 	http.HandleFunc("/api/admin/system-health-alerts-enabled", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemHealthAlertsEnabledHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/system-health-alert-settings", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemHealthAlertSettingsHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/call-audio/", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.CallAudioHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/transcript-review/collector/request-key", wrapHandler(http.HandlerFunc(controller.Admin.TranscriptReviewRequestCollectorKeyHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/transcript-review/collector/stats", wrapHandler(http.HandlerFunc(controller.Admin.TranscriptReviewCollectorStatsHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/transcript-review/collector", wrapHandler(http.HandlerFunc(controller.Admin.TranscriptReviewCollectorHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/transcript-review", wrapHandler(http.HandlerFunc(controller.Admin.TranscriptReviewHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/transcript-review/", wrapHandler(http.HandlerFunc(controller.Admin.TranscriptReviewCallHandler)).ServeHTTP)
 
 	http.HandleFunc("/api/admin/tone-import", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.ToneImportHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/sync-tone-sets", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SyncToneSetsHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/tone-history-analyze", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.ToneHistoryAnalyzeHandler)).ServeHTTP)
 
 	http.HandleFunc("/api/admin/config", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.ConfigHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/options", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.OptionsPatchHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/apikeys", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.ApikeysHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/tags", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.TagsHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/talkgroup-groups", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.GroupsConfigHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/downstreams", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.DownstreamsHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/dirwatch", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.DirwatchConfigHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/systems/save", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemSaveHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/systems/delete/", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemDeleteHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/email-logo", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.EmailLogoUploadHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/email-logo/delete", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.EmailLogoDeleteHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/favicon", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.FaviconUploadHandler)).ServeHTTP)
@@ -376,6 +388,8 @@ func main() {
 	http.HandleFunc("/api/admin/logout", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.LogoutHandler)).ServeHTTP)
 
 	http.HandleFunc("/api/admin/logs", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.LogsHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/logs/categories", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.LogsCategoriesHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/copilot/chat", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.CopilotChatHandler)).ServeHTTP)
 
 	http.HandleFunc("/api/admin/calls", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.CallsHandler)).ServeHTTP)
 
@@ -517,6 +531,7 @@ func main() {
 	http.HandleFunc("/api/alerts/preferences", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.AlertPreferencesHandler))).ServeHTTP)
 	http.HandleFunc("/api/stats", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.StatsHandler))).ServeHTTP)
 	http.HandleFunc("/api/transcripts", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.TranscriptsHandler))).ServeHTTP)
+	http.HandleFunc("/api/transcripts/training-progress", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.TranscriptsTrainingProgressHandler))).ServeHTTP)
 	http.HandleFunc("/api/keyword-lists", wrapHandler(http.HandlerFunc(controller.Api.KeywordListsHandler)).ServeHTTP)
 
 	// System alert routes (system admins only)
@@ -662,6 +677,13 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"pending":%d}`, depth)
 	}))
+
+	// Read-only Health API, gated by HTTP Basic Auth using the admin password
+	// (same scheme as /calls). Cached internally for ~3s to avoid amplification
+	// by aggressive scrapers.
+	http.HandleFunc("/api/health", wrapHandler(controller.Admin.requireAdminBasicAuth(controller.Health.FullHandler)).ServeHTTP)
+	http.HandleFunc("/api/health/live", wrapHandler(controller.Admin.requireAdminBasicAuth(controller.Health.LiveHandler)).ServeHTTP)
+	http.HandleFunc("/api/health/ready", wrapHandler(controller.Admin.requireAdminBasicAuth(controller.Health.ReadyHandler)).ServeHTTP)
 
 	// Login blocked countdown page
 	http.HandleFunc("/login-blocked", wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1035,9 +1057,18 @@ func main() {
 		log.Printf("admin interface at http://%s:%s/admin", hostname, port)
 	}
 
+	if err := controller.Start(); err != nil {
+		log.Printf("FATAL: Failed to start controller: %v", err)
+		log.Printf("Server cannot continue without a running controller. Exiting.")
+		os.Exit(1)
+	}
+
+	deferPostStartupMaintenance(controller.Database)
+
 	// Start HTTP server in a goroutine
 	httpServer = newServer(fmt.Sprintf("%s:%s", addr, port), nil)
 	go func() {
+		log.Printf("startup: HTTP listening on %s:%s", addr, port)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("HTTP server error: %v", err)
 		}

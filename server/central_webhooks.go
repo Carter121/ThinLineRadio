@@ -547,6 +547,19 @@ func (api *Api) PairWithCentralManagementHandler(w http.ResponseWriter, r *http.
 	}
 
 	// Apply the centralized management configuration.
+	//
+	// We do NOT verify the new key against CM synchronously here. CM's ConnectServer
+	// flow only writes the api_keys row AFTER this pair call returns, so a synchronous
+	// register() from inside the pair handler would always 401 (chicken-and-egg).
+	// The runtime heartbeat loop in CentralManagementService will keep retrying
+	// register + heartbeat once a minute forever, so a transient CM-side delay or
+	// outage right after pairing self-heals on the next tick.
+	//
+	// The heartbeat loop never auto-unpairs the scanner on its own — if these
+	// credentials end up being wrong they'll just produce persistent failure logs
+	// and an offline state in CM admin until an operator removes the pairing
+	// explicitly (we previously wiped credentials after 5 minutes of failures,
+	// which made every brief CM outage cascade into a fleet-wide manual repair).
 	api.Controller.Options.mutex.Lock()
 	api.Controller.Options.CentralManagementEnabled = true
 	api.Controller.Options.CentralManagementURL = req.CentralManagementURL

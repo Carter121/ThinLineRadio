@@ -66,15 +66,25 @@
                  class="alert-item alert-item-embed"
                  [class.tone]="alert.alertType === 'tone'"
                  [class.keyword]="alert.alertType === 'keyword'"
-                 [class.tone-keyword]="alert.alertType === 'tone+keyword'">
+                 [class.tone-keyword]="alert.alertType === 'tone+keyword'"
+                 [class.transcript]="alert.alertType === 'transcript'">
                 <div class="alert-header">
-                    <div class="alert-type">
+                    <div class="alert-header-left">
                         <span class="alert-type-badge">{{ getAlertTypeLabel(alert) }}</span>
                         <span *ngIf="alert.toneDetected" class="tone-indicator">🔔</span>
                     </div>
-                    <div class="alert-timestamp">{{ formatTimestamp(alert.createdAt) }}</div>
+                    <div class="alert-header-right">
+                        <span class="alert-timestamp alert-timestamp--stacked">
+                            <span class="alert-timestamp-date">{{ formatAlertDate(alert.createdAt) }}</span>
+                            <span class="alert-timestamp-time">{{ formatAlertTime(alert.createdAt) }}</span>
+                        </span>
+                        <button type="button" class="btn-play btn-play--compact" (click)="playCall(alert.callId)">Play</button>
+                    </div>
                 </div>
                 <div class="alert-body">
+                    <div *ngIf="getKeywordsMatched(alert).length > 0" class="embed-keywords">
+                        <span *ngFor="let keyword of getKeywordsMatched(alert)" class="embed-keyword">{{ keyword }}</span>
+                    </div>
                     <div class="alert-channel embed-channel">
                         <span *ngIf="alert.systemLabel">{{ alert.systemLabel }}</span>
                         <span *ngIf="!alert.systemLabel">System {{ alert.systemId }}</span>
@@ -83,11 +93,6 @@
                         <span *ngIf="!alert.talkgroupLabel && alert.talkgroupName">{{ alert.talkgroupName }}</span>
                         <span *ngIf="!alert.talkgroupLabel && !alert.talkgroupName">TG {{ alert.talkgroupId }}</span>
                     </div>
-                    <div *ngIf="getKeywordsMatched(alert).length > 0" class="alert-keywords">
-                        <span class="keyword-tags">
-                            <span *ngFor="let keyword of getKeywordsMatched(alert)" class="keyword-tag">{{ keyword }}</span>
-                        </span>
-                    </div>
                     <div *ngIf="alert.alertSummary" class="alert-summary">
                         <p class="summary-text">{{ alert.alertSummary }}</p>
                     </div>
@@ -95,9 +100,6 @@
                         <p class="transcript-text"
                            [innerHTML]="renderTranscript(alert.transcript || alert.transcriptSnippet || '', alert.transcriptAnnotations)"></p>
                     </div>
-                </div>
-                <div class="alert-actions">
-                    <button type="button" class="btn-play" (click)="playCall(alert.callId)">Play</button>
                 </div>
             </div>
         </div>
@@ -114,7 +116,8 @@
         
         <div *ngIf="alerts.length > 0" class="alerts-list">
             <!-- All Alerts - Sorted by Most Recent -->
-            <mat-expansion-panel *ngFor="let group of allAlertGroups; trackBy: trackByGroupKey" 
+            <mat-expansion-panel *ngFor="let group of allAlertGroups; trackBy: trackByGroupKey"
+                                 class="alert-group-panel"
                                  [class.tone-alert-group]="group.groupType === 'tone'"
                                  [class.channel-alert-group]="group.groupType === 'channel'">
                 <mat-expansion-panel-header>
@@ -133,20 +136,27 @@
                     <div *ngFor="let alert of group.alerts; trackBy: trackByAlertId" 
                          class="alert-item" 
                          [class.tone]="alert.alertType === 'tone'"
-                         [class.tone-keyword]="alert.alertType === 'tone+keyword'">
+                         [class.tone-keyword]="alert.alertType === 'tone+keyword'"
+                         [class.transcript]="alert.alertType === 'transcript'">
                         
                         <div class="alert-header">
-                            <div class="alert-type">
+                            <div class="alert-header-left">
                                 <span class="alert-type-badge">{{ getAlertTypeLabel(alert) }}</span>
                                 <span *ngIf="alert.toneDetected" class="tone-indicator">🔔</span>
+                                <span *ngIf="getKeywordsMatched(alert).length > 0" class="keyword-tags keyword-tags--inline">
+                                    <span *ngFor="let keyword of getKeywordsMatched(alert)" class="keyword-tag">{{ keyword }}</span>
+                                </span>
                             </div>
-                            <div class="alert-timestamp">{{ formatTimestamp(alert.createdAt) }}</div>
+                            <div class="alert-header-right">
+                                <span class="alert-timestamp">{{ formatTimestamp(alert.createdAt) }}</span>
+                                <button type="button" class="btn-play btn-play--compact" (click)="playCall(alert.callId)">Play</button>
+                            </div>
                         </div>
                         
                         <div class="alert-body">
                             <div class="alert-info">
-                                <div class="alert-channel">
-                                    <strong>Channel:</strong> 
+                                <div *ngIf="group.groupType !== 'channel'" class="alert-channel">
+                                    <strong>Channel:</strong>
                                     <span>
                                         <span *ngIf="alert.systemLabel">{{ alert.systemLabel }}</span>
                                         <span *ngIf="!alert.systemLabel">System {{ alert.systemId }}</span>
@@ -158,7 +168,7 @@
                                 </div>
                                 
                                 <div *ngIf="alert.toneDetected && (alert.matchedToneSetNames?.length || alert.matchedToneSetName)" class="alert-tone-set">
-                                    <strong>Tone Set{{ (alert.matchedToneSetNames?.length || 0) > 1 ? 's' : '' }}:</strong>
+                                    <strong>Tone{{ (alert.matchedToneSetNames?.length || 0) > 1 ? 's' : '' }}:</strong>
                                     <span *ngIf="alert.matchedToneSetNames && alert.matchedToneSetNames.length > 0" class="tone-set-names">
                                         <span *ngFor="let name of alert.matchedToneSetNames; let last = last" class="tone-set-name">
                                             {{ name }}<span *ngIf="!last">, </span>
@@ -169,31 +179,14 @@
                                     </span>
                                 </div>
                                 
-                                <div *ngIf="getKeywordsMatched(alert).length > 0" class="alert-keywords">
-                                    <strong>Keywords:</strong>
-                                    <span class="keyword-tags">
-                                        <span *ngFor="let keyword of getKeywordsMatched(alert)" class="keyword-tag">
-                                            {{ keyword }}
-                                        </span>
-                                    </span>
-                                </div>
-                                
                                 <div *ngIf="alert.alertSummary" class="alert-summary">
-                                    <strong>Summary:</strong>
                                     <p class="summary-text">{{ alert.alertSummary }}</p>
                                 </div>
                                 <div *ngIf="alert.transcript || alert.transcriptSnippet" class="alert-transcript">
-                                    <strong>Transcript:</strong>
                                     <p class="transcript-text"
                                        [innerHTML]="renderTranscript(alert.transcript || alert.transcriptSnippet || '', alert.transcriptAnnotations)"></p>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <div class="alert-actions">
-                            <button class="btn-play" (click)="playCall(alert.callId)">
-                                Play Call
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -203,6 +196,65 @@
     </div>
     
     <div class="transcripts-content" *ngIf="!boardEmbed && (panelMode === 'transcripts' || (panelMode === 'alertsAndPreferences' && activeTab === 'transcripts'))">
+        <div class="global-training-goal" *ngIf="globalTrainingProgress || globalTrainingLoading">
+            <div class="global-training-header">
+                <mat-icon>groups</mat-icon>
+                <span>Community Whisper training goal</span>
+            </div>
+            <div *ngIf="globalTrainingLoading && !globalTrainingProgress" class="global-training-loading">Loading progress…</div>
+            <ng-container *ngIf="globalTrainingProgress">
+                <div class="global-training-stats">
+                    <span class="global-training-primary">{{ globalTrainingProgress.hoursDecimal | number:'1.1-1' }} / {{ globalTrainingProgress.goalHours | number }} hours</span>
+                    <span class="global-training-detail">{{ globalTrainingProgress.hours }}h {{ globalTrainingProgress.minutes }}m {{ globalTrainingProgress.seconds }}s · {{ globalTrainingProgress.percentOfGoal | number:'1.1-1' }}%</span>
+                </div>
+                <div class="global-training-bar" role="progressbar"
+                    [attr.aria-valuenow]="globalTrainingProgress.percentOfGoal"
+                    aria-valuemin="0" aria-valuemax="100">
+                    <div class="global-training-bar-fill" [style.width.%]="globalTrainingProgress.percentOfGoal"></div>
+                </div>
+                <div class="global-training-meta muted">
+                    {{ globalTrainingProgress.submissions }} reviewed submissions across {{ globalTrainingProgress.serverAccounts }} TLR servers
+                </div>
+            </ng-container>
+        </div>
+
+        <div class="transcripts-admin-bar" *ngIf="adminAuthenticated">
+            <button type="button" class="btn-training-tips" (click)="showTrainingTips = !showTrainingTips">
+                <mat-icon>{{ showTrainingTips ? 'expand_less' : 'help_outline' }}</mat-icon>
+                {{ showTrainingTips ? 'Hide training tips' : 'Show training tips' }}
+            </button>
+        </div>
+        <rdio-scanner-transcript-training-tips *ngIf="adminAuthenticated && showTrainingTips"></rdio-scanner-transcript-training-tips>
+
+        <div class="collector-setup" *ngIf="adminAuthenticated">
+            <div class="collector-setup-header">
+                <mat-icon>cloud_upload</mat-icon>
+                <span>Transcript Collector</span>
+                <span class="collector-status collector-status--ok" *ngIf="collectorHasApiKey && collectorConnected && !collectorLoading">
+                    Connected<span *ngIf="collectorServerName"> · {{ collectorServerName }}</span>
+                </span>
+                <span class="collector-status collector-status--warn" *ngIf="(!collectorHasApiKey || !collectorConnected) && !collectorLoading">Not connected</span>
+                <span class="collector-status" *ngIf="collectorLoading">Checking…</span>
+            </div>
+            <div class="collector-setup-actions" *ngIf="!collectorHasApiKey || !collectorConnected">
+                <button type="button" class="btn-collector-connect"
+                    (click)="requestCollectorKey()"
+                    [disabled]="collectorConnecting">
+                    {{ collectorConnecting ? 'Requesting…' : 'Request API Key' }}
+                </button>
+            </div>
+            <div class="collector-contribution" *ngIf="collectorStats">
+                <span class="contrib-label">Training data contributed<span *ngIf="collectorServerName"> · {{ collectorServerName }}</span></span>
+                <span class="contrib-value">{{ collectorStats.submissions }} submissions · {{ collectorStats.formatted }}</span>
+                <span class="contrib-detail">{{ collectorStats.hours }}h {{ collectorStats.minutes }}m {{ collectorStats.seconds }}s</span>
+            </div>
+        </div>
+
+        <div class="transcripts-stale-banner" *ngIf="transcriptsStale">
+            <span>New transcripts are available.</span>
+            <button type="button" class="btn-stale-refresh" (click)="refreshStaleTranscripts()">Refresh list</button>
+        </div>
+
         <!-- Filter Controls -->
         <div class="transcript-filters">
             <div class="filter-row">
@@ -273,9 +325,40 @@
                 </div>
                 <div class="transcript-footer">
                     <span>{{ transcript.timestamp ? formatTimestamp(transcript.timestamp) : '' }}</span>
-                    <button class="btn-play" (click)="playCall(transcript.callId)">
-                        Play Call
-                    </button>
+                    <div class="footer-actions">
+                        <button class="btn-play" (click)="playCall(transcript.callId)">
+                            Play Call
+                        </button>
+                        <button *ngIf="adminAuthenticated && !isTrainingSubmitted(transcript)" class="btn-edit-training"
+                            [class.btn-edit-training--active]="editingCallId === transcript.callId"
+                            (click)="toggleEdit(transcript)">
+                            <span *ngIf="editingCallId !== transcript.callId">
+                                ✎ Edit for Training<span *ngIf="hasTrainingDraft(transcript)" class="draft-hint"> (draft)</span>
+                            </span>
+                            <span *ngIf="editingCallId === transcript.callId">✕ Cancel</span>
+                        </button>
+                        <span *ngIf="adminAuthenticated && isTrainingSubmitted(transcript)" class="training-submitted-badge">
+                            ✓ Submitted for training
+                        </span>
+                    </div>
+                </div>
+
+                <div class="training-edit-panel" *ngIf="editingCallId === transcript.callId">
+                    <div class="training-edit-audio">
+                        <span *ngIf="editAudioLoading" class="audio-status">Loading audio…</span>
+                        <audio *ngIf="editAudioSrc && !editAudioLoading" controls [src]="editAudioSrc" class="edit-audio-player"></audio>
+                        <span *ngIf="!editAudioSrc && !editAudioLoading" class="audio-status audio-status--unavail">Audio unavailable</span>
+                    </div>
+                    <label class="training-edit-label">Edit transcript for Whisper training:</label>
+                    <textarea class="training-edit-textarea" rows="5" [(ngModel)]="editText" placeholder="Edit transcript text…"></textarea>
+                    <div class="training-edit-actions">
+                        <button class="btn-save-draft" (click)="saveEditDraft()" [disabled]="editSaving || editApproving || !editText.trim()">
+                            {{ editSaving ? 'Saving…' : 'Save Draft' }}
+                        </button>
+                        <button class="btn-approve" (click)="approveEdit()" [disabled]="editSaving || editApproving || !editText.trim()">
+                            {{ editApproving ? 'Sending…' : '✓ Approve & Send' }}
+                        </button>
+                    </div>
                 </div>
             </div>
 

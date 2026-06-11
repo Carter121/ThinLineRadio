@@ -22,6 +22,7 @@ import { FormBuilder } from '@angular/forms';
 import { MatDatepicker } from '@angular/material/datepicker';
 import { MatPaginator } from '@angular/material/paginator';
 import { BehaviorSubject } from 'rxjs';
+import { resolveUnitLabelForSrc } from '../unit-utils';
 import {
     RdioScannerCall,
     RdioScannerConfig,
@@ -35,6 +36,29 @@ import {
 import { RdioScannerService } from '../rdio-scanner.service';
 import { FavoritesService } from '../favorites.service';
 import { TagColorService } from '../tag-color.service';
+
+/**
+ * Cross-session persistence for Archive (Playback) filters and pagination.
+ *
+ * Issue #185: keep system / talkgroup / page selection when bouncing between
+ * Live and Playback. Stored as labels (not array indices) so it survives
+ * config reloads and reorderings; a `favoriteKey` of `${systemId}:${talkgroupId}`
+ * captures the favorites picker selection in a config-independent way.
+ */
+interface PlaybackPrefs {
+    systemLabel?: string;
+    talkgroupLabel?: string;
+    groupLabel?: string;
+    tagLabel?: string;
+    favoriteKey?: string;
+    date?: string;
+    /** HH:MM, 24h. Only meaningful when `date` is also set. */
+    time?: string;
+    sort?: number;
+    pageIndex?: number;
+    pageSize?: number;
+}
+const PLAYBACK_PREFS_STORAGE_KEY = 'rdio-scanner-playback-prefs';
 
 @Component({
     selector: 'rdio-scanner-search',
@@ -59,6 +83,16 @@ export class RdioScannerSearchComponent implements OnDestroy {
 
     form: any;
 
+    /** Snapshot of saved prefs read once at construction; consumed when config arrives. */
+    private pendingPrefs: PlaybackPrefs | null = null;
+    /** Avoid re-applying prefs every time a config event arrives. */
+    private prefsApplied = false;
+    /**
+     * Saved paginator pageIndex still waiting to be restored (consumed when the
+     * first batch of results arrives so the user lands on the page they left).
+     */
+    private pendingPageIndex: number | null = null;
+
     constructor(
         private rdioScannerService: RdioScannerService,
         private ngChangeDetectorRef: ChangeDetectorRef,
@@ -66,28 +100,94 @@ export class RdioScannerSearchComponent implements OnDestroy {
         private favoritesService: FavoritesService,
         private tagColorService: TagColorService,
     ) {
+        this.pendingPrefs = this.loadPrefs();
+
         this.form = this.ngFormBuilder.group({
             date: [null],
             group: [-1],
-            sort: [-1],
+            sort: this.pendingPrefs?.sort ?? -1,
             system: [-1],
             tag: [-1],
             talkgroup: [-1],
             favorite: [-1],
         });
-        
-        // Initialize selectedDate from form if it exists
-        if (this.form.value.date) {
-            const dateStr = this.form.value.date;
-            if (typeof dateStr === 'string') {
-                const dateObj = new Date(dateStr);
-                if (!isNaN(dateObj.getTime())) {
-                    this.selectedDate = dateObj;
+
+        // Intentionally do NOT restore `date` / `time` from saved prefs.
+        //
+        // Persisting the date across reloads turned out to be flaky: the
+        // initial search that fires from applyPendingPrefs() runs during
+        // the same tick as the first WS Config event, which races with PIN
+        // hydration on the server. When it loses the race the LCL reply
+        // never comes back and the Archive view sits on "Loading calls…"
+        // for ~12s (until the watchdog clears it) before the user can
+        // interact again. The other filters (system / talkgroup / sort /
+        // page) are config-dependent and apply *after* config has fully
+        // arrived, so they don't have the same race. Starting the date
+        // clean every reload eliminates the wait without changing how
+        // saving / restoring works for those filters.
+        //
+        // Strip date / time from the in-memory prefs snapshot too, so
+        // applyPendingPrefs() can't see them later, and overwrite the
+        // localStorage copy so subsequent loads don't keep restoring a
+        // stale date the user can't easily clear.
+        if (this.pendingPrefs && (this.pendingPrefs.date || this.pendingPrefs.time)) {
+            this.pendingPrefs = { ...this.pendingPrefs, date: undefined, time: undefined };
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem(PLAYBACK_PREFS_STORAGE_KEY, JSON.stringify(this.pendingPrefs));
                 }
-            }
+            } catch { /* quota or disabled storage — silently skip */ }
         }
-        
+
         this.eventSubscription = this.rdioScannerService.event.subscribe((event: RdioScannerEvent) => this.eventHandler(event));
+
+        // The `event` emitter is a fire-and-forget EventEmitter (no replay buffer).
+        // Whenever this component is re-mounted after the initial config event
+        // already fired (e.g. toggling the view, opening a sidenav for the first
+        // time), the filter dropdowns would otherwise sit empty until the next
+        // config push.
+        //
+        // Seed the *data-only* fields synchronously so option arrays populate
+        // before the first render. Anything that mutates the form (which would
+        // trigger valueChanges -> refreshFilters -> form.disable -> CD cycles
+        // before the view is initialised) is deferred to a microtask.
+        this.seedFromCachedConfig();
+    }
+
+    private seedFromCachedConfig(): void {
+        // `RdioScannerService.config` is initialised as a non-null default
+        // (empty systems/groups/tags) before the websocket ever connects, so a
+        // simple truthy check would always pass. We only want to seed when the
+        // service has *actually received* a config from the server — otherwise
+        // we'd burn the one-shot `prefsApplied` token against empty options
+        // and the real config event would never restore the saved filters,
+        // leaving the page stuck on "Loading calls…".
+        const cached = this.rdioScannerService.getConfig();
+        if (!cached || !cached.systems || cached.systems.length === 0) {
+            return;
+        }
+
+        this.config = cached;
+        this.optionsGroup = Object.keys(cached.groups || []).sort((a, b) => a.localeCompare(b));
+        this.optionsSystem = (cached.systems || []).map((system) => system.label);
+        this.optionsTag = Object.keys(cached.tags || []).sort((a, b) => a.localeCompare(b));
+        this.time12h = cached.time12hFormat || false;
+
+        // Side-effecting work that touches the form (and therefore CD) waits
+        // until after the constructor returns and the view is bound.
+        Promise.resolve().then(() => {
+            try {
+                this.loadFavorites();
+                this.applyPendingPrefs();
+                if (this.optionsSystem.length === 1 && this.form.value.system === -1) {
+                    this.form.patchValue({ system: 0 }, { emitEvent: false });
+                    this.refreshFilters();
+                }
+            } catch (e) {
+                // Non-fatal: the next real config event will retry these paths.
+                console.warn('search.component: deferred seed failed', e);
+            }
+        });
     }
 
     livefeedOnline = false;
@@ -126,11 +226,31 @@ export class RdioScannerSearchComponent implements OnDestroy {
     private formChangeTimeout: any = null; // Debounce timer for form changes
     private isExecutingFormChange = false; // Guard to prevent multiple simultaneous form change executions
     private lastRequestId: string | null = null; // Track last request to prevent duplicates
+    /**
+     * Watchdog timer that force-clears `resultsPending` if the WS response
+     * never arrives (e.g. server dropped the message due to a full Send
+     * channel, query timeout, or a race where the LCL was sent before the
+     * server finished hydrating client.User). Without this, the user is
+     * permanently stuck on "Loading calls…" — even clicking Clear date or
+     * picking a new date silently no-ops because `formChangeHandler` returns
+     * early while `resultsPending` is true. 12s gives a slow archive query
+     * room to breathe while still recovering before the user reaches for F5.
+     */
+    private resultsPendingWatchdog: any = null;
+    private readonly resultsPendingWatchdogMs = 12000;
 
     @ViewChild(MatPaginator, { read: MatPaginator }) private paginator: MatPaginator | undefined;
     @ViewChild('datePicker') private datePicker: MatDatepicker<Date> | undefined;
     
     selectedDate: Date | null = null;
+    /**
+     * Time-of-day filter (HH:MM, 24h). When set in combination with
+     * `selectedDate`, the search Date sent to the backend is shifted to that
+     * exact moment instead of midnight. Whether the backend further narrows
+     * results by time depends on its filter implementation; if not, the
+     * selection is still useful as a scrub-to point.
+     */
+    selectedTime: string | null = null;
 
     download(id: number): void {
         this.rdioScannerService.loadAndDownload(id);
@@ -141,10 +261,13 @@ export class RdioScannerSearchComponent implements OnDestroy {
             this.rdioScannerService.stopPlaybackMode();
         }
 
-        // Prevent multiple rapid calls - check if search is pending or already executing
-        if (this.resultsPending || this.isExecutingFormChange) {
-            return;
-        }
+        // NOTE: we intentionally do NOT bail when `resultsPending` is true.
+        // Doing so used to leave the UI permanently stuck on "Loading calls…"
+        // whenever a previous WS request got lost (full Send channel, slow
+        // archive query, race with PIN auth) — every subsequent click on
+        // Clear date / Pick date silently no-op'd until the user reloaded the
+        // page. The debounce below + the dedupe inside `searchCalls` are
+        // enough to keep rapid input from spamming the websocket.
 
         // Debounce form changes to prevent repeated requests (especially for date input)
         // Clear any existing timeout to reset the debounce timer
@@ -153,22 +276,30 @@ export class RdioScannerSearchComponent implements OnDestroy {
             this.formChangeTimeout = null;
         }
 
-        // Set new timeout - wait 1000ms before executing (longer debounce for date input to prevent rapid-fire requests)
         this.formChangeTimeout = setTimeout(() => {
-            // Double-check guard before executing in case state changed during debounce
-            if (!this.isExecutingFormChange && !this.resultsPending) {
-                this._executeFormChange();
-            }
+            this._executeFormChange();
             this.formChangeTimeout = null;
         }, 1000);
     }
 
     private _executeFormChange(): void {
-        // Prevent multiple simultaneous executions - CRITICAL for date input
-        if (this.isExecutingFormChange || this.resultsPending) {
+        // Re-entrancy guard only — `resultsPending` is intentionally NOT
+        // checked here so a fresh user filter change can override a stuck
+        // in-flight search (see comment in `formChangeHandler`).
+        if (this.isExecutingFormChange) {
             return;
         }
-        
+
+        // If a previous search got stranded (no playbackList response ever
+        // arrived), reset its bookkeeping so the new search isn't blocked
+        // by `if (this.resultsPending) return;` inside `searchCalls`.
+        if (this.resultsPending) {
+            this.clearResultsWatchdog();
+            this.resultsPending = false;
+            this.lastRequestId = null;
+            try { this.form.enable(); } catch { /* form may already be enabled */ }
+        }
+
         this.isExecutingFormChange = true;
         
         try {
@@ -208,7 +339,9 @@ export class RdioScannerSearchComponent implements OnDestroy {
             clearTimeout(this.formChangeTimeout);
             this.formChangeTimeout = null;
         }
-        
+
+        this.clearResultsWatchdog();
+
         // Clear playback list and stop playback mode when search screen is closed
         // This prevents old search results from persisting and auto-playing later
         if (this.livefeedPlayback) {
@@ -434,11 +567,13 @@ export class RdioScannerSearchComponent implements OnDestroy {
         this.selectedDate = null;
         this.paginator?.firstPage();
 
+        this.savePrefs();
         this.formChangeHandler();
     }
 
     setFavorite(value: number): void {
         this.form.get('favorite')?.setValue(value, { emitEvent: false });
+        this.savePrefs();
         this.formChangeHandler();
     }
 
@@ -493,6 +628,7 @@ export class RdioScannerSearchComponent implements OnDestroy {
             const day = String(localDate.getDate()).padStart(2, '0');
             const dateString = `${year}-${month}-${day}`;
             this.form.get('date')?.setValue(dateString, { emitEvent: false });
+            this.savePrefs();
             this.formChangeHandler();
         } else if (date === null) {
             this.clearDate();
@@ -501,12 +637,66 @@ export class RdioScannerSearchComponent implements OnDestroy {
 
     clearDate(): void {
         this.selectedDate = null;
+        this.selectedTime = null; // Time has no meaning without a date.
         this.form.get('date')?.setValue(null, { emitEvent: false });
+        this.savePrefs();
+        this.formChangeHandler();
+    }
+
+    // ───────────────────────── Time-of-day helpers ──────────────────────────
+
+    getHour(): number {
+        if (!this.selectedTime) return 0;
+        const [h] = this.selectedTime.split(':');
+        return parseInt(h, 10) || 0;
+    }
+
+    getMinute(): number {
+        if (!this.selectedTime) return 0;
+        const [, m] = this.selectedTime.split(':');
+        return parseInt(m, 10) || 0;
+    }
+
+    pad2(n: number): string {
+        return String(n).padStart(2, '0');
+    }
+
+    getTimeDisplay(): string {
+        return `${this.pad2(this.getHour())}:${this.pad2(this.getMinute())}`;
+    }
+
+    private setTime(hour: number, minute: number, emit = true): void {
+        const h = ((hour % 24) + 24) % 24;
+        const m = ((minute % 60) + 60) % 60;
+        this.selectedTime = `${this.pad2(h)}:${this.pad2(m)}`;
+        if (emit) {
+            this.savePrefs();
+            this.formChangeHandler();
+        }
+    }
+
+    bumpHour(delta: number): void {
+        this.setTime(this.getHour() + delta, this.getMinute());
+    }
+
+    bumpMinute(delta: number): void {
+        this.setTime(this.getHour(), this.getMinute() + delta);
+    }
+
+    setTimeNow(): void {
+        const now = new Date();
+        this.setTime(now.getHours(), now.getMinutes());
+    }
+
+    clearTime(): void {
+        this.selectedTime = null;
+        this.savePrefs();
         this.formChangeHandler();
     }
 
     setSort(value: number): void {
         this.form.get('sort')?.setValue(value, { emitEvent: false });
+        this.savePrefs();
         this.formChangeHandler();
     }
 
@@ -518,22 +708,32 @@ export class RdioScannerSearchComponent implements OnDestroy {
 
     setSystem(value: number): void {
         this.form.get('system')?.setValue(value, { emitEvent: false });
+        this.savePrefs();
         this.formChangeHandler();
     }
 
     setTalkgroup(value: number): void {
         this.form.get('talkgroup')?.setValue(value, { emitEvent: false });
+        this.savePrefs();
         this.formChangeHandler();
     }
 
     setGroup(value: number): void {
         this.form.get('group')?.setValue(value, { emitEvent: false });
+        this.savePrefs();
         this.formChangeHandler();
     }
 
     setTag(value: number): void {
         this.form.get('tag')?.setValue(value, { emitEvent: false });
+        this.savePrefs();
         this.formChangeHandler();
+    }
+
+    /** Wired to mat-paginator (page) — keep saved page in sync, then drive the regular pagination flow. */
+    onPageChange(): void {
+        this.savePrefs();
+        this.refreshResults();
     }
 
     getSelectedSystemLabel(): string {
@@ -578,12 +778,18 @@ export class RdioScannerSearchComponent implements OnDestroy {
         };
 
         if (this.selectedDate) {
-            // Convert Date object to ISO string for backend (RFC3339 format)
-            // Date is already in local timezone (midnight local time), .toISOString() converts to UTC
-            // This matches Flutter app behavior: local time → UTC conversion
-            // Example: Jan 9 midnight EST becomes "2025-01-09T05:00:00.000Z"
-            const isoString = this.selectedDate.toISOString();
-            options.date = isoString as any;
+            // Convert Date object to ISO string for backend (RFC3339 format).
+            // Optionally shift the wall-clock hour/minute to the time-of-day
+            // filter so the backend can scrub to that moment.
+            const dt = new Date(
+                this.selectedDate.getFullYear(),
+                this.selectedDate.getMonth(),
+                this.selectedDate.getDate(),
+                this.selectedTime ? this.getHour() : 0,
+                this.selectedTime ? this.getMinute() : 0,
+                0, 0,
+            );
+            options.date = dt.toISOString() as any;
         } else if (typeof this.form.value.date === 'string') {
             // Fallback: Convert datetime-local string to ISO string for backend (RFC3339 format)
             const dateObj = new Date(this.form.value.date);
@@ -715,16 +921,47 @@ export class RdioScannerSearchComponent implements OnDestroy {
         
         this.lastRequestId = requestId;
         this.resultsPending = true;
+        this.armResultsWatchdog();
 
         this.form.disable();
 
         this.rdioScannerService.searchCalls(options);
     }
 
+    /**
+     * Start (or restart) the resultsPending watchdog. Call this whenever
+     * `resultsPending` flips to true. If the playbackList event never
+     * arrives within `resultsPendingWatchdogMs`, the UI is force-recovered
+     * so the user can pick a different date / clear the filter / retry
+     * without reloading the whole page.
+     */
+    private armResultsWatchdog(): void {
+        this.clearResultsWatchdog();
+        this.resultsPendingWatchdog = setTimeout(() => {
+            this.resultsPendingWatchdog = null;
+            if (!this.resultsPending) return;
+            console.warn('[rdio-scanner-search] no WS reply for archive search within '
+                + `${this.resultsPendingWatchdogMs}ms — clearing stuck loading state.`);
+            this.resultsPending = false;
+            this.isExecutingFormChange = false;
+            this.lastRequestId = null;
+            try { this.form.enable(); } catch { /* form may already be enabled */ }
+            this.ngChangeDetectorRef.detectChanges();
+        }, this.resultsPendingWatchdogMs);
+    }
+
+    private clearResultsWatchdog(): void {
+        if (this.resultsPendingWatchdog) {
+            clearTimeout(this.resultsPendingWatchdog);
+            this.resultsPendingWatchdog = null;
+        }
+    }
+
     stop(): void {
         if (this.livefeedPlayback) {
-            this.rdioScannerService.stopPlaybackMode();
-
+            // Stop the current call but keep the archive result list so the
+            // next Play can auto-advance through search results again.
+            this.rdioScannerService.stopPlaybackMode({ clearList: false });
         } else {
             this.rdioScannerService.stop();
         }
@@ -762,7 +999,10 @@ export class RdioScannerSearchComponent implements OnDestroy {
             this.loadFavorites();
 
             this.time12h = this.config?.time12hFormat || false;
-            
+
+            // Issue #185: restore saved playback filters now that config is available.
+            this.applyPendingPrefs();
+
             // Auto-select system if only one exists (UX improvement for single-system setups)
             if (this.optionsSystem.length === 1 && this.form.value.system === -1) {
                 this.form.patchValue({ system: 0 }, { emitEvent: false });
@@ -830,6 +1070,7 @@ export class RdioScannerSearchComponent implements OnDestroy {
             }
 
             this.resultsPending = false;
+            this.clearResultsWatchdog();
             this.form.enable();
             
             // Reset execution guard now that results have arrived
@@ -839,10 +1080,23 @@ export class RdioScannerSearchComponent implements OnDestroy {
             // This ensures the display updates immediately, even if paginator isn't ready
             if (this.accumulatedResults.length > 0) {
                 const batchOffset = this.playbackList?.options?.offset ?? 0;
-                
-                // For new searches (offset 0 and accumulated results were just reset), ensure paginator is on first page
-                // Only reset if we have very few results (indicating this is a fresh search, not a reload of offset 0)
-                if (batchOffset === 0 && this.playbackList?.results && this.accumulatedResults.length <= this.playbackList.results.length && this.paginator && this.paginator.pageIndex !== 0) {
+
+                // Issue #185: if we have a saved page waiting, jump to it and let
+                // the existing batch-loading logic fetch the right offset. We
+                // intentionally skip the "snap to first page on fresh search"
+                // reset below in this case.
+                if (this.pendingPageIndex !== null && this.paginator) {
+                    const target = this.pendingPageIndex;
+                    this.pendingPageIndex = null;
+                    if (this.paginator.pageIndex !== target) {
+                        this.paginator.pageIndex = target;
+                        // Defer so MatPaginator emits its (page) and refreshResults can fetch.
+                        setTimeout(() => this.refreshResults(), 0);
+                    }
+                } else if (batchOffset === 0 && this.playbackList?.results && this.accumulatedResults.length <= this.playbackList.results.length && this.paginator && this.paginator.pageIndex !== 0) {
+                    // For new searches (offset 0 and accumulated results were just reset),
+                    // ensure paginator is on first page. Only reset if we have very few
+                    // results (indicating this is a fresh search, not a reload of offset 0).
                     this.paginator.firstPage();
                 }
                 
@@ -913,6 +1167,110 @@ export class RdioScannerSearchComponent implements OnDestroy {
         return system.talkgroups.find((talkgroup) => talkgroup.label === this.optionsTalkgroup[talkgroupIndex]);
     }
 
+    // ── Issue #185: persistence ────────────────────────────────────────────────
+
+    /** Read saved playback prefs from localStorage; returns null on miss/parse error. */
+    private loadPrefs(): PlaybackPrefs | null {
+        try {
+            if (typeof localStorage === 'undefined') return null;
+            const raw = localStorage.getItem(PLAYBACK_PREFS_STORAGE_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') return parsed as PlaybackPrefs;
+        } catch { /* corrupt prefs — ignore and start fresh */ }
+        return null;
+    }
+
+    /** Persist current filter + pagination state. Cheap and safe to call on every change. */
+    private savePrefs(): void {
+        try {
+            if (typeof localStorage === 'undefined') return;
+            const system = this.getSelectedSystem();
+            const talkgroup = this.getSelectedTalkgroup();
+            const group = this.getSelectedGroup();
+            const tag = this.getSelectedTag();
+            const favIdx = this.form.value.favorite ?? -1;
+            const fav = favIdx >= 0 ? this.optionsFavorites[favIdx] : undefined;
+
+            const prefs: PlaybackPrefs = {
+                systemLabel: system?.label,
+                talkgroupLabel: talkgroup?.label,
+                groupLabel: group,
+                tagLabel: tag,
+                favoriteKey: fav ? `${fav.systemId}:${fav.talkgroupId}` : undefined,
+                date: this.selectedDate ? this.selectedDate.toISOString() : undefined,
+                time: this.selectedTime ?? undefined,
+                sort: this.form.value.sort ?? -1,
+                pageIndex: this.paginator?.pageIndex ?? 0,
+                pageSize: this.paginator?.pageSize ?? 10,
+            };
+            localStorage.setItem(PLAYBACK_PREFS_STORAGE_KEY, JSON.stringify(prefs));
+        } catch { /* quota or disabled storage — silently skip */ }
+    }
+
+    /**
+     * Apply previously-saved prefs once the config has arrived. Stored values are
+     * looked up by label (system/talkgroup/group/tag) and key
+     * (`${systemId}:${talkgroupId}` for favorites) so we recover gracefully from
+     * config reorderings or talkgroups that no longer exist.
+     */
+    private applyPendingPrefs(): void {
+        if (this.prefsApplied || !this.pendingPrefs || !this.config) return;
+        const prefs = this.pendingPrefs;
+        this.prefsApplied = true;
+
+        const patch: Record<string, number | string | null> = {};
+
+        if (prefs.systemLabel) {
+            const idx = this.optionsSystem.findIndex((label) => label === prefs.systemLabel);
+            if (idx >= 0) patch['system'] = idx;
+        }
+        if (prefs.groupLabel) {
+            const idx = this.optionsGroup.findIndex((label) => label === prefs.groupLabel);
+            if (idx >= 0) patch['group'] = idx;
+        }
+        if (prefs.tagLabel) {
+            const idx = this.optionsTag.findIndex((label) => label === prefs.tagLabel);
+            if (idx >= 0) patch['tag'] = idx;
+        }
+
+        if (Object.keys(patch).length > 0) {
+            this.form.patchValue(patch, { emitEvent: false });
+            // System patched in: rebuild dependent option arrays before patching talkgroup.
+            this.refreshFilters();
+        }
+
+        if (prefs.talkgroupLabel) {
+            const idx = this.optionsTalkgroup.findIndex((label) => label === prefs.talkgroupLabel);
+            if (idx >= 0) {
+                this.form.get('talkgroup')?.setValue(idx, { emitEvent: false });
+            }
+        }
+
+        if (prefs.favoriteKey) {
+            const idx = this.optionsFavorites.findIndex((f) => `${f.systemId}:${f.talkgroupId}` === prefs.favoriteKey);
+            if (idx >= 0) this.form.get('favorite')?.setValue(idx, { emitEvent: false });
+        }
+
+        // Remember which page the user was on so it can be restored after the
+        // first batch of results comes back.
+        if (typeof prefs.pageIndex === 'number' && prefs.pageIndex > 0) {
+            this.pendingPageIndex = prefs.pageIndex;
+        }
+
+        // After config-dependent restoration is in place, kick a search so the
+        // table populates without requiring the user to click anything.
+        if (
+            patch['system'] !== undefined ||
+            this.form.value.talkgroup >= 0 ||
+            this.form.value.favorite >= 0 ||
+            this.selectedDate ||
+            this.pendingPageIndex !== null
+        ) {
+            this.searchCalls();
+        }
+    }
+
     /** Same tag-tinted row background as Current call history. */
     getTransmissionHistoryTagColor(call: RdioScannerCall | undefined | null): string {
         if (!call) {
@@ -968,17 +1326,7 @@ export class RdioScannerSearchComponent implements OnDestroy {
     }
 
     private resolveUnitLabelForSrc(call: RdioScannerCall, src: number): string {
-        const units = call.systemData?.units;
-        if (Array.isArray(units)) {
-            const label = units.find((unit) => {
-                if (typeof unit.unitFrom === 'number' && typeof unit.unitTo === 'number') {
-                    if (unit.unitFrom <= src && unit.unitTo >= src) return true;
-                }
-                return unit.id === src;
-            })?.label;
-            if (label) return label;
-        }
-        return String(src);
+        return resolveUnitLabelForSrc(call.systemData?.units, src);
     }
 
     displayUnitForCall(call: RdioScannerCall | undefined | null): string {

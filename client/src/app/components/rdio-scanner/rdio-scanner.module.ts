@@ -22,13 +22,14 @@ import { NgModule } from '@angular/core';
 import { AppSharedModule } from '../../shared/shared.module';
 import { RdioScannerComponent } from './rdio-scanner.component';
 import { RdioScannerService } from './rdio-scanner.service';
-import { RdioScannerMainComponent } from './main/main.component';
+import { RdioScannerConsoleComponent } from './console/console.component';
 import { RdioScannerMainLegacyComponent } from './main/main-legacy.component';
 import { RdioScannerSupportComponent } from './main/support/support.component';
 import { RdioScannerNativeModule } from './native/native.module';
 import { RdioScannerSearchComponent } from './search/search.component';
 import { RdioScannerSelectComponent } from './select/select.component';
 import { SystemsVisibilityDialogComponent } from './select/systems-visibility-dialog.component';
+import { ScanListEditDialogComponent } from './select/scan-list-edit-dialog.component';
 import { RdioScannerUserLoginComponent } from './user-login/user-login.component';
 import { RdioScannerUserRegistrationComponent } from './user-registration/user-registration.component';
 import { RdioScannerEmailVerificationComponent } from './email-verification/email-verification.component';
@@ -39,6 +40,7 @@ import { RdioScannerStripeCheckoutComponent } from './stripe-checkout/stripe-che
 import { RdioScannerSettingsComponent } from './settings/settings.component';
 import { RdioScannerAlertsComponent } from './alerts/alerts.component';
 import { RdioScannerAlertPreferencesComponent } from './alerts/preferences/preferences.component';
+import { KeywordListInfoDialogComponent } from './alerts/preferences/keyword-list-info-dialog.component';
 import { SettingsService } from './settings/settings.service';
 import { AlertsService } from './alerts/alerts.service';
 import { TagColorService } from './tag-color.service';
@@ -46,17 +48,24 @@ import { FavoritesService } from './favorites.service';
 import { ScanListsService } from './scan-lists.service';
 import { RdioScannerSelectLegacyComponent } from './select/select-legacy.component';
 import { AlertSoundService } from './alert-sound.service';
+import { RdioScannerAdminService } from './admin/admin.service';
+import { TranscriptReviewService } from './transcript-review/transcript-review.service';
+import { RdioScannerTranscriptTrainingTipsComponent } from './transcript-review/transcript-training-tips.component';
 import { RdioScannerMobileWebHubComponent } from './mobile-web-hub/mobile-web-hub.component';
+import { RdioScannerChassisComponent } from './skin/chassis.component';
+import { RdioScannerLcdFrameComponent } from './skin/lcd-frame.component';
+import { RdioScannerLcdBottomNavComponent } from './skin/lcd-bottom-nav.component';
 
 @NgModule({
     declarations: [
         RdioScannerComponent,
-        RdioScannerMainComponent,
+        RdioScannerConsoleComponent,
         RdioScannerMainLegacyComponent,
         RdioScannerSearchComponent,
         RdioScannerSelectComponent,
         RdioScannerSelectLegacyComponent,
         SystemsVisibilityDialogComponent,
+        ScanListEditDialogComponent,
         RdioScannerSupportComponent,
         RdioScannerUserLoginComponent,
         RdioScannerUserRegistrationComponent,
@@ -67,10 +76,20 @@ import { RdioScannerMobileWebHubComponent } from './mobile-web-hub/mobile-web-hu
         RdioScannerStripeCheckoutComponent,
         RdioScannerSettingsComponent,
         RdioScannerAlertsComponent,
+        RdioScannerTranscriptTrainingTipsComponent,
         RdioScannerAlertPreferencesComponent,
+        KeywordListInfoDialogComponent,
         RdioScannerMobileWebHubComponent,
+        RdioScannerChassisComponent,
+        RdioScannerLcdFrameComponent,
+        RdioScannerLcdBottomNavComponent,
     ],
-    exports: [RdioScannerComponent],
+    exports: [
+        RdioScannerComponent,
+        RdioScannerChassisComponent,
+        RdioScannerLcdFrameComponent,
+        RdioScannerLcdBottomNavComponent,
+    ],
     imports: [
         AppSharedModule,
         RdioScannerNativeModule,
@@ -83,6 +102,8 @@ import { RdioScannerMobileWebHubComponent } from './mobile-web-hub/mobile-web-hu
         FavoritesService,
         ScanListsService,
         AlertSoundService,
+        RdioScannerAdminService,
+        TranscriptReviewService,
         { provide: OverlayContainer, useClass: FullscreenOverlayContainer },
     ],
 })

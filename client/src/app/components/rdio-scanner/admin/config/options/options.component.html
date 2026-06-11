@@ -14,6 +14,41 @@
     </div>
   </div>
   
+  <div class="options-top-bar" [class.options-top-bar--warn]="hasUnsavedChanges">
+    <div class="options-top-bar-main">
+      <mat-icon *ngIf="hasUnsavedChanges" color="warn">warning</mat-icon>
+      <div class="options-top-bar-text">
+        <ng-container *ngIf="hasUnsavedChanges; else optionsHint">
+          <span class="mat-body"><strong>Unsaved changes</strong> — save each section below or review what changed:</span>
+        </ng-container>
+        <ng-template #optionsHint>
+          <span class="mat-caption options-hint">Toggles save automatically. Use each section's Save button for text fields and other entries.</span>
+        </ng-template>
+      </div>
+    </div>
+    <div *ngIf="hasUnsavedChanges" class="options-unsaved-groups">
+      <div *ngFor="let group of unsavedChanges" class="options-unsaved-group">
+        <button type="button" class="options-unsaved-section" (click)="goToUnsavedPanel(group.panelId)">
+          {{ group.panelLabel }}
+        </button>
+        <ul class="options-unsaved-fields">
+          <li *ngFor="let field of group.fields">{{ field }}</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <ng-template #panelSaveBar let-panelId="panelId">
+    <div class="panel-save-bar">
+      <button mat-stroked-button color="primary" type="button"
+        (click)="savePanel(panelId)"
+        [disabled]="!isPanelDirty(panelId) || savingPanel === panelId">
+        <mat-icon>save</mat-icon>
+        {{ savingPanel === panelId ? 'Saving…' : 'Save' }}
+      </button>
+    </div>
+  </ng-template>
+
   <!-- ═══════════════════════════════════════════════════════════════════════════ -->
   <!-- ALERT & HEALTH MONITORING SETTINGS -->
   <!-- ═══════════════════════════════════════════════════════════════════════════ -->
@@ -30,6 +65,7 @@
     </mat-expansion-panel-header>
 
     <div class="panel-content">
+      <ng-container *ngTemplateOutlet="panelSaveBar; context: { panelId: 'alerts' }"></ng-container>
       <div class="row">
         <p>
           <span class="mat-body">Alert Retention Days</span><br>
@@ -134,6 +170,48 @@
           </mat-form-field>
         </div>
 
+        <!-- Auto-learn tone sets (duration windows) -->
+        <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08);">
+          <p>
+            <span class="mat-body"><strong>Auto-learn tone sets</strong></span><br>
+            <span class="mat-caption">Duration windows and thresholds when system/talkgroup auto-learn is enabled. <strong>Calls required</strong> also applies to unit alias auto-learn. Single tone patterns are auto-added after enough calls; stacked or ambiguous patterns are logged only (add manually in admin). OpenAI API key and model are configured under <strong>External Integrations</strong> below.</span>
+          </p>
+          <div formGroupName="autoLearnToneSetConfig" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 12px;">
+            <mat-form-field>
+              <mat-label>A-tone min (s)</mat-label>
+              <input type="number" min="0.1" step="0.1" matInput formControlName="aToneMinDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>A-tone max (s)</mat-label>
+              <input type="number" min="0.1" step="0.1" matInput formControlName="aToneMaxDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>B-tone min (s)</mat-label>
+              <input type="number" min="0.1" step="0.1" matInput formControlName="bToneMinDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>B-tone max (s)</mat-label>
+              <input type="number" min="0.1" step="0.1" matInput formControlName="bToneMaxDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>Long tone min (s)</mat-label>
+              <input type="number" min="1" step="0.5" matInput formControlName="longToneMinDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>Long tone max (s, 0=none)</mat-label>
+              <input type="number" min="0" step="0.5" matInput formControlName="longToneMaxDuration">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>Calls required</mat-label>
+              <input type="number" min="2" step="1" matInput formControlName="callsRequired">
+            </mat-form-field>
+            <mat-form-field>
+              <mat-label>Frequency tolerance (Hz)</mat-label>
+              <input type="number" min="1" step="1" matInput formControlName="frequencyToleranceHz">
+            </mat-form-field>
+          </div>
+        </div>
+
         <!-- No Audio Alerts -->
         <div class="row" style="margin-top: 16px;">
           <p>
@@ -225,6 +303,7 @@
     </mat-expansion-panel-header>
 
     <div class="panel-content">
+      <ng-container *ngTemplateOutlet="panelSaveBar; context: { panelId: 'security' }"></ng-container>
 
       <!-- Audio Conversion -->
       <div class="row">
@@ -351,6 +430,7 @@
     </mat-expansion-panel-header>
 
     <div class="panel-content">
+      <ng-container *ngTemplateOutlet="panelSaveBar; context: { panelId: 'branding' }"></ng-container>
       <div class="row">
         <p>
           <span class="mat-body">Branding Label</span><br>
@@ -461,6 +541,7 @@
     </mat-expansion-panel-header>
 
     <div class="panel-content">
+      <ng-container *ngTemplateOutlet="panelSaveBar; context: { panelId: 'notifications' }"></ng-container>
       <!-- Email Service -->
       <div class="row">
         <p>
@@ -659,12 +740,60 @@
         <span>External Integrations</span>
       </mat-panel-title>
       <mat-panel-description>
-        Radio Reference, relay server, config sync
+        OpenAI, Radio Reference, relay server, config sync
       </mat-panel-description>
     </mat-expansion-panel-header>
 
     <div class="panel-content">
-      
+      <ng-container *ngTemplateOutlet="panelSaveBar; context: { panelId: 'integrations' }"></ng-container>
+
+      <!-- OpenAI Integration -->
+      <div id="opt-openai-integration" class="row">
+        <p>
+          <span class="mat-body">OpenAI</span><br>
+          <span class="mat-caption">Server-wide OpenAI API credentials for TLR-powered features (tone auto-learn naming, unit alias auto-learn). Not used for speech-to-text transcription.</span>
+        </p>
+      </div>
+
+      <ng-container formGroupName="openAIIntegration">
+        <div class="row">
+          <p>
+            <span class="mat-body">API Base URL</span><br>
+            <span class="mat-caption">OpenAI API base URL. Use https://api.openai.com for OpenAI cloud.</span>
+          </p>
+          <mat-form-field floatLabel="auto">
+            <input type="text" matInput formControlName="baseUrl" placeholder="https://api.openai.com" autocomplete="off">
+          </mat-form-field>
+        </div>
+
+        <div class="row">
+          <p>
+            <span class="mat-body">API Key</span><br>
+            <span class="mat-caption">Your OpenAI API key (sk-...).</span>
+          </p>
+          <mat-form-field floatLabel="auto">
+            <input type="password" class="masked-pw" matInput formControlName="apiKey" placeholder="sk-..." autocomplete="new-password">
+          </mat-form-field>
+        </div>
+
+        <div class="row">
+          <p>
+            <span class="mat-body">Chat model</span><br>
+            <span class="mat-caption">Model used for tone and unit alias naming. Estimates assume ~2.5k input + ~20 output tokens per naming request.</span>
+          </p>
+          <mat-form-field floatLabel="auto">
+            <mat-select formControlName="model">
+              <mat-option *ngFor="let m of openAIChatModels" [value]="m.id">
+                {{ m.label }}
+              </mat-option>
+            </mat-select>
+            <mat-hint *ngIf="selectedOpenAIModel as sel">
+              ~${{ sel.estPerNamingUSD | number:'1.4-4' }} per naming call · ${{ sel.inputPerM }}/M in · ${{ sel.outputPerM }}/M out
+            </mat-hint>
+          </mat-form-field>
+        </div>
+      </ng-container>
+
       <!-- Radio Reference Integration -->
       <div class="row">
         <p>
@@ -748,7 +877,12 @@
       <div class="row">
         <p>
           <span class="mat-body">Relay Server API Key</span><br>
-          <span class="mat-caption">Required for push notifications and audio encryption. Request an API key to get started.</span>
+          <span class="mat-caption">Required for push notifications and audio encryption. Request an API key to get started.</span><br>
+          <span class="mat-caption" style="display: inline-block; margin-top: 8px; max-width: 52rem; line-height: 1.45;">
+            Requesting or changing this key needs a supported browser context: open admin using HTTPS, or using http://localhost or http://127.0.0.1.
+            If you rely on localhost, set the server listen address to 0.0.0.0 in your configuration (not only the machine’s LAN IP) so the service is reachable on loopback.
+            Opening admin as plain http with only a LAN IP or hostname can fail with “Failed to initialize authorization” before you submit the form.
+          </span>
         </p>
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
           <button mat-raised-button type="button" color="primary" *ngIf="!hasRelayAPIKey()" (click)="requestRelayAPIKey()">
@@ -798,6 +932,7 @@
     </mat-expansion-panel-header>
 
     <div class="panel-content">
+      <ng-container *ngTemplateOutlet="panelSaveBar; context: { panelId: 'general' }"></ng-container>
       <div class="row">
         <p>
           <span class="mat-body">12-Hour Time Format</span><br>
@@ -973,6 +1108,7 @@
     </mat-expansion-panel-header>
 
     <div class="panel-content">
+      <ng-container *ngTemplateOutlet="panelSaveBar; context: { panelId: 'stripe' }"></ng-container>
       <!-- Stripe Paywall -->
       <div class="row">
         <p>
@@ -1047,6 +1183,7 @@
     </mat-expansion-panel-header>
 
     <div class="panel-content">
+      <ng-container *ngTemplateOutlet="panelSaveBar; context: { panelId: 'transcription' }"></ng-container>
       <div class="row">
         <p>
           <span class="mat-body">Transcription Enabled</span><br>
@@ -1080,6 +1217,7 @@
               <mat-option value="azure">Azure Speech Services</mat-option>
               <mat-option value="google">Google Speech-to-Text</mat-option>
               <mat-option value="assemblyai">AssemblyAI</mat-option>
+              <mat-option value="cloudflare">Cloudflare Workers AI</mat-option>
             </mat-select>
           </mat-form-field>
         </div>
@@ -1206,6 +1344,64 @@
           </mat-form-field>
         </div>
 
+        <!-- Cloudflare Workers AI Configuration -->
+        <ng-container *ngIf="form?.get('transcriptionConfig')?.get('provider')?.value === 'cloudflare'">
+          <div style="background:#1a237e;border:1px solid #5c6bc0;border-radius:8px;padding:16px;margin:8px 0 16px 0;color:#e8eaf6;">
+            <div style="display:flex;align-items:flex-start;gap:12px;">
+              <mat-icon style="color:#90caf9;">cloud</mat-icon>
+              <div style="flex:1;font-size:13px;line-height:1.55;">
+                <div style="font-weight:600;font-size:15px;margin-bottom:8px;">Cloudflare Workers AI setup (Whisper)</div>
+                <ol style="margin:0 0 12px 0;padding-left:20px;">
+                  <li style="margin-bottom:6px;">Sign in to the <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer" style="color:#90caf9;">Cloudflare Dashboard</a>.</li>
+                  <li style="margin-bottom:6px;">Open <a href="https://dash.cloudflare.com/?to=/:account/ai/workers-ai" target="_blank" rel="noopener noreferrer" style="color:#90caf9;">Workers &amp; Pages → Workers AI</a> and choose <strong>Use REST API</strong>.</li>
+                  <li style="margin-bottom:6px;"><strong>Account ID:</strong> copy the value shown on that page, from the dashboard URL (<code style="color:#c5cae9;">dash.cloudflare.com/&lt;ACCOUNT_ID&gt;/…</code>), or from Account Home → Overview (right sidebar).</li>
+                  <li style="margin-bottom:6px;"><strong>API token:</strong> click <strong>Create a Workers AI API Token</strong> on the Workers AI page and save it immediately (shown once). Alternative: <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer" style="color:#90caf9;">My Profile → API Tokens</a> → Create Token → <strong>Workers AI</strong> template (requires Workers AI Read and Edit).</li>
+                  <li style="margin-bottom:6px;"><strong>Model:</strong> use the full Workers AI model ID including the <code style="color:#c5cae9;">@cf/</code> prefix (default below is recommended). Browse all models in the <a href="https://developers.cloudflare.com/workers-ai/models/" target="_blank" rel="noopener noreferrer" style="color:#90caf9;">Workers AI model catalog</a>.</li>
+                </ol>
+                <p style="margin:0 0 8px 0;opacity:0.9;">Usage is billed to your Cloudflare account (many plans include a free daily allowance). Transcription still runs only for talkgroups where a user has <strong>alert notifications enabled</strong> (bell icon) plus tone or keyword alerts — keyword list buttons alone are not enough.</p>
+                <p style="margin:0;font-size:12px;opacity:0.85;">REST API reference: <a href="https://developers.cloudflare.com/workers-ai/get-started/rest-api/" target="_blank" rel="noopener noreferrer" style="color:#90caf9;">Cloudflare Workers AI REST API</a></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <p>
+              <span class="mat-body">Cloudflare Account ID</span><br>
+              <span class="mat-caption">32-character ID from the <a href="https://dash.cloudflare.com/?to=/:account/ai/workers-ai" target="_blank" rel="noopener noreferrer" style="color: #cc0000;">Workers AI</a> page, your dashboard URL, or Account Home → Overview.</span>
+            </p>
+            <mat-form-field floatLabel="auto">
+              <input type="text" matInput formControlName="cloudflareAccountID" placeholder="Account ID" autocomplete="off">
+            </mat-form-field>
+          </div>
+
+          <div class="row">
+            <p>
+              <span class="mat-body">Cloudflare API Token</span><br>
+              <span class="mat-caption">Workers AI token from <a href="https://dash.cloudflare.com/?to=/:account/ai/workers-ai" target="_blank" rel="noopener noreferrer" style="color: #cc0000;">Workers AI → Use REST API</a>, or create via <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer" style="color: #cc0000;">API Tokens</a> (Workers AI Read + Edit).</span>
+            </p>
+            <mat-form-field floatLabel="auto">
+              <input type="text" matInput formControlName="cloudflareAPIToken" placeholder="API Token" autocomplete="off">
+            </mat-form-field>
+          </div>
+
+          <div class="row">
+            <p>
+              <span class="mat-body">Model</span><br>
+              <span class="mat-caption">Cloudflare Workers AI Whisper model ID (must include <code>@cf/</code>). See the <a href="https://developers.cloudflare.com/workers-ai/models/" target="_blank" rel="noopener noreferrer" style="color: #cc0000;">model catalog</a>.</span>
+            </p>
+            <mat-form-field floatLabel="auto">
+              <input type="text" matInput formControlName="cloudflareModel"
+                     placeholder="@cf/openai/whisper-large-v3-turbo"
+                     list="cloudflare-model-suggestions" autocomplete="off">
+              <datalist id="cloudflare-model-suggestions">
+                <option value="@cf/openai/whisper-large-v3-turbo">@cf/openai/whisper-large-v3-turbo — faster, recommended</option>
+                <option value="@cf/openai/whisper-large-v3">@cf/openai/whisper-large-v3 — higher accuracy</option>
+                <option value="@cf/openai/whisper">@cf/openai/whisper — original Whisper</option>
+              </datalist>
+            </mat-form-field>
+          </div>
+        </ng-container>
+
         <!-- Common Settings -->
         <div class="row">
           <p>
@@ -1280,9 +1476,8 @@
             <span class="mat-caption">Phrases that should be removed from transcripts (case-insensitive). Whisper may hallucinate common phrases from tone-only audio. Add one pattern per line. Example: "THE BELL IS INVITED TO SOUND THREE TIMES"</span>
           </p>
           <mat-form-field floatLabel="auto">
-            <textarea matInput 
-                      [value]="getHallucinationPatternsDisplay()"
-                      (input)="setHallucinationPatterns($any($event.target).value)"
+            <textarea matInput
+                      formControlName="hallucinationPatterns"
                       placeholder="Enter patterns to remove, one per line"
                       rows="4"></textarea>
           </mat-form-field>
@@ -1377,6 +1572,13 @@
     </mat-expansion-panel-header>
 
     <div class="panel-content">
+      <ng-container *ngTemplateOutlet="panelSaveBar; context: { panelId: 'userRegistration' }"></ng-container>
+      <rdio-scanner-admin-user-registration
+        *ngIf="isCentrallyManaged"
+        [form]="form">
+      </rdio-scanner-admin-user-registration>
+
+      <ng-container *ngIf="!isCentrallyManaged">
       <!-- User Registration & Access -->
       <div class="row">
         <p>
@@ -1453,6 +1655,7 @@
         </mat-form-field>
       </div>
 
+      </ng-container>
     </div>
   </mat-expansion-panel>
 

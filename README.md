@@ -2,6 +2,8 @@
 
 > **Credit**: ThinLine Radio is built on the foundation of [Rdio Scanner](https://github.com/chuot/rdio-scanner) by [Chrystian Huot](https://github.com/chuot). The core scanner functionality, database schema, delayed audio system, alert sounds, and API compatibility are based on the original Rdio Scanner project.
 
+> **API Access Policy Notice**: ThinLine Radio's original [`v7.0.0`](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/tree/v7.0.0) release was published on December 24, 2025. The upstream Rdio Scanner `API_ACCESS_POLICY.md` file was first added on January 3, 2026 in commit [`36fe8e8`](https://github.com/chuot/rdio-scanner/commit/36fe8e80a6a9a9d004b7100b40ce3208b433d4d4), then updated on May 16, 2026 in commit [`7c90168`](https://github.com/chuot/rdio-scanner/commit/7c90168160aee08799a9920dcabc8baad7aee971). ThinLine Radio was therefore released before that policy language appeared. To the extent the later API Access Policy purports to impose retroactive additional restrictions on rights previously granted under GPL v3, ThinLine Radio regards those restrictions as a violation of GPL v3, void, unenforceable, and without legal effect.
+
 > **Important Notice**: When the Rdio Scanner project stagnated, we reached out to collaborate and help maintain the codebase. Our offer was declined, and we were subsequently threatened with legal action by the original developer despite Rdio Scanner being an open source project under GPL v3. As a result of these actions, **ThinLine Radio operates as an independent project in its own repository** and we will not contribute to the original Rdio Scanner project or collaborate with its developer. We acknowledge the original codebase foundation while maintaining our rights under the GPL v3 license. For Rdio Scanner support, please refer to the original project.
 
 # What is it ?
@@ -138,9 +140,13 @@ cd ThinLineRadio
 
 More detailed instructions are available in the documentation.
 
+# Community
+
+Join the **[ThinLine Radio Discord](https://discord.gg/7AjG8NMCWb)** for announcements, help, and discussion with other users and server operators.
+
 # Need help ?
 
-For issues specific to ThinLine Radio enhancements and general support, please contact ThinLine Dynamic Solutions.
+For issues specific to ThinLine Radio enhancements and general support, please contact ThinLine Dynamic Solutions or ask in [Discord](https://discord.gg/7AjG8NMCWb).
 
 For questions about core Rdio Scanner functionality that may still apply, you can refer to the [Rdio Scanner Discussions](https://github.com/chuot/rdio-scanner/discussions) at **[https://github.com/chuot/rdio-scanner/discussions](https://github.com/chuot/rdio-scanner/discussions)**. However, ThinLine Radio does not provide support for Rdio Scanner and operates as an independent project.
 
@@ -155,6 +161,7 @@ ThinLine Radio operates as an independent project in its own repository under GP
 ThinLine Radio is developed and maintained by ThinLine Dynamic Solutions.
 
 - **GitHub Repository**: [https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio)
+- **Discord**: [https://discord.gg/7AjG8NMCWb](https://discord.gg/7AjG8NMCWb)
 
 # License
 

@@ -1,5 +1,475 @@
 # Change log
 
+## Version 26.06.15 - Released June 10, 2026
+
+### Fixed
+
+- **Server — PostgreSQL bootstrap no longer re-runs on every restart**
+  - Established databases (options table present) skip full schema DDL and index creation at boot instead of re-executing `calls_idx` and other bootstrap indexes on every cold start.
+  - Fresh installs still run table DDL once, apply indexes outside the bootstrap transaction, and record completion in `rdioScannerMeta`.
+  - Any missing bootstrap indexes are built with `CREATE INDEX CONCURRENTLY` in the background after the server is ready so startup is not blocked on large `calls` tables.
+  - Clearer fatal message when migration fails with `SQLSTATE 57P01` (connection terminated mid-migration).
+
+---
+
+## Version 26.06.14 - Released June 10, 2026
+
+### Fixed
+
+- **Server — Startup no longer blocked before workers and HTTP listen**
+  - Call processing workers and WebSocket client handling start before delayed-call restore, admin scheduler, and DB maintenance tasks.
+  - Delayed-call restore runs in a background goroutine instead of blocking `Controller.Start()`.
+  - Log index build and category backfill deferred until after `Controller.Start()` returns and HTTP is about to listen.
+  - `logs_timestamp_idx` creation moved out of synchronous migration into post-startup background build.
+  - Added `startup:` progress lines to stdout so boot stalls are visible in the console.
+
+---
+
+## Version 26.06.13 - Released June 10, 2026
+
+### Fixed
+
+- **Server — Log category backfill no longer blocks startup**
+  - Column migration stays synchronous; index build and row backfill now run after the server is ready in small throttled batches so call ingest and client connections are not starved for DB pool slots during startup.
+  - Backfill completion is tracked in `rdioScannerMeta` (fixes repeated full backfill on every restart when the legacy `migrations` table was missing).
+  - Progress messages write to stdout only (not re-inserted into the `logs` table during backfill).
+
+- **Server — Automatic PostgreSQL index corruption recovery**
+  - Detects B-tree index corruption (`SQLSTATE XX002`) during `WriteCall`, rebuilds the affected index (`REINDEX CONCURRENTLY` with blocking/drop-recreate fallbacks), and retries the insert once so call ingest self-heals without manual DBA intervention.
+
+---
+
+## Version 26.06.12 - Released June 8, 2026
+
+### Added
+
+- **Admin — Admin Assistant (AI copilot)**
+  - New **Assistant** tab with OpenAI chat backed by server-side tool calling (`POST /api/admin/copilot/chat`).
+  - Reads and changes admin settings with the same data paths as the UI: tags, systems, talkgroups, tone sets, options, users, billing groups, keyword lists, health alerts, logs, calls, Stripe sync, Radio Reference browse/import, and more.
+  - Embedded capabilities catalog (`get_admin_config section=capabilities`) documents every read section, read/write action, payload shapes, workflows, and limitations.
+  - Confirm-before-write flow: destructive or config changes require explicit admin approval (`confirmed: true`).
+  - Tools include log search, health alerts, talkgroup tag audit, tone import parsing, tone history analysis, transcription failure reset, hallucination approve/reject, user invite/transfer, and embedded admin help articles.
+
+- **Admin — Global settings search**
+  - Search bar at the top of admin jumps to Config options panels, config sections, Tools, and the Assistant tab via a searchable settings index.
+
+- **Admin — Config sidebar navigation**
+  - Config tab uses a left sidebar (User Groups, Users, API Keys, Dirwatch, Downstreams, Systems, Groups, Tags, Keyword Lists, Options, Transcript Parser) instead of a flat tab strip.
+
+- **Admin — Log categories**
+  - Server logs are auto-categorized (auth, billing, email, calls, transcription, tones, relay, health, admin, etc.) with regex-based classification and DB migration.
+  - Logs tab adds category filter chips, a category column, and category-aware search API (`GET /api/admin/logs/categories`).
+  - Standard-library `log` output is captured into the admin logs table alongside structured `LogEvent` entries.
+
+- **Admin — Remote admin access control**
+  - **Admin Allowed IPs** option (CIDR or exact IP list) supplements localhost-only access; localhost is always permitted.
+
+- **Admin — OpenAI integration options**
+  - Config → Options → Integrations exposes OpenAI API key, base URL, and chat model used by the Assistant and tone/unit auto-learn naming.
+
+### Changed
+
+- **Admin — Visual refresh**
+  - Shared dark-theme admin styling (`styles.scss`), updated Config/Logs/System Health/Tools layouts, and cleaner section headers and hints across config editors.
+
+- **Admin — Options editor**
+  - Large refactor: collapsible option panels align with the settings search index; improved field grouping for transcription, alerts, email, Stripe, integrations, and audio settings.
+
+- **Admin — Logs tab**
+  - Redesigned table with category chips, improved filters, and pagination UX.
+
+- **Admin — System Health tab**
+  - Simplified layout and styling aligned with the new admin theme.
+
+- **Admin — Config editors**
+  - Dirwatch, keyword lists, systems/talkgroups, tags, groups, API keys, and downstreams updated for sidebar navigation and consistent save/dirty behavior.
+  - Removed duplicate legacy `api-keys` component (consolidated into `apikeys`).
+
+- **Server — Radio Reference import**
+  - Shared `radioReferenceImportToSystemCore` used by both the HTTP handler and Admin Assistant import action.
+
+### Fixed
+
+- **Admin — Save disabled after config import**
+  - Users, user groups, and keyword lists are API-backed shadow arrays in the config form. Invalid imported data (e.g. blank email) silently marked the whole form invalid and disabled Save. Those arrays no longer gate form validity while `getRawValue()` still feeds the full-import save path.
+
+---
+
+## Version 26.06.10 - Released June 7, 2026
+
+### Added
+
+- **Admin — Analyze tone history shows dispatch transcripts**
+  - Each suggested tone set now lists the dispatch voice from the calls that produced it, so you can sanity-check what was actually said before adding the set.
+  - Transcript selection reuses the live tone-alerting voice attachment: if the tone call carries voice it is used directly; otherwise the next voice call on the talkgroup within the pending-tone window is borrowed (the call the tones would have attached to in real time).
+
+### Changed
+
+- **Server — Auto-learn label uses the post-tone dispatch voice**
+  - The OpenAI labeling request now receives the resolved post-tone voice (not the tone-region hallucination) and a stronger prompt: all transcripts belong to one station/unit, so it locks onto the single identifier consistent across them and ignores one-off addresses, patient details, names, and times.
+
+- **Server — Auto-learn frequency tolerance default 10 → 20 Hz**
+  - A learned candidate within 20 Hz of an existing tone set is treated as the same set and skipped. Existing saved configs keep their explicit value.
+
+- **Server — Auto-learn minimum A/B separation 90 → 40 Hz**
+  - Tight but legitimate two-tone pairs (e.g. 1251.4 / 1184.5 Hz, 66.9 Hz apart) can now be auto-learned. Detection/alerting of already-stored tone sets was never affected by this guard.
+
+- **Admin — Tone set editor cleanup**
+  - Removed the unused "Sequence Min Duration" field, moved field descriptors below each input, reduced input height, widened the tone-sets block to full width, and corrected the tolerance hint text.
+
+### Fixed
+
+- **Admin — Unit edit could not be saved**
+  - Editing a unit's label/ID now enables Save immediately. Previously the detached edit form only committed (and marked the config dirty) when the row was collapsed, so Save stayed disabled if you edited and saved directly. Edits also commit on paging/search instead of being dropped.
+
+---
+
+## Version 26.06.09 - Released June 8, 2026
+
+### Fixed
+
+- **Admin — Analyze tone history UI**
+  - Button no longer stays on “Analyzing…” after the request completes (change detection under OnPush parent).
+  - Results render inline under the button instead of a snackbar (stats, partial patterns, suggestion cards).
+
+- **Server — Auto-learn duration windows**
+  - Default A-tone max **1.2 s**, B-tone max **3.3 s** (Lordstown-style paging is ~1.0 s A / ~3.1 s B).
+  - Migrates legacy presets (A max 0.9 s, B max 2.5 s or 4.0 s) on server start.
+
+- **Server — Analyze tone history lookback**
+  - Starts at **7 days / 200 calls per batch**, then expands automatically (14 → 28 → 30 days, up to 2000 calls) when no patterns qualify or partial patterns need more matching calls.
+  - Response includes `lookbackHours` so the UI shows how far back was searched.
+
+### Added
+
+- **Server — `import-lfd-calls` dev tool**
+  - Imports prod-export MP3s into local Postgres for tone-debug (`server/cmd/import-lfd-calls`).
+
+- **Server — Regression tests**
+  - Auto-learn config migration, LFD DB discover, tone history expand logic.
+
+---
+
+## Version 26.06.08 - Released June 7, 2026
+
+### Fixed
+
+- **Server — Tone detection on paging audio (tone-then-voice)**
+  - Shared decode path: bandpass without `dynaudnorm` for auto-learn `Discover`; production `Detect` also runs the deployed dynaudnorm chain and merges results so quiet lead-in tones are not lost when dispatch voice follows on the same clip.
+  - FFT analysis uses a **20 s** window (stacked pages) and a **3 s** peak reference for silence gating so later voice does not raise the noise floor and hide paging tones at the start.
+  - Auto-learn keeps looser `Discover` thresholds (0.4 s min tone, include unmatched frequencies); production `Detect` still requires a match to configured tone-set frequencies.
+
+- **Server — Pending tone stacking**
+  - When multiple tone-only calls queue before a voice dispatch, merged pending tones keep the **most recent tone page** as the primary attach label (voice calls inherit the closest preceding page).
+
+- **Server — Tone auto-learn pairing**
+  - Default A-tone duration window **0.5–1.2 s**, B-tone **1.5–4.0 s**; pairs earliest valid A with the longest following B per call.
+
+### Added
+
+- **Server — Analyze tone history diagnostics**
+  - History analyze logs per-call tone discovery details and includes partial patterns in the API response for admin review.
+
+- **Server — Regression tests**
+  - Production export tests for 78 FD DISP (direct `Detect` vs stored tone frequencies) and LFD sample audio (Discover + learned A/B detect).
+
+---
+
+## Version 26.06.07 - Released June 7, 2026
+
+### Added
+
+- **Admin — Analyze call history (talkgroup)**
+  - **Analyze tone history** scans recent calls on the channel (default: last 7 days, up to 200 calls), runs FFT tone discovery, and groups patterns by frequency signature.
+  - Only returns patterns seen on at least **3 different calls** — same threshold as live auto-learn (`autoLearnToneSetConfig.callsRequired`).
+  - OpenAI suggests department/station labels from transcripts; each qualifying pattern is listed with its own **Add tone set** button (save config to persist).
+  - Skips stacked-tone calls and patterns that already match configured tone sets on the channel.
+
+### Fixed
+
+- **Server — Tone auto-learn at ingest on paging audio**
+  - Auto-learn now runs on **every ingested call** using raw audio when the talkgroup has auto-learn enabled — not only after transcription on voiced calls.
+  - Works when **no tone sets are configured yet** (production tone matching still requires configured sets; auto-learn uses FFT `Discover` independently).
+  - Logs when zero tones are found in a call; post-transcription pass updates the transcript on the same `callId` candidate record.
+
+---
+
+## Version 26.06.06 - Released June 7, 2026
+
+### Fixed
+
+- **Server — Auto-learn runs per talkgroup without system master toggle**
+  - Tone and unit alias auto-learn only required the talkgroup flag at runtime; the system master toggle incorrectly blocked individually enabled channels (e.g. one dispatch TG on a system with bulk rollout off).
+  - System-level auto-learn is now **bulk tag rollout only** — turning it off no longer clears talkgroup flags that were enabled individually or via a prior rollout.
+
+---
+
+## Version 26.06.05 - Released June 6, 2026
+
+### Fixed
+
+- **Server — Auto-learn no longer emails per unit ID or tone pattern**
+  - Review emails with MP3 attachments were sent for every ambiguous unit alias or stacked tone candidate. Removed — confident matches still auto-add; skipped cases are logged only.
+  - Admin UI copy updated to match (logged only, not emailed).
+
+---
+
+## Version 26.06.04 - Released June 6, 2026
+
+### Added
+
+- **Server — Auto-learn tone sets**
+  - System and talkgroup toggles observe paging audio on selected channels and build tone-set candidates after enough matching calls (`autoLearnToneSetConfig.callsRequired`).
+  - Single-tone patterns with consistent frequencies are auto-added; stacked / ambiguous patterns were emailed to system admins for manual review (removed in 26.06.05 — logged only).
+  - **Tag rollout**: enable auto-learn on all talkgroups matching selected tags; optional **auto-off** timer disables rollout on the system and tagged talkgroups when it expires.
+  - OpenAI (when configured) suggests human-readable tone-set labels from observed frequencies and transcripts.
+
+- **Server — Auto-learn unit aliases**
+  - Maps radio `unitRef` values to human labels (e.g. `45012` → `Engine Five`) using P25 radio metadata and voice transcripts.
+  - Consistent P25 alias on every call auto-adds without OpenAI; conflicting aliases or missing metadata trigger an OpenAI naming pass; uncertain results were emailed to system admins (removed in 26.06.05 — logged only).
+  - System/talkgroup toggles, tag rollout, and optional auto-off mirror auto-learn tone sets.
+  - Reuses `autoLearnToneSetConfig.callsRequired` for the observation threshold.
+
+- **Server — Bulk tone detection rollout**
+  - System-level toggle applies production `toneDetectionEnabled` to all talkgroups matching selected tags — useful for enabling tone matching across paging dispatch channels in one step.
+  - Stays on until bulk rollout is turned off manually (auto-off timer removed).
+
+- **Admin — OpenAI integration (External Integrations)**
+  - Server-wide OpenAI API key and base URL for TLR-powered features (tone auto-learn naming, unit alias auto-learn) — separate from speech-to-text transcription.
+  - Selectable chat model (`gpt-5.4-mini`, `gpt-4o-mini`, `gpt-4o`) with per-request cost estimate in the admin UI.
+
+- **Talkgroup — Alerting talkgroup**
+  - Per-talkgroup toggle for dedicated dispatch/page channels: queues transcription when users have alerts enabled (no tone/keyword prefs required), bypasses min call duration, skips tone and keyword matching, and fires **transcript** alerts on voiced calls (with deduplication and alert cooldown).
+
+### Fixed
+
+- **Client — White flash / strip below tab content when switching tabs** ([#213](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/issues/213))
+  - Angular Material’s light theme paints tab scroll areas white; short tab content left a white band and a brief flash on tab changes.
+  - Console board tabs and global Material tab bodies now use the dark board surface (`--tlr-board-surface`).
+
+- **Admin — Hallucination Removal Patterns could not be saved** ([#212](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/issues/212))
+  - Form stored patterns as a newline string but the textarea getter/setter treated them as an array; saved values did not display and edits did not mark the form dirty.
+  - Bound the field with `formControlName` like other transcription options.
+
+- **Client — Transcripts tab no longer resets filters on every new alert**
+  - Auto-refresh is deferred when filters, pagination, or an in-progress training edit are active; a **“New transcripts are available”** banner lets admins refresh when ready.
+
+- **Server — Approve & Send updates the displayed transcript**
+  - After approving for training, the call’s `transcript` column is updated to the reviewed text (uppercase) so the Transcripts tab shows the training version locally, not just the original STT output.
+
+- **Server — Auto-learn tone sets now queue transcription**
+  - Paging talkgroups with auto-learn enabled (but no user alert prefs) were never transcribed, so pattern discovery could not run. Added `auto_learn_tone_sets` and `auto_learn_unit_aliases` transcription reasons with min-duration bypass.
+
+- **Client — `transcript` alert type in legacy scanner UI**
+  - Alerting-talkgroup transcript alerts now display correctly in the classic/legacy main view (type union and label).
+
+- **Admin — System settings layout / text overflow**
+  - Long toggle descriptions (auto-learn, auto-populate units, transcription prompt hints) no longer squash beside switches; hints wrap below toggles and wide fields span the full grid.
+
+- **Client — App Font applies to scanner only, not admin**
+  - Settings → Display → App Font now scopes custom typography to the scanner shell; admin UI stays on Roboto/Material defaults so configuration pages remain readable.
+
+- **Admin — TLR logo in header**
+  - Replaced the generic `radio` icon with the ThinLine Radio logo in the server administration header.
+
+---
+
+## Version 26.06.03 - Released June 1, 2026
+
+### Fixed
+
+- **Server — Request API Key failed with 500 on production servers**
+  - `Options.WriteKey` used unsafe SQL string interpolation when saving `transcriptionConfig` after collector registration.
+  - Transcription settings containing apostrophes (Whisper prompts, keyterms, etc.) caused the database update to fail even when the collector returned a valid API key.
+  - Now uses parameterized queries (`$1`, `$2`) like the rest of options persistence.
+
+---
+
+## Version 26.06.02 - Released June 1, 2026
+
+### Added
+
+- **Transcript Collector — community Whisper training dataset (data collection)**
+  - New standalone service (`transcript-collector/`) for reviewed dispatch audio + transcripts from ThinLine Radio servers.
+  - Ingest API (`POST /api/v1/submissions`): API-key auth, multipart audio + metadata; **ffmpeg** converts uploads to **16 kHz mono WAV**; writes `data/training/audio/`, matching `.txt` transcripts, and appends **OpenAI/HuggingFace-compatible** `manifest.jsonl`.
+  - Stores reviewed and original transcript text in **lowercase**; rejects duplicate submissions for the same TLR call ID per server.
+  - Tracks **audio duration** (hours/minutes/seconds) globally and per TLR server; admin portal with submissions list, **Servers** tab, training-audio totals, and **Rebuild manifest** from the database.
+  - Self-registration and admin API-key issuance; production URL: `https://transcripts.thinlineds.com`.
+
+- **Client — Transcripts tab: review and send for training**
+  - System admins can **Edit for Training**, save drafts, and **Approve & Send** to the transcript collector (audio playback in-panel).
+  - **Request API Key** registers this TLR server with the collector (no manual URL/key fields in Admin → Options).
+  - **Connected** status, per-server contribution stats, and a **community 5,000-hour** progress bar (all signed-in users on the Transcripts tab).
+  - **Already submitted** calls show a badge and cannot be edited or re-sent; collapsible **Training tips** at the top of the tab (formatting, digits, homophones, etc.).
+
+- **Server — transcript review and collector integration**
+  - Admin API: collector key request/status, approve/send, per-server stats proxy, draft save with `trainingReviewStatus`.
+  - `GET /api/transcripts/training-progress` — global collector training progress for authenticated users.
+  - Transcripts list includes `trainingReviewStatus` and `reviewedTranscript`; approve blocked after submit.
+
+---
+
+## Version 26.06.01 - Released June 1, 2026
+
+### Fixed
+
+- **Server — One pager alert per call when multiple tone/keyword triggers match**
+  - Users subscribed to several tone sets or keyword triggers for the same call no longer receive multiple Android CallKit / Telecom or iOS pager-style alerts for that call.
+  - Regular push notifications still fire for each matching trigger; only the pager-style alert is deduplicated per user+call.
+
+- **Server — Talkgroup alert cooldown respected on all push paths** ([#205](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/issues/205))
+  - Pre-alerts, tone alerts, and keyword pushes now honor `alertCooldownSeconds` on the configured talkgroup.
+  - Cooldown tracks the tone-source talkgroup on linked-voice setups (not just the voice talkgroup ID).
+  - Pre-alert and full tone alert use separate cooldown timers so a pre-alert followed by voice still sends both; a second double-page within the window is suppressed.
+  - Duplicate `TriggerToneAlerts` dispatches for the same call (tone detection vs transcription race) are deduplicated.
+
+- **Client — App Font setting applies everywhere** ([#211](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/issues/211))
+  - Settings → Display → App Font now updates the entire scanner UI, including Material components, CDK overlays (dropdowns, dialogs, snackbars), and call history (Source column no longer stuck on a separate display font).
+  - Font loads at app bootstrap via `AppFontService`; Material typography uses the `--tlr-font-primary` CSS variable at runtime.
+
+---
+
+## Version 26.05.009 - Released May 28, 2026
+
+### Added
+
+- **Server — Cloudflare Workers AI transcription** *(contribution by [@robertlynch3](https://github.com/robertlynch3))*
+  - New transcription provider option: **Cloudflare Workers AI** (Whisper models via REST API).
+  - Admin options: Account ID, API token, and model ID (e.g. `@cf/openai/whisper-large-v3-turbo`).
+  - Server sends call audio to `https://api.cloudflare.com/client/v4/accounts/{id}/ai/run/{model}` and processes the transcript through the existing keyword/tone alert pipeline.
+  - Files: `server/transcription_cloudflare.go`, `server/transcription_queue.go`, `server/options.go`, admin transcription options UI.
+
+- **Admin — Cloudflare Workers AI setup guide**
+  - In-app panel when Cloudflare is selected: dashboard links, Account ID / API token / model steps, billing note, and link to the REST API docs.
+  - Global admin search includes Cloudflare-related keywords.
+
+### Fixed
+
+- **Admin — Tools > Import Units had no effect after Save** ([#206](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/issues/206))
+  - Imported unit IDs were merged into a separate config copy but never synced into `originalConfig`; Save always restored units from the pre-import snapshot (empty or stale).
+  - `reset()` now merges lazy-loaded units (and talkgroups/groups/tags from Import Talkgroups) into `originalConfig` before Save.
+  - First import on a system with no existing units no longer silently fails (`undefined.concat`).
+
+- **Admin — Cleanup Unused Groups / Tags deleted every group or tag** ([#209](https://github.com/Thinline-Dynamic-Solutions/ThinLineRadio/issues/209))
+  - Cleanup scanned the lazy-loaded systems form (empty talkgroups) instead of `originalConfig`, so every group/tag appeared unused and was removed on Save.
+
+- **Admin — Import Units step 3 label**
+  - Corrected “review talkgroups to import” → “review units to import”.
+
+---
+
+## Version 26.05.008 - Released May 27, 2026
+
+- UI updates and bug fixes.
+
+---
+
+## Version 26.05.007 - Released May 21, 2026
+
+### Fixed
+
+- **Server — expire pending tones after orphan alert**
+  - When stacked tones sit without voice for 60 seconds, the orphan path fires tone alerts and now **clears** the pending stack (`:next` slot, cross-talkgroup watch entries, and waiting short-call timers). Late voice on the same talkgroup can no longer attach tone sets that already alerted as “no voice,” which previously caused false multi-department merges (e.g. Weathersfield orphan + Girard voice).
+
+---
+
+## Version 26.05.006 - Released May 17, 2026
+
+### Added
+
+- **Server — Read-only Health API endpoints (admin-password auth)**
+  - New `GET /api/health` — full JSON payload with service identity, uptime, listener/call activity, transcription queue depth, Go runtime stats (goroutines, heap, OS-allocated memory, CPU%), DB pool stats + ping, free-disk on the data dir, and integration status booleans (Central Management paired, relay configured, Hydra enabled).
+  - New `GET /api/health/live` — minimal `{"status":"ok"}` for uptime probes.
+  - New `GET /api/health/ready` — returns `200 ok` or `503 degraded` with a `reasons[]` list (e.g. `db: ping failed`, `disk: <5% free on data directory`) so orchestrators can pull the scanner from a load-balancer pool when it's unhealthy.
+  - All three endpoints are gated by **HTTP Basic Auth using the admin password** (same scheme as `/calls`). No new keys to manage, no admin-UI surface added.
+  - Response cached in memory for ~3 seconds so a hostile scraper can't force a `runtime.ReadMemStats` / `db.Ping` per request.
+  - No secrets are exposed in any payload — relay/CM URLs and external API keys are reduced to booleans (`relay_configured`, `hydra_api_key_present`, etc.).
+
+### Internal
+
+- Captured `processStartTime` at the top of `main()` for accurate `uptime_seconds`.
+- New `HealthService` (`server/health.go`) wired onto `Controller.Health`; reuses the same `gopsutil` process sampler approach used by the Central Management heartbeat so health calls don't reset the heartbeat's CPU window.
+
+---
+
+## Version 26.05.005 - Released May 17, 2026
+
+### Fixed
+
+- **Server — Tone alerts: short dispatch transcripts no longer blocked by 8-word voice rule**
+  - Pending-tone attach and tone DB alerts now use `isVoiceForToneAlerts`, which accepts meaningful short dispatch (e.g. station names and box numbers) while still rejecting tone-only text (`BEEP`, repeating characters).
+  - **Keyword alerts** and other paths continue to use the stricter `isActualVoice` (minimum 8 words).
+  - Example: call 39912391 (May 17, 2026) had a valid 6-word transcript but was classified as tone-only; orphan alert showed “no voice call available” despite voice on the recording.
+
+- **Server — CORS on public registration endpoints**
+  - `/api/public-registration-info` and `/api/public-registration-channels` now allow browser requests from the ThinLine Radio website and other origins (for public scanner directory pricing).
+
+- **Client — Unit label display**
+  - Search and main views use shared unit formatting so labels display consistently.
+
+---
+
+## Version 26.05.004 - Released May 15, 2026
+
+### Fixed
+
+- **Server — Tone detection, stacked pending tones, and orphan alerts (`callId = 0`)**
+  - **First known report:** This is the first production incident of this failure mode we are aware of (investigated May 15, 2026 on system ref 78, talkgroup ref 46036 / 78 FD DISP). It is now fixed.
+  - **Root cause:** Tone detection ran asynchronously on a copy of the call **before** `WriteCall` assigned a database `callId`. All downstream steps used `callId = 0`, so tone results never persisted on the real call rows and the 60-second orphan safety net could not load the call to create alerts.
+
+- **Example failure (May 15, 2026 — stacked tone page, no voice on dispatch)**
+
+  Multiple short clips on one channel within ~20 seconds; detection and pre-alerts worked, but **no rows** were written to the `alerts` table and `hasTones` stayed `false` on every call:
+
+  | Call time (ET) | callId   | Detected / matched        | Pre-alerts | DB `alerts` row |
+  |----------------|----------|---------------------------|------------|-----------------|
+  | 05:03:29       | 39395685 | Champion Duty (376 + 1055 Hz) | 13 users   | None            |
+  | 05:03:34       | 39395698 | Weathersfield 42            | 18 users   | None            |
+  | 05:03:40       | 39395709 | Howland Duty                | 16 users   | None            |
+  | 05:03:45       | 39395718 | Newton Falls Duty           | 13 users   | None            |
+
+  Logs showed detection under the wrong id, for example:
+
+  ```text
+  tone detection starting for call 0 (talkgroup=46036, audioSize=29620 bytes)
+  tones detected for call 0: 376.1 Hz, 1054.7 Hz
+  tone set(s) matched for call 0: Champion Duty
+  storing as pending for talkgroup 46036
+  transcription completed for call 39395685: no voice detected (tone-only), no alert created
+  ```
+
+  Sixty seconds after the **first** pending store, the orphan path ran but could not load call `0`:
+
+  ```text
+  orphaned tones detected after 60 seconds for call 0 - triggering alert without voice
+  failed to load orphaned tone call 0: calls.getcall: cannot retrieve system id 0 for call id 0
+  ```
+
+  By contrast, an earlier page on the same talkgroup at **04:56** attached pending tones to a **voice** call and created alert `321581` (Newton Falls Off Duty on call 39395092) — the same pipeline works when `callId` and voice dispatch align.
+
+- **Fixes in this release**
+  - Run tone detection **after** `WriteCall` so logs, `updateCallToneSequence`, `storePendingTones`, and orphan timers use the real `callId` (with a short wait/sync guard in the async worker).
+  - Orphan handler loads the call via `pending.CallId` when the timer argument is stale, writes the merged `toneSequence` to the database, then triggers `TriggerToneAlerts`.
+  - **Stacked pending:** Each time a new matched tone set is merged into the active pending stack, the stack anchor (`CallId` + call timestamp) moves to the **latest** clip and the **60-second orphan timer resets**; older timer goroutines exit when the anchor timestamp advances. When voice transcription arrives on the talkgroup, all merged tone sets attach to that call, alerts fire, and pending is cleared (unchanged intent, now reliable with valid ids).
+  - Expired-pending replace path schedules an orphan check (was missing).
+  - Clearer log line when a clip is tone-only but has matched tone sets in the database (pending until voice or orphan).
+  - Files modified: `server/controller.go`, `server/transcription_queue.go`, `server/tone_detection_test.go` (new)
+
+---
+
+## Version 26.05.003 - Released May 10, 2026
+
+### Changed
+
+- **General UI** — styling and layout updates across the main listener experience, search, select, alerts, settings, and related panels
+- **Admin — Push notification / relay API key** — In-app guidance that requesting or changing a relay API key requires a supported browser context (HTTPS, or http://localhost / http://127.0.0.1), and that the server listen address should include **0.0.0.0** when using localhost, to avoid “Failed to initialize authorization” when opening admin as plain http on a LAN IP only
+
+### Fixed
+
+- **General bug fixes** — server and client correctness and stability improvements (including API, call handling, scan lists, and client services)
+
+---
+
 ## Version 26.05.001 - Released May 4, 2026
 
 ### New Features

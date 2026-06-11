@@ -17,21 +17,24 @@
  * ****************************************************************************
  */
 
-import { Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
 import { FormArray, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { MatSelectChange } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { finalize } from 'rxjs/operators';
-import { RdioScannerAdminService, Group, Tag } from '../../../admin.service';
+import { RdioScannerAdminService, Group, Tag, ToneHistoryAnalyzeResponse, ToneHistorySuggestion } from '../../../admin.service';
 import { RdioScannerToneSet } from '../../../../rdio-scanner';
 
 @Component({
     selector: 'rdio-scanner-admin-talkgroup',
     templateUrl: './talkgroup.component.html',
     styleUrls: ['./talkgroup.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RdioScannerAdminTalkgroupComponent {
     @Input() form: FormGroup | undefined;
+    @Input() groups: Group[] = [];
+    @Input() tags: Tag[] = [];
 
     @Output() blacklist = new EventEmitter<void>();
 
@@ -45,20 +48,28 @@ export class RdioScannerAdminTalkgroupComponent {
     syncToneSetsStatus = '';
     syncSelectedIds   = new Set<string>();
 
-    get groups(): Group[] {
-        return this.form?.root.get('groups')?.value as Group[];
-    }
-
-    get tags(): Tag[] {
-        return this.form?.root.get('tags')?.value as Tag[];
-    }
+    analyzingToneHistory = false;
+    toneHistoryStatus = '';
+    toneHistoryError = false;
+    toneHistoryComplete = false;
+    toneHistorySuggestions: ToneHistorySuggestion[] = [];
+    toneHistoryPartialPatterns: { patternDesc: string; callCount: number }[] = [];
+    toneHistoryCallsRequired = 3;
+    toneHistoryStats: Pick<ToneHistoryAnalyzeResponse, 'callsScanned' | 'callsWithTones' | 'callsWithCandidates' | 'discoverErrors' | 'patternsBelowThreshold' | 'lookbackHours'> | null = null;
 
     get apikeys(): any[] {
         return this.form?.root.get('apikeys')?.value as any[] || [];
     }
 
+    get systemId(): number | undefined {
+        const systemForm = this.form?.parent?.parent;
+        const id = systemForm?.get('id')?.value;
+        return typeof id === 'number' && id > 0 ? id : undefined;
+    }
+
     constructor(
         private adminService: RdioScannerAdminService,
+        private cdr: ChangeDetectorRef,
         private formBuilder: FormBuilder,
         private snackBar: MatSnackBar,
     ) {
@@ -90,7 +101,6 @@ export class RdioScannerAdminTalkgroupComponent {
             longToneMinDuration: [toneSet?.longTone?.minDuration ?? null],
             longToneMaxDuration: [toneSet?.longTone?.maxDuration ?? null],
             tolerance: [toneSet?.tolerance ?? 10],
-            minDuration: [toneSet?.minDuration ?? null],
             // TonesToActive downstream forwarding (per tone set)
             downstreamEnabled: [(toneSet as any)?.downstreamEnabled ?? false],
             downstreamURL: [(toneSet as any)?.downstreamURL ?? ''],
@@ -225,6 +235,78 @@ export class RdioScannerAdminTalkgroupComponent {
                     this.snackBar.open(msg, '', { duration: 5000 });
                 },
             });
+    }
+
+    analyzeToneHistory(): void {
+        if (!this.form || this.analyzingToneHistory) {
+            return;
+        }
+
+        const talkgroupId = this.form.get('id')?.value;
+        const systemId = this.systemId;
+        if (!talkgroupId || !systemId) {
+            this.snackBar.open('Save this talkgroup first so it has a database ID', '', { duration: 5000 });
+            return;
+        }
+
+        this.analyzingToneHistory = true;
+        this.toneHistoryComplete = false;
+        this.toneHistoryError = false;
+        this.toneHistoryStatus = '';
+        this.toneHistorySuggestions = [];
+        this.toneHistoryPartialPatterns = [];
+        this.toneHistoryStats = null;
+        this.cdr.markForCheck();
+
+        this.adminService.analyzeToneHistory(systemId, talkgroupId)
+            .pipe(finalize(() => {
+                this.analyzingToneHistory = false;
+                this.cdr.markForCheck();
+            }))
+            .subscribe({
+                next: (response) => {
+                    this.toneHistoryComplete = true;
+                    this.toneHistoryError = false;
+                    this.toneHistoryCallsRequired = response?.callsRequired ?? 3;
+                    this.toneHistorySuggestions = response?.suggestions || [];
+                    this.toneHistoryPartialPatterns = response?.partialPatterns || [];
+                    this.toneHistoryStats = {
+                        callsScanned: response?.callsScanned ?? 0,
+                        callsWithTones: response?.callsWithTones ?? 0,
+                        callsWithCandidates: response?.callsWithCandidates ?? 0,
+                        discoverErrors: response?.discoverErrors ?? 0,
+                        patternsBelowThreshold: response?.patternsBelowThreshold ?? 0,
+                        lookbackHours: response?.lookbackHours ?? 168,
+                    };
+                    if (this.toneHistorySuggestions.length > 0) {
+                        this.toneHistoryStatus = `Found ${this.toneHistorySuggestions.length} pattern${this.toneHistorySuggestions.length === 1 ? '' : 's'} (≥${this.toneHistoryCallsRequired} calls each)`;
+                    } else {
+                        this.toneHistoryStatus = response?.message || `No patterns with at least ${this.toneHistoryCallsRequired} matching calls`;
+                    }
+                    this.cdr.markForCheck();
+                },
+                error: (error) => {
+                    this.toneHistoryComplete = true;
+                    this.toneHistoryError = true;
+                    this.toneHistoryStatus = error?.error?.error || 'Tone history analysis failed';
+                    this.cdr.markForCheck();
+                },
+            });
+    }
+
+    addSuggestedToneSet(suggestion: ToneHistorySuggestion): void {
+        if (!this.form || !suggestion?.toneSet) {
+            return;
+        }
+        if (!this.form.get('toneDetectionEnabled')?.value) {
+            this.form.get('toneDetectionEnabled')?.setValue(true);
+        }
+        this.addToneSet({
+            ...suggestion.toneSet,
+            label: suggestion.label || suggestion.toneSet.label,
+        });
+        this.toneHistorySuggestions = this.toneHistorySuggestions.filter((s) => s !== suggestion);
+        this.cdr.markForCheck();
     }
 
     private appendImportedToneSets(toneSets: RdioScannerToneSet[]): void {

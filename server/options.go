@@ -89,6 +89,8 @@ type Options struct {
 	IOSAppStoreURL                string              `json:"iosAppStoreUrl"`
 	AndroidPlayStoreURL           string              `json:"androidPlayStoreUrl"`
 	TranscriptionConfig           TranscriptionConfig `json:"transcriptionConfig"`
+	OpenAIIntegration             OpenAIIntegration   `json:"openAIIntegration"`
+	AutoLearnToneSetConfig        AutoLearnToneSetConfig `json:"autoLearnToneSetConfig"`
 	TranscriptionEnhancement      bool                `json:"transcriptionEnhancement"`
 	TranscriptionFailureThreshold uint                `json:"transcriptionFailureThreshold"`
 	TranscriptParserConfig        TranscriptConfig    `json:"transcriptParserConfig"`
@@ -178,7 +180,7 @@ type Options struct {
 // TranscriptionConfig contains configuration for transcription
 type TranscriptionConfig struct {
 	Enabled                     bool     `json:"enabled"`
-	Provider                    string   `json:"provider"` // "whisper-api", "azure", "google", "assemblyai"
+	Provider                    string   `json:"provider"` // "whisper-api", "azure", "google", "assemblyai", "cloudflare"
 	Language                    string   `json:"language"` // "en", "auto"
 	Prompt                      string   `json:"prompt"`   // Custom prompt for Whisper to guide transcription (e.g., terminology, formatting)
 	WorkerPoolSize              int      `json:"workerPoolSize"`
@@ -193,6 +195,9 @@ type TranscriptionConfig struct {
 	AssemblyAIKey               string   `json:"assemblyAIKey"`               // AssemblyAI API key
 	AssemblyAISpeechModel       string   `json:"assemblyAISpeechModel"`       // Speech model for AssemblyAI: "universal-2" (default) or "universal-3-pro"
 	AssemblyAIWordBoost         []string `json:"assemblyAIWordBoost"`         // Sent as AssemblyAI keyterms_prompt (max 100 terms, 50 chars each)
+	CloudflareAccountID         string   `json:"cloudflareAccountID"`         // Cloudflare account ID for Workers AI
+	CloudflareAPIToken          string   `json:"cloudflareAPIToken"`          // Cloudflare API token for Workers AI
+	CloudflareModel             string   `json:"cloudflareModel"`             // Cloudflare Workers AI model (default: @cf/openai/whisper-large-v3-turbo)
 	HallucinationPatterns       []string `json:"hallucinationPatterns"`       // Patterns to remove from transcripts (Whisper hallucinations)
 	HallucinationDetectionMode  string   `json:"hallucinationDetectionMode"`  // "off", "manual", "auto"
 	HallucinationMinOccurrences int      `json:"hallucinationMinOccurrences"` // Minimum times a phrase must appear in rejected calls before flagging (default: 5)
@@ -202,6 +207,17 @@ type TranscriptionConfig struct {
 	// until transcription is complete).  Default: 300 seconds (5 minutes).  Set higher for very
 	// slow CPUs.  0 = use default.
 	TimeoutSeconds int `json:"timeoutSeconds"`
+	// Whisper training export — reviewed transcripts sent to transcript-collector on approve.
+	CollectorURL    string `json:"collectorURL"`
+	CollectorAPIKey string `json:"collectorAPIKey"`
+}
+
+// OpenAIIntegration holds server-wide OpenAI API credentials for TLR features
+// (tone auto-learn naming, unit alias auto-learn, and future integrations). Separate from transcription.
+type OpenAIIntegration struct {
+	APIKey  string `json:"apiKey"`
+	BaseURL string `json:"baseUrl"`
+	Model   string `json:"model"` // chat model for naming (default gpt-5.4-mini)
 }
 
 const (
@@ -940,6 +956,15 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		if v, ok := tc["assemblyAISpeechModel"].(string); ok {
 			options.TranscriptionConfig.AssemblyAISpeechModel = v
 		}
+		if v, ok := tc["cloudflareAccountID"].(string); ok {
+			options.TranscriptionConfig.CloudflareAccountID = v
+		}
+		if v, ok := tc["cloudflareAPIToken"].(string); ok {
+			options.TranscriptionConfig.CloudflareAPIToken = v
+		}
+		if v, ok := tc["cloudflareModel"].(string); ok {
+			options.TranscriptionConfig.CloudflareModel = v
+		}
 		if v, ok := tc["assemblyAIWordBoost"].([]interface{}); ok {
 			wordBoost := make([]string, 0, len(v))
 			for _, wb := range v {
@@ -969,7 +994,68 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		}
 	}
 
+	if oai, ok := m["openAIIntegration"].(map[string]any); ok {
+		applyOpenAIIntegrationFromMap(&options.OpenAIIntegration, oai)
+	}
+
+	if alc, ok := m["autoLearnToneSetConfig"].(map[string]any); ok {
+		applyAutoLearnToneSetConfigFromMap(&options.AutoLearnToneSetConfig, alc)
+		migrateLegacyOpenAIIntegration(options, alc)
+	}
+
 	return options
+}
+
+func applyOpenAIIntegrationFromMap(cfg *OpenAIIntegration, m map[string]any) {
+	if v, ok := m["apiKey"].(string); ok {
+		cfg.APIKey = v
+	}
+	if v, ok := m["baseUrl"].(string); ok {
+		cfg.BaseURL = v
+	}
+	if v, ok := m["model"].(string); ok {
+		cfg.Model = v
+	}
+}
+
+// migrateLegacyOpenAIIntegration copies OpenAI credentials stored under autoLearnToneSetConfig (older builds).
+func migrateLegacyOpenAIIntegration(options *Options, autoLearn map[string]any) {
+	if options == nil || strings.TrimSpace(options.OpenAIIntegration.APIKey) != "" {
+		return
+	}
+	if v, ok := autoLearn["openAIAPIKey"].(string); ok && strings.TrimSpace(v) != "" {
+		options.OpenAIIntegration.APIKey = v
+	}
+	if v, ok := autoLearn["openAIAPIURL"].(string); ok && strings.TrimSpace(v) != "" {
+		options.OpenAIIntegration.BaseURL = v
+	}
+}
+
+func applyAutoLearnToneSetConfigFromMap(cfg *AutoLearnToneSetConfig, m map[string]any) {
+	if v, ok := m["aToneMinDuration"].(float64); ok {
+		cfg.AToneMinDuration = v
+	}
+	if v, ok := m["aToneMaxDuration"].(float64); ok {
+		cfg.AToneMaxDuration = v
+	}
+	if v, ok := m["bToneMinDuration"].(float64); ok {
+		cfg.BToneMinDuration = v
+	}
+	if v, ok := m["bToneMaxDuration"].(float64); ok {
+		cfg.BToneMaxDuration = v
+	}
+	if v, ok := m["longToneMinDuration"].(float64); ok {
+		cfg.LongToneMinDuration = v
+	}
+	if v, ok := m["longToneMaxDuration"].(float64); ok {
+		cfg.LongToneMaxDuration = v
+	}
+	if v, ok := m["callsRequired"].(float64); ok {
+		cfg.CallsRequired = int(v)
+	}
+	if v, ok := m["frequencyToleranceHz"].(float64); ok {
+		cfg.FrequencyToleranceHz = v
+	}
 }
 
 func (options *Options) Read(db *Database) error {
@@ -1028,6 +1114,7 @@ func (options *Options) Read(db *Database) error {
 	options.ReconnectionEnabled = defaults.options.reconnectionEnabled
 	options.ReconnectionGracePeriod = defaults.options.reconnectionGracePeriod
 	options.ReconnectionMaxBufferSize = defaults.options.reconnectionMaxBufferSize
+	options.AutoLearnToneSetConfig = DefaultAutoLearnToneSetConfig()
 
 	// Initialize Radio Reference credentials with defaults, but they will be overridden by database values
 	options.RadioReferenceEnabled = defaults.options.radioReferenceEnabled
@@ -1478,6 +1565,34 @@ func (options *Options) Read(db *Database) error {
 			if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
 				options.TranscriptionConfig = cfg
 			}
+		case "openAIIntegration":
+			var cfg OpenAIIntegration
+			if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
+				options.OpenAIIntegration = cfg
+			}
+		case "autoLearnToneSetConfig":
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(value.String), &raw); err == nil {
+				var cfg AutoLearnToneSetConfig
+				if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
+					options.AutoLearnToneSetConfig = cfg
+				}
+				legacy := map[string]any{}
+				var legacyKey, legacyURL string
+				if b, ok := raw["openAIAPIKey"]; ok {
+					_ = json.Unmarshal(b, &legacyKey)
+					if legacyKey != "" {
+						legacy["openAIAPIKey"] = legacyKey
+					}
+				}
+				if b, ok := raw["openAIAPIURL"]; ok {
+					_ = json.Unmarshal(b, &legacyURL)
+					if legacyURL != "" {
+						legacy["openAIAPIURL"] = legacyURL
+					}
+				}
+				migrateLegacyOpenAIIntegration(options, legacy)
+			}
 		case "transcriptParserConfig":
 			var cfg TranscriptConfig
 			if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
@@ -1752,6 +1867,16 @@ func (options *Options) Read(db *Database) error {
 		}
 	}
 
+	options.AutoLearnToneSetConfig.normalize()
+	if migrateLegacyAutoLearnToneDurations(&options.AutoLearnToneSetConfig) {
+		cfg := options.AutoLearnToneSetConfig
+		if err := options.WriteKey(db, "autoLearnToneSetConfig", cfg, func() {
+			options.AutoLearnToneSetConfig = cfg
+		}); err != nil {
+			return formatError(err, "autoLearnToneSetConfig migration")
+		}
+	}
+
 	return nil
 }
 
@@ -1892,6 +2017,8 @@ func (options *Options) Write(db *Database) error {
 	set("reconnectionMaxBufferSize", options.ReconnectionMaxBufferSize)
 	// Persist entire transcription config as a single JSON blob
 	set("transcriptionConfig", options.TranscriptionConfig)
+	set("openAIIntegration", options.OpenAIIntegration)
+	set("autoLearnToneSetConfig", options.AutoLearnToneSetConfig)
 	set("transcriptionEnhancement", options.TranscriptionEnhancement)
 	set("transcriptParserConfig", options.TranscriptParserConfig)
 	set("nominatimUrl", options.NominatimURL)
@@ -1909,6 +2036,48 @@ func (options *Options) Write(db *Database) error {
 	return nil
 }
 
+// ApplyPartial merges the provided keys over the current options and persists.
+// Only keys present in `partial` change; every other option keeps its current
+// value (unlike FromMap, which resets missing keys to defaults). Nested objects
+// (transcriptionConfig, openAIIntegration, autoLearnToneSetConfig) are deep-merged
+// so a partial nested update does not drop sibling fields.
+//
+// This is the single entry point used by the API-driven admin UI to save one or
+// more option fields at a time. Callers should trigger EmitConfig() afterwards so
+// live clients pick up the change.
+func (options *Options) ApplyPartial(db *Database, partial map[string]any) error {
+	options.mutex.Lock()
+	currentJSON, err := json.Marshal(options)
+	options.mutex.Unlock()
+	if err != nil {
+		return fmt.Errorf("options ApplyPartial marshal: %w", err)
+	}
+
+	merged := map[string]any{}
+	if err := json.Unmarshal(currentJSON, &merged); err != nil {
+		return fmt.Errorf("options ApplyPartial unmarshal: %w", err)
+	}
+
+	for k, v := range partial {
+		if existing, ok := merged[k].(map[string]any); ok {
+			if incoming, ok := v.(map[string]any); ok {
+				for ik, iv := range incoming {
+					existing[ik] = iv
+				}
+				merged[k] = existing
+				continue
+			}
+		}
+		merged[k] = v
+	}
+
+	// FromMap mutates the same Options in place, only overwriting fields it knows
+	// about; unhandled fields (e.g. transcriptParserConfig) keep their values.
+	options.FromMap(merged)
+
+	return options.Write(db)
+}
+
 // WriteKey writes a single options key directly to the database and updates
 // the in-memory value via the provided setter function.  This avoids the
 // bulk Options.Write overwriting keys that are managed by dedicated endpoints.
@@ -1917,15 +2086,14 @@ func (options *Options) WriteKey(db *Database, key string, val any, setInMemory 
 	if err != nil {
 		return fmt.Errorf("options WriteKey marshal: %w", err)
 	}
+	valStr := string(valJSON)
 
-	query := fmt.Sprintf(`UPDATE "options" SET "value" = '%s' WHERE "key" = '%s'`, valJSON, key)
-	res, err := db.Sql.Exec(query)
+	res, err := db.Sql.Exec(`UPDATE "options" SET "value" = $1 WHERE "key" = $2`, valStr, key)
 	if err != nil {
 		return fmt.Errorf("options WriteKey update: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		query = fmt.Sprintf(`INSERT INTO "options" ("key", "value") VALUES ('%s', '%s')`, key, valJSON)
-		if _, err = db.Sql.Exec(query); err != nil {
+		if _, err = db.Sql.Exec(`INSERT INTO "options" ("key", "value") VALUES ($1, $2)`, key, valStr); err != nil {
 			return fmt.Errorf("options WriteKey insert: %w", err)
 		}
 	}

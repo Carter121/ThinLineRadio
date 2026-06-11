@@ -106,7 +106,7 @@ export interface RdioScannerAlert {
     callId: number;
     systemId: number;
     talkgroupId: number;
-    alertType: 'tone' | 'keyword' | 'tone+keyword';
+    alertType: 'tone' | 'keyword' | 'tone+keyword' | 'transcript';
     toneDetected: boolean;
     keywordsMatched?: string; // JSON array
     transcriptSnippet?: string;
@@ -127,6 +127,8 @@ export interface RdioScannerTranscript {
     systemId: number;
     talkgroupId: number;
     transcript: string;
+    reviewedTranscript?: string;
+    trainingReviewStatus?: string;
     transcriptionStatus?: string;
     timestamp?: number;
     alertSummary?: string;
@@ -199,6 +201,8 @@ export interface RdioScannerConfig {
     alerts?: RdioScannerAlerts;
     branding?: string;
     email?: string;
+    /** Reported by the server via the VER websocket message. CalVer YY.MM.NNN. */
+    version?: string;
     groups: { [key: string]: { [key: number]: number[] } };
     groupsData: RdioScannerGroupData[];
     keypadBeeps: RdioScannerKeypadBeeps | undefined;
@@ -343,7 +347,10 @@ export interface RdioScannerTalkgroup {
     alert?: string;
     frequency?: number;
     groups: string[];
+    /** Radio / trunked ID used on the air and in live feed maps (same as server `talkgroupRef`). */
     id: number;
+    /** Database primary key from server JSON field `talkgroupId`; unique server-wide (unlike `id` ref). */
+    talkgroupId?: number;
     talkgroupRef?: number;
     label: string;
     led?: 'blue' | 'cyan' | 'green' | 'magenta' | 'orange' | 'red' | 'white' | 'yellow';
