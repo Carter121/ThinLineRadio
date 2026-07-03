@@ -1714,6 +1714,20 @@ func migrateUserGroupsMaxUsers(db *Database) error {
 	return nil
 }
 
+// migrateUserAlertPushPreferences adds per-user push subscription flags for no-audio health alerts.
+func migrateUserAlertPushPreferences(db *Database) error {
+	queries := []string{
+		`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pushSystemNoAudioAlerts" boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "pushApiKeyNoAudioAlerts" boolean NOT NULL DEFAULT false`,
+	}
+	for _, query := range queries {
+		if _, err := db.Sql.Exec(query); err != nil {
+			log.Printf("migration note (user alert push preferences): %v", err)
+		}
+	}
+	return nil
+}
+
 // migrateSystemAdmins adds systemAdmin column to users table and creates systemAlerts table
 func migrateSystemAdmins(db *Database) error {
 	// Add systemAdmin column to users table
@@ -3147,6 +3161,44 @@ func migrateCallsParsedAddress(db *Database) error {
 		if _, err := db.Sql.Exec(q); err != nil {
 			return fmt.Errorf("migrateCallsParsedAddress: %w", err)
 		}
+	}
+	return nil
+}
+
+// migrateApikeyNoAudioMonitoring adds per-API-key ingest liveness tracking and alert settings.
+func migrateApikeyNoAudioMonitoring(db *Database) error {
+	queries := []string{
+		`ALTER TABLE "apikeys" ADD COLUMN IF NOT EXISTS "lastCallAt" bigint NOT NULL DEFAULT 0`,
+		`ALTER TABLE "apikeys" ADD COLUMN IF NOT EXISTS "noAudioAlertsEnabled" boolean NOT NULL DEFAULT false`,
+		`ALTER TABLE "apikeys" ADD COLUMN IF NOT EXISTS "noAudioThresholdMinutes" integer NOT NULL DEFAULT 10`,
+	}
+	for _, query := range queries {
+		if _, err := db.Sql.Exec(query); err != nil {
+			log.Printf("migration note (apikey no-audio): %v", err)
+		}
+	}
+	return nil
+}
+
+// migrateRetentionDays adds per-system and per-talkgroup call retention overrides.
+func migrateRetentionDays(db *Database) error {
+	queries := []string{
+		`ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "retentionDays" integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE "talkgroups" ADD COLUMN IF NOT EXISTS "retentionDays" integer NOT NULL DEFAULT 0`,
+	}
+	for _, query := range queries {
+		if _, err := db.Sql.Exec(query); err != nil {
+			log.Printf("migration note (retention days): %v", err)
+		}
+	}
+	return nil
+}
+
+// migrateSystemDuplicateDetection adds per-system duplicate detection toggle.
+func migrateSystemDuplicateDetection(db *Database) error {
+	query := `ALTER TABLE "systems" ADD COLUMN IF NOT EXISTS "duplicateDetectionEnabled" boolean NOT NULL DEFAULT true`
+	if _, err := db.Sql.Exec(query); err != nil {
+		log.Printf("migration note (system duplicate detection): %v", err)
 	}
 	return nil
 }

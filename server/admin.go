@@ -858,6 +858,7 @@ func (admin *Admin) SystemHealthAlertsEnabledHandler(w http.ResponseWriter, r *h
 		// If enabling, restart no-audio monitoring for all systems
 		if request.Enabled {
 			go admin.Controller.StartNoAudioMonitoringForAllSystems()
+			go admin.Controller.StartNoAudioMonitoringForAllApiKeys()
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1028,6 +1029,7 @@ func (admin *Admin) SystemHealthAlertSettingsHandler(w http.ResponseWriter, r *h
 		// If no-audio alerts setting was changed, restart monitoring for all systems
 		if request.NoAudioAlertsEnabled != nil {
 			go admin.Controller.StartNoAudioMonitoringForAllSystems()
+			go admin.Controller.StartNoAudioMonitoringForAllApiKeys()
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1097,6 +1099,110 @@ func (admin *Admin) SystemNoAudioSettingsHandler(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "system no-audio settings updated successfully",
+	})
+}
+
+// SystemRetentionSettingsHandler handles updating per-system call retention overrides.
+func (admin *Admin) SystemRetentionSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	t := admin.GetAuthorization(r)
+	if !admin.ValidateToken(t) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		SystemId      uint `json:"systemId"`
+		RetentionDays uint `json:"retentionDays"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "invalid request body",
+		})
+		return
+	}
+
+	system, ok := admin.Controller.Systems.GetSystemById(uint64(request.SystemId))
+	if !ok || system == nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "system not found",
+		})
+		return
+	}
+
+	system.RetentionDays = request.RetentionDays
+
+	if err := admin.Controller.Systems.Write(admin.Controller.Database); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to save system settings: %v", err),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "system retention settings updated successfully",
+	})
+}
+
+// SystemDuplicateDetectionSettingsHandler handles updating per-system duplicate detection toggles.
+func (admin *Admin) SystemDuplicateDetectionSettingsHandler(w http.ResponseWriter, r *http.Request) {
+	t := admin.GetAuthorization(r)
+	if !admin.ValidateToken(t) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		SystemId                    uint `json:"systemId"`
+		DuplicateDetectionEnabled bool `json:"duplicateDetectionEnabled"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "invalid request body",
+		})
+		return
+	}
+
+	system, ok := admin.Controller.Systems.GetSystemById(uint64(request.SystemId))
+	if !ok || system == nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "system not found",
+		})
+		return
+	}
+
+	system.DuplicateDetectionEnabled = request.DuplicateDetectionEnabled
+
+	if err := admin.Controller.Systems.Write(admin.Controller.Database); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("failed to save system settings: %v", err),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "system duplicate detection settings updated successfully",
 	})
 }
 
@@ -1325,6 +1431,158 @@ func (admin *Admin) ChangePassword(currentPassword any, newPassword string) erro
 	return nil
 }
 
+// remapTalkgroupRefsInSystemsPayload rewrites talkgroup groupIds and tagIds in a config
+// PUT payload so they match database IDs after groups/tags have been written. CSV and bulk
+// imports assign provisional client-side ids that may not match persisted rows when labels
+// already exist or sequence gaps are present.
+func remapTalkgroupRefsInSystemsPayload(systems []any, groupsPayload []any, tagsPayload []any, dbGroups *Groups, dbTags *Tags) {
+	if len(systems) == 0 {
+		return
+	}
+
+	groupRemap := map[uint64]uint64{}
+	for _, raw := range groupsPayload {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		label, _ := m["label"].(string)
+		if label == "" {
+			continue
+		}
+		group, ok := dbGroups.GetGroupByLabel(label)
+		if !ok {
+			continue
+		}
+		if clientId, ok := configPayloadUint64(m["id"]); ok && clientId > 0 {
+			groupRemap[clientId] = group.Id
+		}
+	}
+
+	tagRemap := map[uint64]uint64{}
+	for _, raw := range tagsPayload {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		label, _ := m["label"].(string)
+		if label == "" {
+			continue
+		}
+		tag, ok := dbTags.GetTagByLabel(label)
+		if !ok {
+			continue
+		}
+		if clientId, ok := configPayloadUint64(m["id"]); ok && clientId > 0 {
+			tagRemap[clientId] = tag.Id
+		}
+	}
+
+	for _, sysRaw := range systems {
+		sys, ok := sysRaw.(map[string]any)
+		if !ok {
+			continue
+		}
+		tgs, ok := sys["talkgroups"].([]any)
+		if !ok {
+			continue
+		}
+		for _, tgRaw := range tgs {
+			tg, ok := tgRaw.(map[string]any)
+			if !ok {
+				continue
+			}
+
+			if ids, ok := tg["groupIds"].([]any); ok {
+				newIds := make([]any, 0, len(ids))
+				for _, idRaw := range ids {
+					clientId, ok := configPayloadUint64(idRaw)
+					if !ok || clientId == 0 {
+						continue
+					}
+					if dbId, ok := groupRemap[clientId]; ok {
+						newIds = append(newIds, float64(dbId))
+					} else if dbId, ok := configGroupIdByPayloadLabel(groupsPayload, clientId, dbGroups); ok {
+						newIds = append(newIds, float64(dbId))
+					} else if group, ok := dbGroups.GetGroupById(clientId); ok {
+						newIds = append(newIds, float64(group.Id))
+					}
+				}
+				tg["groupIds"] = newIds
+			}
+
+			if clientTagId, ok := configPayloadUint64(tg["tagId"]); ok && clientTagId > 0 {
+				if dbId, ok := tagRemap[clientTagId]; ok {
+					tg["tagId"] = float64(dbId)
+				} else if dbId, ok := configTagIdByPayloadLabel(tagsPayload, clientTagId, dbTags); ok {
+					tg["tagId"] = float64(dbId)
+				} else if tag, ok := dbTags.GetTagById(clientTagId); ok {
+					tg["tagId"] = float64(tag.Id)
+				}
+			}
+		}
+	}
+}
+
+func configPayloadUint64(v any) (uint64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return uint64(n), true
+	case int:
+		return uint64(n), true
+	case int64:
+		return uint64(n), true
+	case uint64:
+		return n, true
+	case uint:
+		return uint64(n), true
+	default:
+		return 0, false
+	}
+}
+
+func configGroupIdByPayloadLabel(groupsPayload []any, clientId uint64, dbGroups *Groups) (uint64, bool) {
+	for _, raw := range groupsPayload {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, ok := configPayloadUint64(m["id"])
+		if !ok || id != clientId {
+			continue
+		}
+		label, _ := m["label"].(string)
+		if label == "" {
+			continue
+		}
+		if group, ok := dbGroups.GetGroupByLabel(label); ok {
+			return group.Id, true
+		}
+	}
+	return 0, false
+}
+
+func configTagIdByPayloadLabel(tagsPayload []any, clientId uint64, dbTags *Tags) (uint64, bool) {
+	for _, raw := range tagsPayload {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, ok := configPayloadUint64(m["id"])
+		if !ok || id != clientId {
+			continue
+		}
+		label, _ := m["label"].(string)
+		if label == "" {
+			continue
+		}
+		if tag, ok := dbTags.GetTagByLabel(label); ok {
+			return tag.Id, true
+		}
+	}
+	return 0, false
+}
+
 func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.EqualFold(r.Header.Get("upgrade"), "websocket") {
 		upgrader := websocket.Upgrader{
@@ -1395,6 +1653,9 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 			admin.Controller.Dirwatches.Stop()
 
+			var groupsPayload []any
+			var tagsPayload []any
+
 			switch v := m["apikeys"].(type) {
 			case []any:
 				admin.Controller.Apikeys.FromMap(v)
@@ -1439,6 +1700,7 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 			switch v := m["groups"].(type) {
 			case []any:
+				groupsPayload = v
 				admin.Controller.Groups.FromMap(v)
 				err = admin.Controller.Groups.Write(admin.Controller.Database)
 				if err != nil {
@@ -1468,6 +1730,7 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 						// Restart no-audio monitoring in case health alert settings changed
 						go admin.Controller.StartNoAudioMonitoringForAllSystems()
+						go admin.Controller.StartNoAudioMonitoringForAllApiKeys()
 
 						// If audio encryption is enabled and we don't have a key yet
 						// (or it was just enabled), fetch the key + client token from
@@ -1529,6 +1792,7 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			// Talkgroups reference tags via foreign key, so tags must exist before talkgroups are inserted
 			switch v := m["tags"].(type) {
 			case []any:
+				tagsPayload = v
 				admin.Controller.Tags.FromMap(v)
 				err = admin.Controller.Tags.Write(admin.Controller.Database)
 				if err != nil {
@@ -1556,9 +1820,8 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 					// Only patch fields that are completely absent from the payload
 					_, hasEnabled := m["noAudioAlertsEnabled"]
 					_, hasThreshold := m["noAudioThresholdMinutes"]
-					if hasEnabled && hasThreshold {
-						continue
-					}
+					_, hasRetention := m["retentionDays"]
+					_, hasDuplicateDetection := m["duplicateDetectionEnabled"]
 					// Try to find the matching existing system by id, then by systemRef
 					var existing *System
 					if idVal, ok := m["id"].(float64); ok {
@@ -1576,7 +1839,40 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 						if !hasThreshold {
 							m["noAudioThresholdMinutes"] = existing.NoAudioThresholdMinutes
 						}
+						if !hasRetention {
+							m["retentionDays"] = existing.RetentionDays
+						}
+						if !hasDuplicateDetection {
+							m["duplicateDetectionEnabled"] = existing.DuplicateDetectionEnabled
+						}
 					}
+
+					if tgs, ok := m["talkgroups"].([]any); ok && existing != nil {
+						for _, tr := range tgs {
+							tgMap, ok := tr.(map[string]any)
+							if !ok {
+								continue
+							}
+							if _, has := tgMap["retentionDays"]; has {
+								continue
+							}
+							var existingTg *Talkgroup
+							if idVal, ok := tgMap["id"].(float64); ok {
+								existingTg, _ = existing.Talkgroups.GetTalkgroupById(uint64(idVal))
+							}
+							if existingTg == nil {
+								if refVal, ok := tgMap["talkgroupRef"].(float64); ok {
+									existingTg, _ = existing.Talkgroups.GetTalkgroupByRef(uint(refVal))
+								}
+							}
+							if existingTg != nil {
+								tgMap["retentionDays"] = existingTg.RetentionDays
+							}
+						}
+					}
+				}
+				if len(groupsPayload) > 0 || len(tagsPayload) > 0 {
+					remapTalkgroupRefsInSystemsPayload(v, groupsPayload, tagsPayload, admin.Controller.Groups, admin.Controller.Tags)
 				}
 				admin.Controller.Systems.FromMap(v)
 				err = admin.Controller.Systems.Write(admin.Controller.Database)
@@ -1854,6 +2150,8 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 						existingUser.UserGroupId = actualUserGroupId
 						existingUser.IsGroupAdmin = getBoolFromMap(userMap, "isGroupAdmin", false)
 						existingUser.SystemAdmin = getBoolFromMap(userMap, "systemAdmin", false)
+						existingUser.PushSystemNoAudioAlerts = getBoolFromMap(userMap, "pushSystemNoAudioAlerts", false)
+						existingUser.PushApiKeyNoAudioAlerts = getBoolFromMap(userMap, "pushApiKeyNoAudioAlerts", false)
 						existingUser.ForcePasswordReset = getBoolFromMap(userMap, "forcePasswordReset", false)
 						existingUser.PinExpiresAt = getUint64FromMap(userMap, "pinExpiresAt")
 						existingUser.ConnectionLimit = uint(getFloat64FromMap(userMap, "connectionLimit"))
@@ -1899,8 +2197,10 @@ func (admin *Admin) ConfigHandler(w http.ResponseWriter, r *http.Request) {
 							Verified:             getBoolFromMap(userMap, "verified", false),
 							UserGroupId:          actualUserGroupId,
 							IsGroupAdmin:         getBoolFromMap(userMap, "isGroupAdmin", false),
-							SystemAdmin:          getBoolFromMap(userMap, "systemAdmin", false),
-							ForcePasswordReset:   getBoolFromMap(userMap, "forcePasswordReset", false),
+							SystemAdmin:             getBoolFromMap(userMap, "systemAdmin", false),
+							PushSystemNoAudioAlerts: getBoolFromMap(userMap, "pushSystemNoAudioAlerts", false),
+							PushApiKeyNoAudioAlerts: getBoolFromMap(userMap, "pushApiKeyNoAudioAlerts", false),
+							ForcePasswordReset:      getBoolFromMap(userMap, "forcePasswordReset", false),
 							Pin:                  getStringFromMap(userMap, "pin"),
 							PinExpiresAt:         getUint64FromMap(userMap, "pinExpiresAt"),
 							ConnectionLimit:      uint(getFloat64FromMap(userMap, "connectionLimit")),
@@ -2264,6 +2564,8 @@ func (admin *Admin) OptionsPatchHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	admin.Controller.ApplyOptionsRuntimeSideEffects(partial)
+
 	go admin.Controller.EmitConfig()
 	admin.Controller.SyncConfigToFile()
 
@@ -2318,6 +2620,8 @@ func (admin *Admin) ApikeysHandler(w http.ResponseWriter, r *http.Request) {
 
 		go admin.Controller.EmitConfig()
 		admin.Controller.SyncConfigToFile()
+
+		go admin.Controller.StartNoAudioMonitoringForAllApiKeys()
 
 		json.NewEncoder(w).Encode(map[string]any{"apikeys": admin.Controller.Apikeys.List})
 
@@ -2577,6 +2881,36 @@ func (admin *Admin) SystemSaveHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, has := incoming["noAudioThresholdMinutes"]; !has {
 			incoming["noAudioThresholdMinutes"] = existing.NoAudioThresholdMinutes
+		}
+		if _, has := incoming["retentionDays"]; !has {
+			incoming["retentionDays"] = existing.RetentionDays
+		}
+		if _, has := incoming["duplicateDetectionEnabled"]; !has {
+			incoming["duplicateDetectionEnabled"] = existing.DuplicateDetectionEnabled
+		}
+
+		if tgs, ok := incoming["talkgroups"].([]any); ok {
+			for _, tr := range tgs {
+				tgMap, ok := tr.(map[string]any)
+				if !ok {
+					continue
+				}
+				if _, has := tgMap["retentionDays"]; has {
+					continue
+				}
+				var existingTg *Talkgroup
+				if idVal, ok := tgMap["id"].(float64); ok {
+					existingTg, _ = existing.Talkgroups.GetTalkgroupById(uint64(idVal))
+				}
+				if existingTg == nil {
+					if refVal, ok := tgMap["talkgroupRef"].(float64); ok {
+						existingTg, _ = existing.Talkgroups.GetTalkgroupByRef(uint(refVal))
+					}
+				}
+				if existingTg != nil {
+					tgMap["retentionDays"] = existingTg.RetentionDays
+				}
+			}
 		}
 	}
 
@@ -2868,6 +3202,8 @@ func (admin *Admin) GetConfig() map[string]any {
 			"userGroupId":          user.UserGroupId,
 			"isGroupAdmin":         user.IsGroupAdmin,
 			"systemAdmin":          user.SystemAdmin,
+			"pushSystemNoAudioAlerts": user.PushSystemNoAudioAlerts,
+			"pushApiKeyNoAudioAlerts": user.PushApiKeyNoAudioAlerts,
 			"forcePasswordReset":   user.ForcePasswordReset,
 			"stripeCustomerId":     user.StripeCustomerId,
 			"stripeSubscriptionId": user.StripeSubscriptionId,
@@ -5910,6 +6246,8 @@ func (admin *Admin) UsersListHandler(w http.ResponseWriter, r *http.Request) {
 			"userGroupId":              user.UserGroupId,
 			"isGroupAdmin":             user.IsGroupAdmin,
 			"systemAdmin":              user.SystemAdmin,
+			"pushSystemNoAudioAlerts": user.PushSystemNoAudioAlerts,
+			"pushApiKeyNoAudioAlerts": user.PushApiKeyNoAudioAlerts,
 			"forcePasswordReset":       user.ForcePasswordReset,
 			"stripeCustomerId":         user.StripeCustomerId,
 			"stripeSubscriptionId":     user.StripeSubscriptionId,
@@ -6127,8 +6465,10 @@ func (admin *Admin) UserUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		RegeneratePin        bool    `json:"regeneratePin"`
 		UserGroupId          *uint64 `json:"userGroupId"`
 		IsGroupAdmin         *bool   `json:"isGroupAdmin"`
-		SystemAdmin          *bool   `json:"systemAdmin"`
-		ForcePasswordReset   *bool   `json:"forcePasswordReset"`
+		SystemAdmin             *bool   `json:"systemAdmin"`
+		PushSystemNoAudioAlerts *bool   `json:"pushSystemNoAudioAlerts"`
+		PushApiKeyNoAudioAlerts *bool   `json:"pushApiKeyNoAudioAlerts"`
+		ForcePasswordReset      *bool   `json:"forcePasswordReset"`
 		StripeCustomerId     string  `json:"stripeCustomerId"`
 		StripeSubscriptionId string  `json:"stripeSubscriptionId"`
 		SubscriptionStatus   string  `json:"subscriptionStatus"`
@@ -6221,6 +6561,12 @@ func (admin *Admin) UserUpdateHandler(w http.ResponseWriter, r *http.Request) {
 
 	if request.SystemAdmin != nil {
 		user.SystemAdmin = *request.SystemAdmin
+	}
+	if request.PushSystemNoAudioAlerts != nil {
+		user.PushSystemNoAudioAlerts = *request.PushSystemNoAudioAlerts
+	}
+	if request.PushApiKeyNoAudioAlerts != nil {
+		user.PushApiKeyNoAudioAlerts = *request.PushApiKeyNoAudioAlerts
 	}
 	if request.ForcePasswordReset != nil {
 		user.ForcePasswordReset = *request.ForcePasswordReset

@@ -1,5 +1,89 @@
 # Change log
 
+## Version 26.06.18 - Released June 18, 2026
+
+### Added
+
+- **System alerts — scoped visibility, player UI, and per-user push**
+  - Authenticated users can view system health alerts via `GET /api/system-alerts` when they have access to the related system, talkgroup, or API key scope (same rules as call access and user group access). Manual notices remain visible to all authenticated users. Dismiss still requires system admin.
+  - Player Alerts tab: **My alerts**, **System**, and **All** views when the user has system alert access; client-side search across my alerts and system alerts.
+  - **Call/transcript alerts** (tone, keyword, transcript) in `GET /api/alerts` are filtered by user and group system/talkgroup access, matching the transcripts list and live call feed; push and preference paths honor the same scope.
+  - System admins continue to receive push for all health alerts.
+  - Admin → Users: assign **Push: System No Audio** and **Push: API Key No Audio** per user for targeted push without full system admin access.
+
+- **Player — Console Transmissions tab**
+  - **Recent** and **Search** modes in the console Transmissions panel; archive search is embedded without leaving the console layout.
+
+### Changed
+
+- **Player — Compact alerts and transcripts UI**
+  - Slimmer alert group expansion headers; keyword matches shown as separate outline tags (deduplicated, no glow).
+  - Transcript alerts grouped with tone/keyword alerts in the Alerts tab.
+
+- **Player — Search playback**
+  - Archive search auto-advances through result lists in console and classic layouts; playback list stays in sync when infinite scroll loads more calls.
+
+- **Player — Layout cleanup**
+  - Removed duplicate legacy select component; console and classic player layouts mount exclusively (no dual DOM).
+
+### Fixed
+
+- **Admin — CSV talkgroup import**
+  - Tags and groups are resolved by label before write, preventing duplicate-label errors when the client assigns provisional ids.
+  - Talkgroup `groupIds` and `tagId` values are remapped to real database ids after groups/tags save.
+  - Fixed talkgroup group-link cleanup comparing junction-table ids instead of group ids.
+
+- **Call ingestion — auto-populate talkgroups**
+  - Resolves group and tag ids from the database by label before linking new talkgroups, fixing FK errors when in-memory group ids (e.g. 4, 5) no longer exist in the DB.
+
+- **Push notifications — Android pager alerts**
+  - Suppresses conflicting FCM notification sound when a pager alert uses Telecom ringtone / auto-answer (iOS already omitted sound for pager alerts).
+
+- **Alerts — keyword merge**
+  - Case-insensitive deduplication when merging matched keywords on alert records.
+
+---
+
+## Version 26.06.17 - Released June 16, 2026
+
+### Added
+
+- **Admin — Per-system duplicate detection (Issue #225)**
+  - Global **Disable Duplicate Detection** remains the master switch in Options → Audio Settings.
+  - Each system can enable or disable duplicate suppression independently when global detection is on.
+  - Configurable from Options (per-system table), and from individual system settings.
+  - Existing systems default to enabled; partial system/Copilot saves preserve the setting.
+
+---
+
+## Version 26.06.16 - Released June 16, 2026
+
+### Added
+
+- **Admin — Per-system and per-talkgroup call retention**
+  - Global **Prune Days** remains the default; systems and talkgroups can override retention (talkgroup → system → global).
+  - Configurable from Options (per-system table), system settings, and individual talkgroup editors.
+
+- **Admin — API key no-audio monitoring (Issue #171, phase 1)**
+  - Per-API-key toggle and threshold for upload liveness alerts when global system health / no-audio options are enabled.
+  - Tracks last successful ingest per key; raises `api_key_no_audio` system health alerts to system admins.
+
+### Fixed
+
+- **Admin — User Groups “Add System”**
+  - Add System now works when systems list is empty, has placeholder rows, or stale entries; save validation and feedback improved.
+
+- **Admin — Transcription confidence threshold**
+  - Hallucination confidence threshold in Options now persists correctly (form, server config, and detector).
+
+- **Server — API key no-audio monitoring**
+  - Last-upload timestamp recorded only after successful ingest; global option toggles restart monitors without restart; alert dedup no longer collides on similar API key IDs; grace period no longer resets when unrelated keys are saved.
+
+- **Admin — Call retention overrides**
+  - Per-system retention from Options General panel saves correctly; partial system/Copilot saves no longer wipe retention settings on systems or talkgroups.
+
+---
+
 ## Version 26.06.15 - Released June 10, 2026
 
 ### Fixed

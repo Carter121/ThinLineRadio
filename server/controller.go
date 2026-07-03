@@ -118,6 +118,11 @@ type Controller struct {
 	noAudioMonitorStops   map[uint64]chan struct{}
 	noAudioMonitorStopsMu sync.Mutex
 
+	// Stop channels and monitor start times for per-API-key no-audio monitoring
+	apikeyNoAudioMonitorStops    map[uint64]chan struct{}
+	apikeyNoAudioMonitorStarted  map[uint64]int64
+	apikeyNoAudioMonitorStopsMu  sync.Mutex
+
 	// Rate limiting
 	RateLimiter         *RateLimiter
 	LoginAttemptTracker *LoginAttemptTracker
@@ -318,17 +323,91 @@ func (controller *Controller) EmitConfig() {
 	go controller.Admin.BroadcastConfig()
 }
 
+// resolveGroupIdForLabel returns the database groupId for a label, refreshing from the DB
+// when the in-memory id is stale (e.g. after duplicate-label cleanup or config import).
+func (controller *Controller) resolveGroupIdForLabel(groupLabel string) (uint64, error) {
+	groupLabel = strings.TrimSpace(groupLabel)
+	if groupLabel == "" {
+		groupLabel = "Unknown"
+	}
+
+	if group, ok := controller.Groups.GetGroupByLabel(groupLabel); ok && group.Id > 0 {
+		var dbLabel string
+		query := fmt.Sprintf(`SELECT "label" FROM "groups" WHERE "groupId" = %d`, group.Id)
+		if err := controller.Database.Sql.QueryRow(query).Scan(&dbLabel); err == nil && dbLabel == group.Label {
+			return group.Id, nil
+		}
+	}
+
+	if err := controller.Groups.Read(controller.Database); err != nil {
+		return 0, err
+	}
+	if group, ok := controller.Groups.GetGroupByLabel(groupLabel); ok && group.Id > 0 {
+		return group.Id, nil
+	}
+
+	group := &Group{Label: groupLabel}
+	controller.Groups.List = append(controller.Groups.List, group)
+	if err := controller.Groups.Write(controller.Database); err != nil {
+		return 0, err
+	}
+	if err := controller.Groups.Read(controller.Database); err != nil {
+		return 0, err
+	}
+	if group, ok := controller.Groups.GetGroupByLabel(groupLabel); ok {
+		controller.SyncConfigToFile()
+		return group.Id, nil
+	}
+	return 0, fmt.Errorf("unable to resolve group %s", groupLabel)
+}
+
+// resolveTagIdForLabel returns the database tagId for a label, refreshing from the DB
+// when the in-memory id is stale.
+func (controller *Controller) resolveTagIdForLabel(tagLabel string) (uint64, error) {
+	tagLabel = strings.TrimSpace(tagLabel)
+	if tagLabel == "" {
+		tagLabel = "Untagged"
+	}
+
+	if tag, ok := controller.Tags.GetTagByLabel(tagLabel); ok && tag.Id > 0 {
+		var dbLabel string
+		query := fmt.Sprintf(`SELECT "label" FROM "tags" WHERE "tagId" = %d`, tag.Id)
+		if err := controller.Database.Sql.QueryRow(query).Scan(&dbLabel); err == nil && dbLabel == tag.Label {
+			return tag.Id, nil
+		}
+	}
+
+	if err := controller.Tags.Read(controller.Database); err != nil {
+		return 0, err
+	}
+	if tag, ok := controller.Tags.GetTagByLabel(tagLabel); ok && tag.Id > 0 {
+		return tag.Id, nil
+	}
+
+	tag := &Tag{Label: tagLabel}
+	controller.Tags.List = append(controller.Tags.List, tag)
+	if err := controller.Tags.Write(controller.Database); err != nil {
+		return 0, err
+	}
+	if err := controller.Tags.Read(controller.Database); err != nil {
+		return 0, err
+	}
+	if tag, ok := controller.Tags.GetTagByLabel(tagLabel); ok {
+		controller.SyncConfigToFile()
+		return tag.Id, nil
+	}
+	return 0, fmt.Errorf("unable to resolve tag %s", tagLabel)
+}
+
 func (controller *Controller) IngestCall(call *Call) {
 	var (
 		err         error
-		group       *Group
 		groupId     uint64
 		groupLabel  string
 		ok          bool
 		populated   bool
 		system      *System
 		systemId    uint
-		tag         *Tag
 		tagId       uint64
 		tagLabel    string
 		talkgroup   *Talkgroup
@@ -472,57 +551,19 @@ func (controller *Controller) IngestCall(call *Call) {
 				tagLabel = call.Meta.TalkgroupTag
 			}
 
-			if group, ok = controller.Groups.GetGroupByLabel(groupLabel); !ok {
-				group = &Group{Label: groupLabel}
-
-				controller.Groups.List = append(controller.Groups.List, group)
-
-				if err = controller.Groups.Write(controller.Database); err != nil {
-					logError(err)
-					return
-				}
-
-				if err = controller.Groups.Read(controller.Database); err != nil {
-					logError(err)
-					return
-				}
-
-				// Sync config to file if enabled
-				controller.SyncConfigToFile()
-
-				if group, ok = controller.Groups.GetGroupByLabel(groupLabel); !ok {
-					logError(fmt.Errorf("unable to get group %s", groupLabel))
-					return
-				}
+			if resolvedGroupId, resolveErr := controller.resolveGroupIdForLabel(groupLabel); resolveErr != nil {
+				logError(resolveErr)
+				return
+			} else {
+				groupId = resolvedGroupId
 			}
 
-			groupId = group.Id
-
-			if tag, ok = controller.Tags.GetTagByLabel(tagLabel); !ok {
-				tag = &Tag{Label: tagLabel}
-
-				controller.Tags.List = append(controller.Tags.List, tag)
-
-				if err = controller.Tags.Write(controller.Database); err != nil {
-					logError(err)
-					return
-				}
-
-				if err = controller.Tags.Read(controller.Database); err != nil {
-					logError(err)
-					return
-				}
-
-				// Sync config to file if enabled
-				controller.SyncConfigToFile()
-
-				if tag, ok = controller.Tags.GetTagByLabel(tagLabel); !ok {
-					logError(fmt.Errorf("unable to get tag %s", tagLabel))
-					return
-				}
+			if resolvedTagId, resolveErr := controller.resolveTagIdForLabel(tagLabel); resolveErr != nil {
+				logError(resolveErr)
+				return
+			} else {
+				tagId = resolvedTagId
 			}
-
-			tagId = tag.Id
 
 			// Find the max Order value among existing talkgroups to assign new talkgroup at the end
 			maxOrder := uint(0)
@@ -753,7 +794,7 @@ func (controller *Controller) IngestCall(call *Call) {
 		}
 	}
 
-	if !controller.Options.DisableDuplicateDetection {
+	if !controller.Options.DisableDuplicateDetection && (system == nil || system.DuplicateDetectionEnabled) {
 		// ── Arrival-time duplicate detection ─────────────────────────────────
 		// Two passes using server receivedAt only — no P25 timestamp, no hash.
 		// Catches multi-recorder uploads of the same transmission that arrive
@@ -3117,6 +3158,9 @@ func (controller *Controller) ProcessMessageCommandPin(client *Client, message *
 
 		if user != nil {
 			if !pinExpired {
+				if err := controller.Users.RecordLastLogin(user, controller.Database); err != nil {
+					controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to record last login for user %s: %v", user.Email, err))
+				}
 			} else {
 				controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("user connected with expired pin email=%s ip=%s (sending config for subscription)", user.Email, client.GetRemoteAddr()))
 			}
@@ -3397,6 +3441,22 @@ func (controller *Controller) RestartTranscriptionQueue() {
 	}
 }
 
+// ApplyOptionsRuntimeSideEffects applies in-memory runtime updates after a partial
+// options save (PATCH /api/admin/options). Keeps all provider credentials in the
+// database; only rebinds the active transcription queue to the selected provider.
+func (controller *Controller) ApplyOptionsRuntimeSideEffects(partial map[string]any) {
+	if OptionsPatchTouchesTranscription(partial) {
+		controller.RestartTranscriptionQueue()
+	}
+	if _, ok := partial["transcriptParserConfig"]; ok {
+		controller.rebuildTranscriptParser()
+	}
+	if OptionsPatchTouchesNoAudioMonitoring(partial) {
+		go controller.StartNoAudioMonitoringForAllSystems()
+		go controller.StartNoAudioMonitoringForAllApiKeys()
+	}
+}
+
 // readAllData reads all data from the database in a single function for better organization
 func (controller *Controller) readAllData() error {
 	// Read all data in parallel for better performance
@@ -3507,6 +3567,60 @@ func (controller *Controller) userHasAccess(user *User, call *Call) bool {
 
 	// Check user-level access (can further restrict access beyond group)
 	return user.HasAccess(call)
+}
+
+func (controller *Controller) userEligibleForTalkgroupAlert(userId uint64, call *Call) bool {
+	if call == nil || call.System == nil || call.Talkgroup == nil {
+		return false
+	}
+	user := controller.Users.GetUserById(userId)
+	if user == nil {
+		return false
+	}
+	return controller.userHasAccess(user, call)
+}
+
+func (controller *Controller) userHasSystemScopeAccess(user *User, systemRef uint) bool {
+	if user == nil || systemRef == 0 {
+		return false
+	}
+	if user.UserGroupId > 0 {
+		group := controller.UserGroups.Get(user.UserGroupId)
+		if group != nil && !group.HasSystemAccess(uint64(systemRef)) {
+			return false
+		}
+	}
+	return user.HasSystemScopeAccess(systemRef)
+}
+
+func (controller *Controller) userHasTalkgroupScopeAccess(user *User, systemRef uint, talkgroupRef uint) bool {
+	if user == nil || systemRef == 0 || talkgroupRef == 0 {
+		return false
+	}
+	call := &Call{
+		System:    &System{SystemRef: systemRef},
+		Talkgroup: &Talkgroup{TalkgroupRef: talkgroupRef},
+	}
+	return controller.userHasAccess(user, call)
+}
+
+func (controller *Controller) userCanViewSystemAlerts(user *User) bool {
+	if user == nil {
+		return false
+	}
+	if user.SystemAdmin {
+		return true
+	}
+	if user.HasAnySystemAccess() {
+		return true
+	}
+	if user.UserGroupId > 0 {
+		group := controller.UserGroups.Get(user.UserGroupId)
+		if group != nil && group.HasAnySystemAccess() {
+			return true
+		}
+	}
+	return false
 }
 
 // Helper method to get effective delay for a user (uses group settings if available)
@@ -3740,6 +3854,15 @@ func (controller *Controller) Terminate() {
 	}
 	controller.noAudioMonitorStops = nil
 	controller.noAudioMonitorStopsMu.Unlock()
+
+	// Stop all per-API-key no-audio monitoring goroutines
+	controller.apikeyNoAudioMonitorStopsMu.Lock()
+	for _, ch := range controller.apikeyNoAudioMonitorStops {
+		close(ch)
+	}
+	controller.apikeyNoAudioMonitorStops = nil
+	controller.apikeyNoAudioMonitorStarted = nil
+	controller.apikeyNoAudioMonitorStopsMu.Unlock()
 
 	// Stop auto-updater background goroutine
 	if controller.Updater != nil {

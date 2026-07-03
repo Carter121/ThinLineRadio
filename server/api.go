@@ -364,6 +364,9 @@ func (api *Api) HandleCall(key string, call *Call, w http.ResponseWriter) {
 			// Use a non-blocking send to avoid deadlocks
 			select {
 			case api.Controller.Ingest <- call:
+				if err := api.Controller.Apikeys.RecordLastCall(api.Controller.Database, apikey.Id, time.Now().UnixMilli()); err != nil {
+					api.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to record API key last call time for key %d: %v", apikey.Id, err))
+				}
 			default:
 				w.WriteHeader(http.StatusServiceUnavailable)
 				w.Write([]byte("Server busy, please try again\n"))
@@ -1123,9 +1126,9 @@ func (api *Api) UserLoginHandler(w http.ResponseWriter, r *http.Request) {
 	// when they try to access the service content (calls, etc.)
 
 	// Update last login timestamp
-	user.UpdateLastLogin()
-	api.Controller.Users.Update(user)
-	api.Controller.Users.Write(api.Controller.Database)
+	if err := api.Controller.Users.RecordLastLogin(user, api.Controller.Database); err != nil {
+		log.Printf("failed to record last login for user %s: %v", user.Email, err)
+	}
 
 	// Check if user needs subscription
 	needsSubscription := false
@@ -2941,6 +2944,27 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			system, sysOk := api.Controller.Systems.GetSystemById(systemId)
+			if !sysOk {
+				continue
+			}
+			talkgroup, tgOk := system.Talkgroups.GetTalkgroupById(talkgroupId)
+			if !tgOk {
+				continue
+			}
+
+			minimalCall := &Call{
+				Id:        callId,
+				System:    system,
+				Talkgroup: talkgroup,
+			}
+			if callTimestamp.Valid {
+				minimalCall.Timestamp = time.UnixMilli(callTimestamp.Int64)
+			}
+			if !api.Controller.userHasAccess(client.User, minimalCall) {
+				continue
+			}
+
 			// Fallback snippet if alert was created before we had one
 			snippet := transcriptSnippet
 			if snippet == "" && callTranscript.Valid {
@@ -3064,7 +3088,7 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				alertMap["matchedToneSetNames"] = matchedToneSetNames // All matched tone sets (for backward compatibility)
 			}
 
-			// Filter alert based on user preferences only (no access restrictions for alerts)
+			// Filter by user/group access, then alert preferences (tone/keyword/transcript).
 			prefKey := fmt.Sprintf("%d-%d", systemId, talkgroupId)
 			pref, hasPreference := preferences[prefKey]
 
@@ -3227,34 +3251,16 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 
 			// Check if alert is still delayed for this user (respects group delays)
 			if callTimestamp.Valid && client.User != nil {
-				// Get system and talkgroup to build call object for delay check
-				system, _ := api.Controller.Systems.GetSystemById(systemId)
-				var talkgroup *Talkgroup
-				if system != nil {
-					talkgroup, _ = system.Talkgroups.GetTalkgroupById(talkgroupId)
-				}
+				// Get user's effective delay (includes group delays)
+				defaultDelay := api.Controller.Options.DefaultSystemDelay
+				effectiveDelay := api.Controller.userEffectiveDelay(client.User, minimalCall, defaultDelay)
 
-				if system != nil && talkgroup != nil {
-					// Create minimal call object for delay check
-					callTimestampTime := time.UnixMilli(callTimestamp.Int64)
-					minimalCall := &Call{
-						Id:        callId,
-						System:    system,
-						Talkgroup: talkgroup,
-						Timestamp: callTimestampTime,
-					}
-
-					// Get user's effective delay (includes group delays)
-					defaultDelay := api.Controller.Options.DefaultSystemDelay
-					effectiveDelay := api.Controller.userEffectiveDelay(client.User, minimalCall, defaultDelay)
-
-					// Check if call is still delayed
-					if effectiveDelay > 0 {
-						delayCompletionTime := callTimestampTime.Add(time.Duration(effectiveDelay) * time.Minute)
-						if time.Now().Before(delayCompletionTime) {
-							// Alert is still delayed for this user, skip it
-							continue
-						}
+				// Check if call is still delayed
+				if effectiveDelay > 0 {
+					delayCompletionTime := minimalCall.Timestamp.Add(time.Duration(effectiveDelay) * time.Minute)
+					if time.Now().Before(delayCompletionTime) {
+						// Alert is still delayed for this user, skip it
+						continue
 					}
 				}
 			}
@@ -3701,11 +3707,21 @@ func (api *Api) AlertPreferencesHandler(w http.ResponseWriter, r *http.Request) 
 		for _, pref := range cachedPrefs {
 			// Look up systemRef and talkgroupRef from in-memory Systems
 			var systemRef, talkgroupRef uint
-			if system, ok := api.Controller.Systems.GetSystemById(pref.SystemId); ok {
-				systemRef = system.SystemRef
-				if talkgroup, ok := system.Talkgroups.GetTalkgroupById(pref.TalkgroupId); ok {
-					talkgroupRef = talkgroup.TalkgroupRef
-				}
+			system, sysOk := api.Controller.Systems.GetSystemById(pref.SystemId)
+			if !sysOk {
+				continue
+			}
+			systemRef = system.SystemRef
+			talkgroup, tgOk := system.Talkgroups.GetTalkgroupById(pref.TalkgroupId)
+			if !tgOk {
+				continue
+			}
+			talkgroupRef = talkgroup.TalkgroupRef
+			if !api.Controller.userHasAccess(client.User, &Call{
+				System:    system,
+				Talkgroup: talkgroup,
+			}) {
+				continue
 			}
 
 			prefMap := map[string]any{
@@ -5159,9 +5175,9 @@ func (api *Api) GroupAdminLoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user.UpdateLastLogin()
-	api.Controller.Users.Update(user)
-	api.Controller.Users.Write(api.Controller.Database)
+	if err := api.Controller.Users.RecordLastLogin(user, api.Controller.Database); err != nil {
+		log.Printf("failed to record last login for group admin %s: %v", user.Email, err)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -8843,7 +8859,20 @@ func (api *Api) ValidateAccessCodeHandler(w http.ResponseWriter, r *http.Request
 	api.exitWithError(w, http.StatusBadRequest, "Invalid or expired code")
 }
 
-// SystemAlertsHandler handles GET/POST for system alerts (system admins only)
+// isSystemAlertVisibleToUser returns whether an alert should appear in GET /api/system-alerts for the user.
+func isSystemAlertVisibleToUser(alertType string, systemAdmin bool) bool {
+	if systemAdmin {
+		return true
+	}
+	switch alertType {
+	case "manual", "no_audio", "no_audio_received", "api_key_no_audio", "tone_detection_issue":
+		return true
+	default:
+		return false
+	}
+}
+
+// SystemAlertsHandler handles GET/POST for system alerts
 func (api *Api) SystemAlertsHandler(w http.ResponseWriter, r *http.Request) {
 	client := api.getClient(r)
 	if client == nil || client.User == nil {
@@ -8870,26 +8899,19 @@ func (api *Api) SystemAlertsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Filter alerts based on user role
-		// Regular users only see "manual" alerts (sent by system admins)
-		// System admins see all alerts (including health monitoring)
+		// Filter by alert type and user/group system/talkgroup access.
 		filteredAlerts := []*SystemAlert{}
 		for _, alert := range alerts {
-			if client.User.SystemAdmin {
-				// System admins see all alerts
+			if api.Controller.userHasSystemAlertAccess(client.User, alert) {
 				filteredAlerts = append(filteredAlerts, alert)
-			} else {
-				// Regular users only see manual alerts
-				if alert.AlertType == "manual" {
-					filteredAlerts = append(filteredAlerts, alert)
-				}
 			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"alerts":        filteredAlerts,
-			"isSystemAdmin": client.User.SystemAdmin,
+			"alerts":              filteredAlerts,
+			"isSystemAdmin":       client.User.SystemAdmin,
+			"canViewSystemAlerts": api.Controller.userCanViewSystemAlerts(client.User),
 		})
 
 	case http.MethodPost:

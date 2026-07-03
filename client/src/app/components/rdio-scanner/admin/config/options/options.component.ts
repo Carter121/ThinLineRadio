@@ -35,6 +35,8 @@ export type OptionsPanelId =
 interface OptionsPanelDef {
     keys: string[];
     systemsNoAudio?: boolean;
+    systemsRetention?: boolean;
+    systemsDuplicateDetection?: boolean;
 }
 
 const OPTIONS_PANEL_DEFS: Record<OptionsPanelId, OptionsPanelDef> = {
@@ -56,6 +58,7 @@ const OPTIONS_PANEL_DEFS: Record<OptionsPanelId, OptionsPanelDef> = {
             'duplicateDetectionTimeFrame', 'audioEncryptionEnabled', 'rateLimitingEnabled',
             'maxDownloadsPerWindow', 'downloadWindowMinutes',
         ],
+        systemsDuplicateDetection: true,
     },
     branding: {
         keys: ['branding', 'baseUrl', 'email', 'emailLogoBorderRadius', 'faviconFilename', 'emailLogoFilename'],
@@ -80,6 +83,7 @@ const OPTIONS_PANEL_DEFS: Record<OptionsPanelId, OptionsPanelDef> = {
             'keypadBeeps', 'maxClients', 'pruneDays', 'showListenersCount', 'sortTalkgroups',
             'reconnectionGracePeriod', 'reconnectionMaxBufferSize', 'configSyncEnabled', 'configSyncPath',
         ],
+        systemsRetention: true,
     },
     stripe: {
         keys: [
@@ -209,6 +213,7 @@ const OPTIONS_FIELD_LABELS: Record<string, string> = {
     'transcriptionConfig.hallucinationPatterns': 'Hallucination removal patterns',
     'transcriptionConfig.hallucinationDetectionMode': 'Hallucination detection mode',
     'transcriptionConfig.hallucinationMinOccurrences': 'Hallucination min occurrences',
+    'transcriptionConfig.hallucinationConfidenceThreshold': 'Hallucination confidence threshold',
     userRegistrationEnabled: 'User registration',
     publicRegistrationEnabled: 'Public registration',
     publicRegistrationMode: 'Public registration mode',
@@ -361,6 +366,14 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             ok = await this.saveDirtySystemsNoAudio();
         }
 
+        if (ok && def.systemsRetention) {
+            ok = await this.saveDirtySystemsRetention();
+        }
+
+        if (ok && def.systemsDuplicateDetection) {
+            ok = await this.saveDirtySystemsDuplicateDetection();
+        }
+
         this.savingPanel = null;
         if (ok) {
             this.refreshPanelBaseline(panelId);
@@ -436,6 +449,20 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             }));
         }
 
+        if (def.systemsRetention && this.systemsForm) {
+            snapshot['__systemsRetention'] = this.systemsForm.controls.map((ctrl) => ({
+                id: ctrl.value.id,
+                retentionDays: ctrl.value.retentionDays ?? 0,
+            }));
+        }
+
+        if (def.systemsDuplicateDetection && this.systemsForm) {
+            snapshot['__systemsDuplicateDetection'] = this.systemsForm.controls.map((ctrl) => ({
+                id: ctrl.value.id,
+                duplicateDetectionEnabled: ctrl.value.duplicateDetectionEnabled !== false,
+            }));
+        }
+
         return snapshot;
     }
 
@@ -467,6 +494,22 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
             this.collectSystemsNoAudioChanges(
                 baseline['__systemsNoAudio'] as { id: number; noAudioAlertsEnabled: boolean; noAudioThresholdMinutes: number }[] | undefined,
                 current['__systemsNoAudio'] as { id: number; noAudioAlertsEnabled: boolean; noAudioThresholdMinutes: number }[] | undefined,
+                labels,
+            );
+        }
+
+        if (OPTIONS_PANEL_DEFS[panelId].systemsRetention) {
+            this.collectSystemsRetentionChanges(
+                baseline['__systemsRetention'] as { id: number; retentionDays: number }[] | undefined,
+                current['__systemsRetention'] as { id: number; retentionDays: number }[] | undefined,
+                labels,
+            );
+        }
+
+        if (OPTIONS_PANEL_DEFS[panelId].systemsDuplicateDetection) {
+            this.collectSystemsDuplicateDetectionChanges(
+                baseline['__systemsDuplicateDetection'] as { id: number; duplicateDetectionEnabled: boolean }[] | undefined,
+                current['__systemsDuplicateDetection'] as { id: number; duplicateDetectionEnabled: boolean }[] | undefined,
                 labels,
             );
         }
@@ -525,6 +568,122 @@ export class RdioScannerAdminOptionsComponent implements OnInit, AfterViewInit, 
                 labels.push(`${systemLabel}: no-audio threshold`);
             }
         }
+    }
+
+    private collectSystemsRetentionChanges(
+        baseline: { id: number; retentionDays: number }[] | undefined,
+        current: { id: number; retentionDays: number }[] | undefined,
+        labels: string[],
+    ): void {
+        if (!current?.length) {
+            return;
+        }
+
+        for (const entry of current) {
+            const saved = baseline?.find((s) => s.id === entry.id);
+            if (!saved) {
+                continue;
+            }
+
+            const systemLabel = this.systemsForm?.controls
+                .find((ctrl) => ctrl.value.id === entry.id)?.value?.label || `System ${entry.id}`;
+
+            if (saved.retentionDays !== entry.retentionDays) {
+                labels.push(`${systemLabel}: retention days`);
+            }
+        }
+    }
+
+    private collectSystemsDuplicateDetectionChanges(
+        baseline: { id: number; duplicateDetectionEnabled: boolean }[] | undefined,
+        current: { id: number; duplicateDetectionEnabled: boolean }[] | undefined,
+        labels: string[],
+    ): void {
+        if (!current?.length) {
+            return;
+        }
+
+        for (const entry of current) {
+            const saved = baseline?.find((s) => s.id === entry.id);
+            if (!saved) {
+                continue;
+            }
+
+            const systemLabel = this.systemsForm?.controls
+                .find((ctrl) => ctrl.value.id === entry.id)?.value?.label || `System ${entry.id}`;
+
+            if (saved.duplicateDetectionEnabled !== entry.duplicateDetectionEnabled) {
+                labels.push(`${systemLabel}: duplicate detection`);
+            }
+        }
+    }
+
+    private async saveDirtySystemsRetention(): Promise<boolean> {
+        if (!this.systemsForm) {
+            return true;
+        }
+
+        const baseline = JSON.parse(this.panelBaselines.general || '{}').__systemsRetention as {
+            id: number;
+            retentionDays: number;
+        }[] | undefined;
+
+        let allOk = true;
+        for (const ctrl of this.systemsForm.controls) {
+            const id = ctrl.value.id;
+            if (!id) {
+                continue;
+            }
+            const current = {
+                retentionDays: ctrl.value.retentionDays ?? 0,
+            };
+            const saved = baseline?.find((s) => s.id === id);
+            if (saved && saved.retentionDays === current.retentionDays) {
+                continue;
+            }
+
+            try {
+                await this.adminService.saveSystemRetentionSettings(id, current.retentionDays);
+            } catch {
+                allOk = false;
+            }
+        }
+
+        return allOk;
+    }
+
+    private async saveDirtySystemsDuplicateDetection(): Promise<boolean> {
+        if (!this.systemsForm) {
+            return true;
+        }
+
+        const baseline = JSON.parse(this.panelBaselines.security || '{}').__systemsDuplicateDetection as {
+            id: number;
+            duplicateDetectionEnabled: boolean;
+        }[] | undefined;
+
+        let allOk = true;
+        for (const ctrl of this.systemsForm.controls) {
+            const id = ctrl.value.id;
+            if (!id) {
+                continue;
+            }
+            const current = {
+                duplicateDetectionEnabled: ctrl.value.duplicateDetectionEnabled !== false,
+            };
+            const saved = baseline?.find((s) => s.id === id);
+            if (saved && saved.duplicateDetectionEnabled === current.duplicateDetectionEnabled) {
+                continue;
+            }
+
+            try {
+                await this.adminService.saveSystemDuplicateDetectionSettings(id, current.duplicateDetectionEnabled);
+            } catch {
+                allOk = false;
+            }
+        }
+
+        return allOk;
     }
 
     private valuesEqual(a: unknown, b: unknown): boolean {
