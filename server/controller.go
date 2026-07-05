@@ -119,9 +119,9 @@ type Controller struct {
 	noAudioMonitorStopsMu sync.Mutex
 
 	// Stop channels and monitor start times for per-API-key no-audio monitoring
-	apikeyNoAudioMonitorStops    map[uint64]chan struct{}
-	apikeyNoAudioMonitorStarted  map[uint64]int64
-	apikeyNoAudioMonitorStopsMu  sync.Mutex
+	apikeyNoAudioMonitorStops   map[uint64]chan struct{}
+	apikeyNoAudioMonitorStarted map[uint64]int64
+	apikeyNoAudioMonitorStopsMu sync.Mutex
 
 	// Rate limiting
 	RateLimiter         *RateLimiter
@@ -619,13 +619,16 @@ func (controller *Controller) IngestCall(call *Call) {
 	// (independent of talkgroup/system auto-populate).
 	if system != nil && system.AutoPopulateUnits {
 		units := NewUnits()
-		if len(call.Meta.UnitRefs) > 0 {
-			for i, unitRef := range call.Meta.UnitRefs {
-				if len(call.Meta.UnitLabels)-1 >= i {
-					if len(call.Meta.UnitLabels[i]) > 0 {
-						units.Add(unitRef, call.Meta.UnitLabels[i])
-					}
-				}
+		//* Iterate call.Units directly: each CallUnit already carries its UnitRef
+		//* paired with its own Label. The previous approach indexed the parallel
+		//* Meta.UnitRefs / Meta.UnitLabels slices, which the parsers populate
+		//* inconsistently (a ref for every unit, a label only when non-empty), so
+		//* any unlabeled unit misaligned the two slices and dropped/mislabeled the
+		//* labeled ones.
+		for _, u := range call.Units {
+			//* Only merge heard units that carry a label; ref is already paired.
+			if len(u.Label) > 0 {
+				units.Add(u.UnitRef, u.Label)
 			}
 		}
 		if ok := system.Units.Merge(units); ok {
