@@ -1,0 +1,12 @@
+:root {
+	--navbar-background: color-mix(in oklch, var(--background) 92%, var(--foreground) 8%);
+}
+
+.dark {
+	--navbar-background: color-mix(in oklch, var(--background) 92%, var(--foreground) 8%);
+}
+
+@theme inline {
+	--color-navbar-background: var(--navbar-background);
+	--color-tlr-alert: oklch(0.2893 0.04 264.58);
+}

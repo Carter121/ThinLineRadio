@@ -26,6 +26,28 @@ RUN npm run build
 RUN ls -la /build/server/webapp/ && echo "Webapp build successful"
 
 # =============================================================================
+# Stage 1b: Build Svelte Client (client-v2, served at the site root)
+# =============================================================================
+FROM node:22-alpine AS client-v2-builder
+
+RUN corepack enable pnpm
+
+WORKDIR /build/client-v2
+
+# Copy package files first for better caching
+COPY client-v2/package.json client-v2/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# Copy client source code
+COPY client-v2/ ./
+
+# Build static SPA (adapter-static outputs to /build/server/webapp-v2/)
+RUN pnpm build
+
+# Verify build output
+RUN ls -la /build/server/webapp-v2/ && echo "Webapp-v2 build successful"
+
+# =============================================================================
 # Stage 2: Build Go Server
 # =============================================================================
 FROM golang:1.24-alpine AS server-builder
@@ -46,11 +68,14 @@ RUN go mod download
 # Copy server source code
 COPY server/ ./
 
-# Copy built Angular webapp from previous stage
+# Copy built Angular webapp (served under /old-site) from previous stage
 COPY --from=client-builder /build/server/webapp ./webapp/
 
-# Verify webapp was copied
-RUN ls -la ./webapp/ && echo "Webapp files:" && ls -la ./webapp/ | head -20
+# Copy built Svelte webapp (served at the site root) from previous stage
+COPY --from=client-v2-builder /build/server/webapp-v2 ./webapp-v2/
+
+# Verify webapps were copied
+RUN ls -la ./webapp/ ./webapp-v2/ && echo "Webapp files copied"
 
 # Pure Go binary: CGO_ENABLED=0 already produces a static executable (no libc link).
 # Omit -extldflags '-static' — it forces an external linker path that often fails on

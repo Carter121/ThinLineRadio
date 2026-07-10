@@ -78,9 +78,9 @@ func loadDotEnv(candidates ...string) {
 
 // writeInjectedWebappIndexHTML serves the Angular SPA shell with the same transforms for every
 // entry path: absolute <base href> (uses X-Forwarded-* behind reverse proxies) and
-// window.initialConfig. Without this, deep links such as /admin receive raw index.html; the
-// default <base href="./"> then mis-resolves scripts and assets on public URLs while localhost
-// often still works when users only open "/".
+// window.initialConfig. Without this, deep links such as /old-site/admin receive raw index.html;
+// the default <base href="./"> then mis-resolves scripts and assets on public URLs while localhost
+// often still works when users only open "/old-site".
 func writeInjectedWebappIndexHTML(w http.ResponseWriter, r *http.Request, controller *Controller) bool {
 	b, err := webapp.ReadFile("webapp/index.html")
 	if err != nil {
@@ -88,8 +88,10 @@ func writeInjectedWebappIndexHTML(w http.ResponseWriter, r *http.Request, contro
 	}
 	html := string(b)
 
+	//* The Angular webapp now lives under /old-site, so its <base href> must point
+	//* there for hashed assets and deep links to resolve against the sub-path.
 	scheme, host := getSchemeAndHost(r)
-	baseURL := fmt.Sprintf("%s://%s/", scheme, host)
+	baseURL := fmt.Sprintf("%s://%s/old-site/", scheme, host)
 	html = strings.Replace(html, `<base href="./">`, fmt.Sprintf(`<base href="%s">`, baseURL), 1)
 
 	branding := controller.Options.Branding
@@ -147,6 +149,20 @@ window.initialConfig = {
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Write([]byte(html))
+	return true
+}
+
+//* writeWebappV2Index serves the Svelte SPA shell (webapp-v2/index.html). Its assets are
+//* referenced with absolute /_app paths, so no <base href> injection is needed.
+func writeWebappV2Index(w http.ResponseWriter) bool {
+	b, err := webappV2.ReadFile("webapp-v2/index.html")
+	if err != nil {
+		return false
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Write(b)
 	return true
 }
 
@@ -840,7 +856,8 @@ func main() {
 	http.HandleFunc("/", wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Redirect /admin to root if the client IP is not on the admin allow list
 		requestPath := r.URL.Path
-		if requestPath == "/admin" || strings.HasPrefix(requestPath, "/admin/") {
+		if requestPath == "/admin" || strings.HasPrefix(requestPath, "/admin/") ||
+			requestPath == "/old-site/admin" || strings.HasPrefix(requestPath, "/old-site/admin/") {
 			clientIP := GetClientIP(r)
 			if !controller.Admin.isAdminIPAllowed(clientIP) {
 				log.Printf("Redirecting %s to / for disallowed IP: %s", requestPath, clientIP)
@@ -882,7 +899,7 @@ func main() {
 		// Relay full suspension: block public listener web UI and root WebSocket; keep /admin and static assets.
 		// Evaluated before central-management redirect so listeners see the lock page instead of being redirected away.
 		if controller.IsPublicWebListenerBlocked() {
-			if !strings.HasPrefix(requestPath, "/admin") && !isStaticAsset(requestPath) {
+			if !strings.HasPrefix(requestPath, "/admin") && !strings.HasPrefix(requestPath, "/old-site/admin") && !isStaticAsset(requestPath) {
 				if strings.EqualFold(r.Header.Get("upgrade"), "websocket") {
 					w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 					w.WriteHeader(http.StatusForbidden)
@@ -901,6 +918,7 @@ func main() {
 		if controller.Options.CentralManagementEnabled &&
 			strings.TrimSpace(controller.Options.CentralManagementURL) != "" &&
 			!strings.HasPrefix(requestPath, "/admin") &&
+			!strings.HasPrefix(requestPath, "/old-site/admin") &&
 			!isStaticAsset(requestPath) &&
 			!strings.EqualFold(r.Header.Get("upgrade"), "websocket") &&
 			(r.Method == http.MethodGet || r.Method == http.MethodHead) {
@@ -937,14 +955,86 @@ func main() {
 			}
 
 		} else {
+			//* The old Angular UI (including the admin panel) is kept available under
+			//* /old-site for backwards compatibility.
+			if requestPath == "/old-site" || strings.HasPrefix(requestPath, "/old-site/") {
+				oldURL := strings.TrimPrefix(strings.TrimPrefix(requestPath, "/old-site"), "/")
+
+				if oldURL == "" {
+					if writeInjectedWebappIndexHTML(w, r, controller) {
+						return
+					}
+					oldURL = "index.html"
+				}
+
+				if b, err := webapp.ReadFile(path.Join("webapp", oldURL)); err == nil {
+					var t string
+					ext := path.Ext(oldURL)
+					switch ext {
+					case ".js":
+						t = "text/javascript" // see https://github.com/golang/go/issues/32350
+					default:
+						t = mime.TypeByExtension(ext)
+					}
+
+					switch {
+					case oldURL == "ngsw-worker.js" || oldURL == "ngsw.json" || oldURL == "safety-worker.js":
+						w.Header().Set("Cache-Control", "no-cache")
+					case ext == ".js" || ext == ".css":
+						w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+					default:
+						w.Header().Set("Cache-Control", "public, max-age=86400")
+					}
+
+					w.Header().Set("Content-Type", t)
+					w.Write(b)
+
+				} else if ext := path.Ext(oldURL); ext != "" {
+					w.WriteHeader(http.StatusNotFound)
+
+				} else if !strings.HasSuffix(oldURL, "/") {
+					if writeInjectedWebappIndexHTML(w, r, controller) {
+						return
+					}
+					w.WriteHeader(http.StatusNotFound)
+
+				} else {
+					w.WriteHeader(http.StatusNotFound)
+				}
+				return
+			}
+
+			//* The admin panel is part of the old Angular UI; keep existing /admin links working.
+			if requestPath == "/admin" || strings.HasPrefix(requestPath, "/admin/") {
+				target := "/old-site" + requestPath
+				if rawQuery := strings.TrimSpace(r.URL.RawQuery); rawQuery != "" {
+					target += "?" + rawQuery
+				}
+				http.Redirect(w, r, target, http.StatusFound)
+				return
+			}
+
+			//* Legacy Angular service workers were registered at root scope. Serve the Angular
+			//* safety worker in their place so stale clients unregister and stop serving the
+			//* cached old UI at /.
+			if url == "ngsw-worker.js" || url == "safety-worker.js" {
+				if b, err := webapp.ReadFile("webapp/safety-worker.js"); err == nil {
+					w.Header().Set("Cache-Control", "no-cache")
+					w.Header().Set("Content-Type", "text/javascript")
+					w.Write(b)
+					return
+				}
+			}
+
+			//* The Svelte UI (webapp-v2) is served at the root with an SPA fallback.
 			if url == "" {
-				if writeInjectedWebappIndexHTML(w, r, controller) {
+				if writeWebappV2Index(w) {
 					return
 				}
 				url = "index.html"
 			}
 
-			if b, err := webapp.ReadFile(path.Join("webapp", url)); err == nil {
+			if b, err := webappV2.ReadFile(path.Join("webapp-v2", url)); err == nil {
 				var t string
 				ext := path.Ext(url)
 				switch ext {
@@ -955,9 +1045,9 @@ func main() {
 				}
 
 				switch {
-				case url == "ngsw-worker.js" || url == "ngsw.json" || url == "safety-worker.js":
+				case url == "sw.js" || url == "manifest.webmanifest" || url == "index.html":
 					w.Header().Set("Cache-Control", "no-cache")
-				case ext == ".js" || ext == ".css":
+				case strings.HasPrefix(url, "_app/immutable/"):
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 				default:
 					w.Header().Set("Cache-Control", "public, max-age=86400")
@@ -966,11 +1056,9 @@ func main() {
 				w.Header().Set("Content-Type", t)
 				w.Write(b)
 
-			} else if ext := path.Ext(url); ext != "" {
-				w.WriteHeader(http.StatusNotFound)
-
-			} else if len(url) > 0 && !strings.HasSuffix(url, "/") {
-				if writeInjectedWebappIndexHTML(w, r, controller) {
+			} else if path.Ext(url) == "" {
+				//* Extensionless app routes (with or without trailing slash) fall back to the SPA shell.
+				if writeWebappV2Index(w) {
 					return
 				}
 				w.WriteHeader(http.StatusNotFound)

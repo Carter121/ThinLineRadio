@@ -19,3 +19,8 @@ import "embed"
 
 //go:embed all:webapp
 var webapp embed.FS
+
+//* Svelte UI (client-v2 build output). Served at the site root; the old Angular
+//* webapp above remains available under /old-site for backwards compatibility.
+//go:embed all:webapp-v2
+var webappV2 embed.FS

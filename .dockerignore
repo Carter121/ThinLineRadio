@@ -33,7 +33,9 @@ relay-server/server
 client/dist/
 client/node_modules/
 client/.angular/
-# Note: server/webapp/ is excluded from host but built inside Docker
+client-v2/node_modules/
+client-v2/.svelte-kit/
+# Note: server/webapp/ and server/webapp-v2/ are excluded from host but built inside Docker
 
 # =============================================================================
 # Node.js
