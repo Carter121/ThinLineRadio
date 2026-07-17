@@ -36,6 +36,19 @@ on this transition should read this file first and update it before finishing.
 User preferences and scope rules that apply to ALL transition work until the user says
 otherwise. Date each item when adding it.
 
+## Admin panel port (phase 2, in progress)
+
+- **The new admin lives at `/admin` inside client-v2** (same SPA, same build). The server's
+  old `/admin -> /old-site/admin` redirect was removed; the old Angular admin stays reachable
+  directly at `/old-site/admin`. (2026-07-17)
+- **No AI Assistant (copilot chat) in the new admin**, consistent with the no-AI-chat-bot rule.
+  (2026-07-17)
+- **No dev-server accommodations for the admin panel.** The user explicitly rejected both a
+  vite proxy and adding CORS to admin routes: "pretend the dev server doesn't exist". The
+  admin UI is same-origin only; test it by building into the Go server. (2026-07-17)
+- Stripe/billing is excluded from the admin port (Options Stripe panel, user-group billing
+  fields, Stripe Sync tool), per the existing no-Stripe rule.
+
 ## Scope: what the new UI should NOT include
 
 - **No AI chat-bot features.** (2026-07)
@@ -100,6 +113,30 @@ against the code if something seems off; add new findings here.
   (PUT was missing until 2026-07-17). `/api/keyword-lists` routes were unwrapped until then too.
 - The dev workflow "vite dev UI against the prod server" depends on these headers.
 
+## Admin API (server/admin.go)
+
+- **Auth:** `POST /api/admin/login` with `{password}` returns `{token, passwordNeedChange}`
+  (passwordNeedChange is hardcoded true there; trust the config document's value instead).
+  Failures are plain 401 with no body (including brute-force lockout: max 3 tries per 10 min,
+  in-memory). `POST /api/admin/sso` with `{pin}` (the raw stored user PIN) returns `{token}`
+  for system-admin users. `GET /api/admin/login-config` is public:
+  `{adminPasswordLoginDisabled, version}`.
+- The token is a JWT sent as the **raw `Authorization` header (no Bearer prefix)**. The server
+  keeps at most **5 tokens in memory**; they all die on server restart.
+- Most admin routes are IP-gated (`requireLocalhost`: localhost, else `adminAllowedIPs`, else
+  `adminLocalhostOnly`). **No admin route has CORS headers**; the admin UI must be same-origin.
+- `GET /api/admin/config` returns `{config: {...}, passwordNeedChange}`; the config websocket
+  (`/api/admin/config` with WS upgrade, first client message = token) pushes the **bare**
+  config payload with no wrapper. A close with code 1000 means the session was invalidated.
+- `PATCH /api/admin/options` takes a flat partial Options object; nested objects
+  (`transcriptionConfig`, `openAIIntegration`, `autoLearnToneSetConfig`) are deep-merged.
+  Returns the full config document. The UI must mirror `transcriptionEnabled` into
+  `transcriptionConfig.enabled`. Setting `adminPasswordLoginDisabled=true` is rejected unless
+  a system admin user exists.
+- Toggles in the old admin auto-save single keys; text/number fields save per panel. Favicon
+  and email logo are separate multipart endpoints (`POST /api/admin/favicon`, `/email-logo`),
+  not Options keys.
+
 ## Alert preferences
 
 - `GET/PUT /api/alerts/preferences`. PUT upserts only the rows sent and resolves rows by
@@ -129,6 +166,43 @@ against the code if something seems off; add new findings here.
 # Session Log
 
 Newest first.
+
+## 2026-07-17 (admin phase start): admin shell, login, and Options section
+
+**Shipped:** on `svelte-ui` as commits `5ee14ab`, `d978165` (plus history cleanup around an
+accidental commit of stale staged gitlinks).
+
+1. **Admin core plumbing** (`core/admin-types.ts`, `core/admin-client.ts`,
+   `core/admin-session.svelte.ts`): typed Options model, HTTP client (login/SSO/logout,
+   config GET, options PATCH, email test), config websocket with 2s reconnect, session state
+   class.
+2. **/admin route + shell** (`routes/admin/+page.svelte`, `features/admin/`): AdminPanel
+   (lifecycle, header with live-config badge and version, section sidebar from an
+   `admin-sections.ts` registry), AdminLogin (password + SSO via stored user PIN, handles
+   adminPasswordLoginDisabled).
+3. **Options section** (`features/admin/sections/`): spec-driven form (`options-spec.ts` +
+   OptionField + OptionsSection) covering the old admin's panels (General, Branding, Alerts &
+   Health, Audio, Email incl. test-email button, Integrations, Transcription, Registration).
+   Stripe excluded. Toggles auto-save single-key PATCHes; other fields save per panel with
+   dirty tracking; websocket pushes resync non-dirty fields.
+4. **Server:** removed the `/admin -> /old-site/admin` redirect so the SPA serves /admin.
+
+**Decisions:** see the new Standing Decisions block (admin at /admin, no AI assistant, no
+dev-server accommodations / same-origin only). Also: the whole dev-proxy / dev-CORS detour
+this session was explicitly reverted by the user; do not reintroduce it.
+
+**Learned:** see the new "Admin API" section in the Server API Reference. Also: the shadcn
+`skeleton` component directory exists but is empty (use Spinner); `go test` still fails on
+the pre-existing Postgres-dependent `TestDiscoverLFDAll20FromDB` without a local DB, and the
+local `thinline-radio.ini` expects a Postgres that is not running, so runtime verification of
+/admin needs the user's deployment.
+
+**Not ported yet in Options:** favicon/email-logo uploads, relay API key request/recover
+dialogs, Radio Reference account edit flow, per-system tables (no-audio, retention, duplicate
+detection), central-management registration subpanel.
+
+**Next:** verify /admin against a real deployment, then continue the admin port (systems,
+users/groups, logs, health, tools).
 
 ## 2026-07-17 (later still): Settings consolidated + typed settings registry
 
