@@ -83,3 +83,4 @@ tlr-time-sync/
 
 ThinLineRadioV7-config.json
 node_modules
+.playwright-mcp

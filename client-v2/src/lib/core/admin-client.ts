@@ -56,7 +56,9 @@ export class AdminClient {
 		this.onUnauthorized = handler;
 	}
 
-	private async request<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
+	//* Public so feature-specific API modules (features/admin/sections/**) can
+	//* call admin endpoints without adding a method here for every route.
+	async request<T>(path: string, init: RequestInit = {}, auth = true): Promise<T> {
 		const headers = new Headers(init.headers);
 		if (init.body) headers.set('Content-Type', 'application/json');
 		//* The server reads the raw Authorization header (no Bearer prefix).
