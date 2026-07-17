@@ -52,6 +52,8 @@ otherwise. Date each item when adding it.
   redeployed. (2026-07-17)
 - Stripe/billing is excluded from the admin port (Options Stripe panel, user-group billing
   fields, Stripe Sync tool), per the existing no-Stripe rule.
+- **Layout does not need to mirror the old admin.** Feature/API parity matters; visual layout
+  and grouping should be whatever is best for the new panel. (2026-07-17)
 
 ## Scope: what the new UI should NOT include
 
@@ -210,9 +212,16 @@ the pre-existing Postgres-dependent `TestDiscoverLFDAll20FromDB` without a local
 local `thinline-radio.ini` expects a Postgres that is not running, so runtime verification of
 /admin needs the user's deployment.
 
-**Not ported yet in Options:** favicon/email-logo uploads, relay API key request/recover
-dialogs, Radio Reference account edit flow, per-system tables (no-audio, retention, duplicate
-detection), central-management registration subpanel.
+**Later in the session (`fd750ec`):** restored the OpenAI chat model select and
+whisper/cloudflare model datalist suggestions, added a consolidated Per-System Overrides
+table (no-audio, retention, duplicate detection; POST bodies use `systemId` plus the
+setting fields), and favicon / email-logo uploads (multipart fields `favicon` / `logo`,
+deletes use the DELETE method, previews served at `/favicon` and `/email-logo`).
+
+**Still not ported in Options:** relay API key request/recover dialogs (paste the key
+directly for now), the central-management registration subpanel. Note the old UI's
+transcription provider select has exactly 5 entries and AssemblyAI has 2; the user's
+"12 items" impression came from the whisper model autocomplete suggestions.
 
 **Next:** verify /admin against a real deployment, then continue the admin port (systems,
 users/groups, logs, health, tools).
