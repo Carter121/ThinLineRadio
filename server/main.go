@@ -280,7 +280,7 @@ func main() {
 	corsMiddleware := func(handler http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
@@ -548,7 +548,7 @@ func main() {
 
 	// Alert routes
 	http.HandleFunc("/api/alerts", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.AlertsHandler))).ServeHTTP)
-	http.HandleFunc("/api/alerts/preferences", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.AlertPreferencesHandler))).ServeHTTP)
+	http.HandleFunc("/api/alerts/preferences", wrapHandler(http.HandlerFunc(controller.Api.AlertPreferencesHandler)).ServeHTTP)
 	http.HandleFunc("/api/stats", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.StatsHandler))).ServeHTTP)
 	http.HandleFunc("/api/transcripts", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.TranscriptsHandler))).ServeHTTP)
 	http.HandleFunc("/api/transcripts/training-progress", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.TranscriptsTrainingProgressHandler))).ServeHTTP)
