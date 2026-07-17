@@ -254,6 +254,36 @@ export interface ScanList {
 	channels: ScanListChannel[];
 }
 
+//* Per-talkgroup alert preference row (GET/PUT /api/alerts/preferences).
+//* systemRef/talkgroupRef are the trunked-radio refs used for matching;
+//* systemId/talkgroupId are server DB ids and only appear on GET responses
+export interface AlertPreference {
+	userId?: number;
+	systemId?: number;
+	talkgroupId?: number;
+	systemRef?: number;
+	talkgroupRef?: number;
+	alertEnabled: boolean;
+	toneAlerts: boolean;
+	keywordAlerts: boolean;
+	keywords?: string[];
+	keywordListIds?: number[];
+	toneSetIds?: string[];
+	notificationSound?: string;
+	toneSetSounds?: Record<string, string>;
+	pagerAlert?: boolean;
+	toneSetPagerAlerts?: Record<string, boolean>;
+}
+
+export interface KeywordList {
+	id: number;
+	label: string;
+	description?: string;
+	keywords: string[];
+	order?: number;
+	createdAt?: number | string;
+}
+
 export interface TlrConfigUserSettings {
 	alertSound?: string;
 	appFont?: string;

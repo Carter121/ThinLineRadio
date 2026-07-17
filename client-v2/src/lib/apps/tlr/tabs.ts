@@ -7,6 +7,7 @@ import FileText from '@lucide/svelte/icons/file-text';
 import Antenna from '@lucide/svelte/icons/antenna';
 import Truck from '@lucide/svelte/icons/truck';
 import Bug from '@lucide/svelte/icons/bug';
+import Settings from '@lucide/svelte/icons/settings';
 
 interface TlrTab {
 	id: string;
@@ -21,7 +22,8 @@ export const Tabs: TlrTab[] = [
 	{ id: 'transcripts', label: 'Transcripts', icon: FileText },
 	{ id: 'map', label: 'Map', icon: MapPinIcon },
 	{ id: 'apparatus', label: 'Apparatus', icon: Truck },
-	{ id: 'mqtt', label: 'MQTT', icon: Antenna }
+	{ id: 'mqtt', label: 'MQTT', icon: Antenna },
+	{ id: 'settings', label: 'Settings', icon: Settings }
 ] as const;
 
 export const DefaultTab = 'dashboard';

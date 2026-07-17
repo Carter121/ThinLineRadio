@@ -7,6 +7,7 @@
 	import UnitsDebug from '$lib/apps/tlr/ui/units-debug/UnitsDebug.svelte';
 	import MqttDashboard from '$lib/apps/tlr/ui/mqtt-dashboard/MqttDashboard.svelte';
 	import ApparatusCard from '$lib/apps/tlr/ui/apparatus/ApparatusCard.svelte';
+	import SettingsTab from '$lib/apps/tlr/ui/settings/SettingsTab.svelte';
 	import type { PageProps } from './$types';
 	import type { Component } from 'svelte';
 
@@ -48,5 +49,6 @@
 		</div>
 	{/if}
 
+	{@render tab('settings', SettingsTab)}
 	{@render tab('debug', UnitsDebug)}
 </div>

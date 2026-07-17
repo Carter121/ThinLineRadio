@@ -1,5 +1,7 @@
 import type {
 	Alert,
+	AlertPreference,
+	KeywordList,
 	LclFilters,
 	LclResponse,
 	LivefeedMap,
@@ -234,6 +236,22 @@ export class TlrClient {
 			method: 'POST',
 			body: JSON.stringify(settings)
 		});
+	}
+
+	async getAlertPreferences(): Promise<AlertPreference[]> {
+		return this.request<AlertPreference[]>('/alerts/preferences');
+	}
+
+	//* PUT upserts only the rows provided; untouched talkgroups keep their stored prefs
+	async saveAlertPreferences(preferences: AlertPreference[]): Promise<void> {
+		await this.request<unknown>('/alerts/preferences', {
+			method: 'PUT',
+			body: JSON.stringify(preferences)
+		});
+	}
+
+	async getKeywordLists(): Promise<KeywordList[]> {
+		return this.request<KeywordList[]>('/keyword-lists');
 	}
 
 	async getSystemAlerts(
