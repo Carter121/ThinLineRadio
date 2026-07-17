@@ -4,7 +4,7 @@ import type { LivefeedMap, SocketCall } from '$lib/apps/tlr/types.ts';
 import type { AudioCoordinator } from '../AudioCoordinator.svelte.ts';
 
 const STORAGE_KEY = 'tlr-selected-channels';
-const VOLUME_STORAGE_KEY = 'tlr-volume';
+const VOLUME_STORAGE_KEY = 'tlr-live-volume';
 const MAX_HISTORY = 5;
 
 export interface AudioQueueItem {

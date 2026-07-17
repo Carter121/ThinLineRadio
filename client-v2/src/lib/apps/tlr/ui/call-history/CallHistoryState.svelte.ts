@@ -15,11 +15,13 @@ import type { AudioCoordinator } from '../AudioCoordinator.svelte.ts';
 import { DateTime } from 'luxon';
 import { getLocalTimeZone, parseDate, today, type DateValue } from '@internationalized/date';
 import { createSearchParamsSchema, useSearchParams } from 'runed/kit';
+import { PersistedState } from 'runed';
 
 const PAGE_SIZE = 20;
 //* Fetch 10 pages worth of data as a buffer
 const FETCH_SIZE = PAGE_SIZE * 20;
 const DEFAULT_DATE_PARAM = dateToParam(today(getLocalTimeZone()));
+const VOLUME_STORAGE_KEY = 'tlr-history-volume';
 
 const searchParamsSchema = createSearchParamsSchema({
 	system: { type: 'string', default: '' },
@@ -117,7 +119,8 @@ export class CallHistoryState {
 	isPlaying = $state(false);
 	currentTime = $state(0);
 	duration = $state(0);
-	volume = $state(1);
+	//* Volume persists across reloads (and syncs across tabs) via localStorage
+	private volumeState = new PersistedState<number>(VOLUME_STORAGE_KEY, 1);
 
 	// Download
 	downloadingCallId = $state<number | null>(null);
@@ -410,9 +413,14 @@ export class CallHistoryState {
 		this.autoAdvancing = false;
 	}
 
+	get volume(): number {
+		//* Clamp so a corrupted stored value can never produce an invalid audio volume
+		return Math.max(0, Math.min(1, this.volumeState.current));
+	}
+
 	setVolume(v: number) {
-		this.volume = Math.max(0, Math.min(1, v));
-		this.audio.volume = this.volume;
+		this.volumeState.current = Math.max(0, Math.min(1, v));
+		this.audio.volume = this.volumeState.current;
 	}
 
 	togglePlayPause() {

@@ -104,6 +104,7 @@ export class AlertPreferencesState {
 				tagMap.set(tag, list);
 			}
 			if (tagMap.size > 0) {
+				// eslint-disable-next-line svelte/prefer-svelte-reactivity
 				result.set(systemLabel, new Map([...tagMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))));
 			}
 		}
@@ -171,7 +172,10 @@ export class AlertPreferencesState {
 			const pref = this.prefs.get(key);
 			//* Strip DB ids so the server resolves rows by systemRef/talkgroupRef
 			if (pref) {
-				const { systemId: _systemId, talkgroupId: _talkgroupId, userId: _userId, ...rest } = pref;
+				const rest = { ...pref };
+				delete rest.systemId;
+				delete rest.talkgroupId;
+				delete rest.userId;
 				payload.push(rest);
 			}
 		}

@@ -91,9 +91,7 @@
 									{[...tagMap.values()].reduce((n, rows) => n + enabledCount(rows), 0)} alerting
 								</Badge>
 							</Collapsible.Trigger>
-							<Button variant="ghost" size="sm" class="h-8 px-3 text-sm" onclick={() => state.setAllForSystem(systemLabel, true)}>
-								Enable all
-							</Button>
+							<Button variant="ghost" size="sm" class="h-8 px-3 text-sm" onclick={() => state.setAllForSystem(systemLabel, true)}>Enable all</Button>
 							<Button variant="ghost" size="sm" class="h-8 px-3 text-sm" onclick={() => state.setAllForSystem(systemLabel, false)}>
 								Disable all
 							</Button>
@@ -155,7 +153,13 @@
 													<Popover.Root>
 														<Popover.Trigger>
 															{#snippet child({ props })}
-																<Button {...props} variant="outline" size="sm" class="h-8 w-full justify-start gap-1.5 truncate text-xs" disabled={!row.pref.alertEnabled}>
+																<Button
+																	{...props}
+																	variant="outline"
+																	size="sm"
+																	class="h-8 w-full justify-start gap-1.5 truncate text-xs"
+																	disabled={!row.pref.alertEnabled}
+																>
 																	<ListChecks class="size-3.5 shrink-0" />
 																	<span class="truncate">{keywordListSummary(row)}</span>
 																</Button>

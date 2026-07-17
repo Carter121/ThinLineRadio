@@ -3,14 +3,16 @@
   "version": "7.0.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently --names \"SERVER,CLIENT\" --prefix-colors \"cyan,magenta\" \"npm run server\" \"npm run client:v2\"",
+    "dev": "concurrently --names \"SERVER,CLIENT\" --prefix-colors \"cyan,magenta\" \"pnpm run server\" \"pnpm run client:v2\"",
     "dev:old": "concurrently --names \"SERVER,CLIENT\" --prefix-colors \"cyan,magenta\" \"npm run server\" \"npm run client\"",
     "server": "cd server && go run . -config $(pwd)/thinline-radio.ini",
+    "server:format": "cd server && go fmt",
     "client": "cd client && npm start",
     "client:build": "cd client && npm run build",
     "client:v2": "cd client-v2 && pnpm dev",
     "client:v2:build": "cd client-v2 && pnpm build",
-    "format": "cd server && go fmt"
+    "client:v2:format": "cd client-v2 && pnpm format",
+    "client:v2:lint": "cd client-v2 && pnpm lint"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
