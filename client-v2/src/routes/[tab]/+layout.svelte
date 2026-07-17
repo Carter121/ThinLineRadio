@@ -3,15 +3,15 @@
 	import { replaceState } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import type { LayoutProps } from './$types';
-	import { TlrClient } from '$lib/apps/tlr/tlr-client.ts';
-	import { setTlrClient, setAudioCoordinator, setTlrAlertFeed } from '$lib/apps/tlr/context.ts';
-	import { AudioCoordinator } from '$lib/apps/tlr/ui/AudioCoordinator.svelte.ts';
-	import { TlrAlertFeed } from '$lib/apps/tlr/tlr-alert-feed.svelte.ts';
+	import { TlrClient } from '$lib/core/tlr-client.ts';
+	import { setTlrClient, setAudioCoordinator, setTlrAlertFeed } from '$lib/core/context.ts';
+	import { AudioCoordinator } from '$lib/features/AudioCoordinator.svelte.ts';
+	import { TlrAlertFeed } from '$lib/core/tlr-alert-feed.svelte.ts';
 	import Bug from '@lucide/svelte/icons/bug';
 	import { PersistedState } from 'runed';
 	import { Toggle } from '$lib/components/ui/toggle';
 	import { tlrOrigin } from '$lib/tlr-config.ts';
-	import { DebugTab, Tabs } from '$lib/apps/tlr/tabs.ts';
+	import { DebugTab, Tabs } from '$lib/core/tabs.ts';
 
 	let { params, children }: LayoutProps = $props();
 

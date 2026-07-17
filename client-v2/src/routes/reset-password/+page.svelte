@@ -9,7 +9,7 @@
 	import Loader2 from '@lucide/svelte/icons/loader-2';
 	import { toast } from 'svelte-sonner';
 
-	import { TlrClient } from '$lib/apps/tlr/tlr-client.ts';
+	import { TlrClient } from '$lib/core/tlr-client.ts';
 	import { tlrOrigin } from '$lib/tlr-config.ts';
 
 	const client = new TlrClient(tlrOrigin() + '/api/', tlrOrigin());

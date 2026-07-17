@@ -45,7 +45,9 @@ otherwise. Date each item when adding it.
   the web UI for secondary channels (e.g. scanner on main fireground, web on staging channel),
   so the full scanning console is not needed. (2026-07)
 - **Old UI theme / classic view is dropped entirely.** (2026-07)
-- **Ignore the PWA** for transition work unless the user asks. (2026-07)
+- **The PWA is fully removed** (routes, ui components, service worker, manifest, PWA icons). The
+  server's web-push (VAPID) endpoints still exist but have no client. Superseded the earlier
+  "ignore the PWA" decision. (2026-07-17)
 - **No transcript review or mobile hub features** were requested. (2026-07)
 
 ## How to build
@@ -119,6 +121,31 @@ against the code if something seems off; add new findings here.
 # Session Log
 
 Newest first.
+
+## 2026-07-17 (later): PWA removal and lib restructure
+
+**Shipped:** on `svelte-ui`, uncommitted at session end.
+
+1. **PWA fully removed**: deleted `src/routes/pwa/`, `src/lib/.../ui/pwa/` (BottomNav, MoreSheet,
+   PwaState, PushNotificationState), `PwaCallHistory.svelte`, `static/sw.js`,
+   `static/manifest.webmanifest`, and PWA-only icons (android-chrome, apple-touch-icon, badge).
+   Stripped the manifest link and apple-mobile-web-app metas from `+layout.svelte`, the dead
+   `standalone` prop from AlertFeedCard, CallHistory, UnitInfoCard, ApparatusCard, AudioPlayer,
+   and the serviceWorker notification fallback in the alert feed. Removed the moot
+   `sw.js`/`manifest.webmanifest` no-cache case in `server/main.go`.
+2. **Lib restructure**: `src/lib/apps/tlr/` is gone. Loose ts files now live in `src/lib/core/`;
+   the `ui/` feature folders now live in `src/lib/features/` (LoginDialog and AudioCoordinator sit
+   at `features/` root). All imports rewritten to `$lib/core/...` / `$lib/features/...`.
+   CLAUDE.md directory conventions updated to match.
+
+**Decisions:** user chose the core/ + features/ layout over keeping a single `tlr/` dir or
+splitting core into domain folders. PWA removal supersedes the old "ignore the PWA" rule.
+
+**Learned:** the server's web-push (VAPID) endpoints (`server/web_push.go`, routes in `main.go`)
+are now client-less; removing them was not requested. The pre-existing Go test
+`TestDiscoverLFDAll20FromDB` fails without a local Postgres on :5432 (environmental).
+
+**Next:** admin panel phase (confirm with the user first); alert-sound selection still floated.
 
 ## 2026-07-17: Initial parity feature set
 

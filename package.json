@@ -12,6 +12,7 @@
     "client:v2": "cd client-v2 && pnpm dev",
     "client:v2:build": "cd client-v2 && pnpm build",
     "client:v2:format": "cd client-v2 && pnpm format",
+    "client:v2:check": "cd client-v2 && pnpm check",
     "client:v2:lint": "cd client-v2 && pnpm lint"
   },
   "devDependencies": {

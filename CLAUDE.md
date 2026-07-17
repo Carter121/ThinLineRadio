@@ -75,10 +75,13 @@ components in `client-v2/src/lib/components/ui/**` before building new ones.
 ## Directory conventions (client-v2)
 
 - `src/routes/**` — thin route shells. `/` redirects to `/dashboard`; `/[tab]` covers dashboard, calls,
-  alert-log, transcripts, map, apparatus, mqtt (+ a hidden debug tab). `/pwa` and `/pwa/[tab]` are the
-  mobile PWA (service worker at `static/sw.js`).
-- `src/lib/apps/tlr/` — the ported tlr sub-app: client (`tlr-client.ts`), session state, MQTT client,
-  alert feed, and all feature UI under `ui/`.
+  alert-log, transcripts, map, apparatus, mqtt, settings (+ a hidden debug tab). `/register` and
+  `/reset-password` are standalone auth routes. There is no PWA (it was removed).
+- `src/lib/core/` — app plumbing: client (`tlr-client.ts`), session state, MQTT client, alert feed,
+  types, formatting, tab registry.
+- `src/lib/features/` — feature UI, one folder per feature (dashboard, call-history, live-audio,
+  alert-history, settings, transcripts, map, mqtt-dashboard, apparatus, units-debug), plus shared
+  `LoginDialog.svelte` and `AudioCoordinator.svelte.ts`.
 - `src/lib/components/ui/**` — generated shadcn-svelte components.
 - `src/lib/hooks/`, `src/lib/utils/`, `src/lib/styles/` — shared hooks, helpers, and styles.
 

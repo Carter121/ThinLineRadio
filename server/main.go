@@ -1047,7 +1047,7 @@ func main() {
 				}
 
 				switch {
-				case url == "sw.js" || url == "manifest.webmanifest" || url == "index.html":
+				case url == "index.html":
 					w.Header().Set("Cache-Control", "no-cache")
 				case strings.HasPrefix(url, "_app/immutable/"):
 					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")

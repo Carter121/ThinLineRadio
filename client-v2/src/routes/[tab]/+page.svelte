@@ -1,13 +1,13 @@
 <script lang="ts">
-	import Dashboard from '$lib/apps/tlr/ui/dashboard/Dashboard.svelte';
-	import CallHistory from '$lib/apps/tlr/ui/call-history/CallHistory.svelte';
-	import IncidentMap from '$lib/apps/tlr/ui/map/IncidentMap.svelte';
-	import AlertHistory from '$lib/apps/tlr/ui/alert-history/AlertHistory.svelte';
-	import TranscriptSearch from '$lib/apps/tlr/ui/transcripts/TranscriptSearch.svelte';
-	import UnitsDebug from '$lib/apps/tlr/ui/units-debug/UnitsDebug.svelte';
-	import MqttDashboard from '$lib/apps/tlr/ui/mqtt-dashboard/MqttDashboard.svelte';
-	import ApparatusCard from '$lib/apps/tlr/ui/apparatus/ApparatusCard.svelte';
-	import SettingsTab from '$lib/apps/tlr/ui/settings/SettingsTab.svelte';
+	import Dashboard from '$lib/features/dashboard/Dashboard.svelte';
+	import CallHistory from '$lib/features/call-history/CallHistory.svelte';
+	import IncidentMap from '$lib/features/map/IncidentMap.svelte';
+	import AlertHistory from '$lib/features/alert-history/AlertHistory.svelte';
+	import TranscriptSearch from '$lib/features/transcripts/TranscriptSearch.svelte';
+	import UnitsDebug from '$lib/features/units-debug/UnitsDebug.svelte';
+	import MqttDashboard from '$lib/features/mqtt-dashboard/MqttDashboard.svelte';
+	import ApparatusCard from '$lib/features/apparatus/ApparatusCard.svelte';
+	import SettingsTab from '$lib/features/settings/SettingsTab.svelte';
 	import type { PageProps } from './$types';
 	import type { Component } from 'svelte';
 

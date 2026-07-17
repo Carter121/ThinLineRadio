@@ -9,9 +9,9 @@
 	import MailCheck from '@lucide/svelte/icons/mail-check';
 	import { toast } from 'svelte-sonner';
 
-	import { TlrClient } from '$lib/apps/tlr/tlr-client.ts';
+	import { TlrClient } from '$lib/core/tlr-client.ts';
 	import { tlrOrigin } from '$lib/tlr-config.ts';
-	import type { RegistrationSettings } from '$lib/apps/tlr/types.ts';
+	import type { RegistrationSettings } from '$lib/core/types.ts';
 
 	const client = new TlrClient(tlrOrigin() + '/api/', tlrOrigin());
 
