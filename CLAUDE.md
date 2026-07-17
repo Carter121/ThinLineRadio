@@ -10,6 +10,11 @@ feed, alert engine, and admin panel, and embeds the built web UI. The current UI
 sub-app of the unified-app project. The Go server serves client-v2 at the site root and keeps the old
 Angular UI (`client/`) at `/old-site` (admin at `/old-site/admin`, with `/admin` redirecting there).
 
+**Before working on the client-v2 transition (parity with the old client, new features, admin port),
+read `CLIENT-V2-PARITY-NOTES.md`.** It is the running log of what is done, the user's standing
+decisions, and server API gotchas. Update it before finishing any transition work (instructions are
+at the top of that file).
+
 ## Commands
 
 Run from the repo root:
@@ -50,6 +55,8 @@ Go server: `cd server && go build ./...` and `go test ./...` (or `go vet ./...`)
 - **The Go server embeds the built UI.** A UI change is not live in the Go server until you rebuild
   client-v2 into `server/webapp-v2` and recompile the server.
 
+- **Don't hesitate to ask questions** unless told otherwise.
+
 ## Working in this repo
 
 After a non-trivial UI change, before considering the task done, run in `client-v2/` and fix what it surfaces:
@@ -83,5 +90,3 @@ components in `client-v2/src/lib/components/ui/**` before building new ones.
   parentheses, or two sentences instead. En-dashes in numeric ranges (e.g. "3-5") are fine.
 - Dates/times are formatted with **Luxon**.
 - **pnpm** is the package manager for client-v2 (there's a `pnpm-lock.yaml`).
-</content>
-</invoke>
