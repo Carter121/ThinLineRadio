@@ -221,6 +221,16 @@ full systems including talkgroups (no lazy loading needed, unlike the old admin)
 old-admin feature inventory (every section, endpoint, and behavior) was produced this session;
 see the conversation or re-derive from client/src/app/components/rdio-scanner/admin/admin.service.ts.
 
+**Later in the session:** the full nav was restored (unported sections show placeholder
+pages pointing at /old-site/admin), and the **Transcript Parser section was fully ported**
+and moved to the bottom of the Server group (`sections/TranscriptParserSection.svelte` +
+`sections/transcript-parser/`): six editable lists (unit types with reject words, prefixes,
+dispatch names, separators, shorthands, corrections) with inline tables, chip editors for
+aliases (Enter to add), uppercase normalization on save, deep-reactivity dirty tracking, and
+GET/PUT /api/admin/transcript-parser. Verified against the live server. Gotcha: mutating
+state inside a function-binding getter throws state_unsafe_mutation; bind getters must be
+pure and chip editors must reassign (not push into) bound arrays.
+
 **Next:** port the remaining sections into the new shell when usage allows: Systems,
 Users/User Groups (no billing), API Keys, Dirwatch, Downstreams, Logs, System Health, Tools
 (password, import/export with X-Full-Import, purge, keyword lists, transcript parser),

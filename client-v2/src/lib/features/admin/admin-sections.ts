@@ -85,7 +85,8 @@ export const AdminSectionGroups: AdminSectionGroup[] = [
 			optionsPage('email', 'Email', Mail),
 			optionsPage('integrations', 'Integrations', Plug),
 			optionsPage('transcription', 'Transcription', Captions),
-			optionsPage('registration', 'Registration', UserPlus)
+			optionsPage('registration', 'Registration', UserPlus),
+			{ id: 'transcript-parser', label: 'Transcript Parser', icon: FileText, component: TranscriptParserSection }
 		]
 	},
 	{
@@ -96,8 +97,7 @@ export const AdminSectionGroups: AdminSectionGroup[] = [
 			{ id: 'system-overrides', label: 'System Overrides', icon: Layers, component: SystemOverridesSection },
 			{ id: 'talkgroup-groups', label: 'Talkgroup Groups', icon: ListTree, component: TalkgroupGroupsSection },
 			{ id: 'tags', label: 'Tags', icon: Tags, component: TagsSection },
-			{ id: 'keyword-lists', label: 'Keyword Lists', icon: SpellCheck, component: KeywordListsSection },
-			{ id: 'transcript-parser', label: 'Transcript Parser', icon: FileText, component: TranscriptParserSection }
+			{ id: 'keyword-lists', label: 'Keyword Lists', icon: SpellCheck, component: KeywordListsSection }
 		]
 	},
 	{
