@@ -2,9 +2,13 @@
 	import './layout.css';
 
 	import { ModeWatcher } from 'mode-watcher';
+	import { page } from '$app/state';
 	import { Toaster } from '$lib/components/ui/sonner';
 
 	let { children } = $props();
+
+	//* The admin panel manages its own full-bleed sidebar layout.
+	const isAdmin = $derived(page.route.id?.startsWith('/admin') ?? false);
 </script>
 
 <svelte:head>
@@ -16,6 +20,6 @@
 <ModeWatcher track={true} />
 <Toaster />
 
-<main class="min-h-[90vh] p-2 py-4">
+<main class={isAdmin ? '' : 'min-h-[90vh] p-2 py-4'}>
 	{@render children()}
 </main>

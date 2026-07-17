@@ -91,7 +91,7 @@
 	}
 </script>
 
-<div class="grid gap-4 border-t border-border pt-3 sm:grid-cols-2">
+<div class="grid gap-6 sm:grid-cols-2">
 	{#each slots as slot (slot.id)}
 		<div class="space-y-2">
 			<p class="text-sm font-medium">{slot.label}</p>
