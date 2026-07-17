@@ -236,11 +236,30 @@ export interface TlrConfigUserFavorites {
 	type?: string;
 }
 
+//* One channel inside a saved scan list; systemId/talkgroupId are systemRef/talkgroupRef
+//* strings so lists round-trip with what the old Angular client saved
+export interface ScanListChannel {
+	systemId: string;
+	talkgroupId: string;
+	talkgroupLabel?: string;
+	talkgroupName?: string;
+	systemLabel?: string;
+	tag?: string;
+}
+
+export interface ScanList {
+	id: string;
+	name: string;
+	isFavoritesSource?: boolean;
+	channels: ScanListChannel[];
+}
+
 export interface TlrConfigUserSettings {
 	alertSound?: string;
 	appFont?: string;
 	autoLiveFeed?: boolean;
 	favorites?: TlrConfigUserFavorites[];
+	scanLists?: ScanList[];
 }
 
 export interface TlrConfig {
@@ -326,6 +345,7 @@ export type TlrSocketEvent =
 	| { type: 'call-list'; payload: LclResponse }
 	| { type: 'call-playback'; payload: SocketCall }
 	| { type: 'call-alias'; payload: SocketCall }
+	| { type: 'call-download'; payload: SocketCall }
 	| { type: 'error'; message: string };
 
 export interface LclFilters {

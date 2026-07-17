@@ -225,6 +225,13 @@ export class AudioPlayerState {
 		this.syncLivefeedMap();
 	}
 
+	//* Replace the whole selection at once (used when applying a scan list preset)
+	replaceSelection(map: LivefeedMap) {
+		this.selectedTalkgroups = map;
+		this.saveSelections();
+		this.syncLivefeedMap();
+	}
+
 	syncLivefeedMap() {
 		if (!this.isLive) {
 			this.client.setLivefeedMap({});

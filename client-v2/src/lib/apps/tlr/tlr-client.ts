@@ -223,6 +223,19 @@ export class TlrClient {
 		if (!res.ok) throw new TlrApiError('Failed to unregister Web Push subscription', res.status);
 	}
 
+	//* User settings are one opaque JSON blob on the server (users.settings); POST replaces
+	//* the whole blob, so writers must read-modify-write to preserve other clients' keys
+	async getSettings(): Promise<Record<string, unknown>> {
+		return this.request<Record<string, unknown>>('/settings');
+	}
+
+	async saveSettings(settings: Record<string, unknown>): Promise<void> {
+		await this.request<{ message: string }>('/settings', {
+			method: 'POST',
+			body: JSON.stringify(settings)
+		});
+	}
+
 	async getSystemAlerts(
 		options: {
 			limit?: number;
@@ -335,6 +348,10 @@ export class TlrClient {
 		this.send(['CAL', callId, 'playback']);
 	}
 
+	requestCallDownload(callId: number) {
+		this.send(['CAL', callId, 'd']);
+	}
+
 	requestCall(callId: number, flag?: string) {
 		if (flag) {
 			this.send(['CAL', callId, flag]);
@@ -438,6 +455,8 @@ export class TlrClient {
 					this.emit({ type: 'call-playback', payload: payload as SocketCall });
 				} else if (data[2] === 'alias') {
 					this.emit({ type: 'call-alias', payload: payload as SocketCall });
+				} else if (data[2] === 'd') {
+					this.emit({ type: 'call-download', payload: payload as SocketCall });
 				} else {
 					this.emit({ type: 'call', payload: payload as SocketCall });
 				}
