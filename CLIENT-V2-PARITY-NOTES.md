@@ -110,8 +110,14 @@ against the code if something seems off; add new findings here.
 - `main.go` has a `corsMiddleware` (wildcard origin) originally added for the Central Management
   frontend; user-facing API routes are opted in one by one at registration. When adding a client
   call to a route, check it is wrapped, and check the method is in Access-Control-Allow-Methods
-  (PUT was missing until 2026-07-17). `/api/keyword-lists` routes were unwrapped until then too.
-- The dev workflow "vite dev UI against the prod server" depends on these headers.
+  (PUT was missing until 2026-07-17).
+- History gotcha: the first attempt at wrapping `/api/alerts/preferences` and
+  `/api/keyword-lists` was partially lost when commit `076b994` was made (it kept the PUT
+  method but dropped the wraps). Re-fixed in `d6bd9e9` (2026-07-17). Symptom when a route is
+  unwrapped: cross-origin OPTIONS preflight returns 405 and the browser reports "CORS request
+  did not succeed", while the same-origin prod app works fine.
+- The dev workflow "vite dev UI against the prod server" depends on these headers, and only
+  works once the prod server is redeployed with the fix.
 
 ## Admin API (server/admin.go)
 
