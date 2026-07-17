@@ -280,7 +280,7 @@ func main() {
 	corsMiddleware := func(handler http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
@@ -338,11 +338,11 @@ func main() {
 	http.HandleFunc("/api/admin/system-health-alerts-enabled", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemHealthAlertsEnabledHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/system-health-alert-settings", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemHealthAlertSettingsHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/call-audio/", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.CallAudioHandler)).ServeHTTP)
-	http.HandleFunc("/api/admin/transcript-review/collector/request-key", wrapHandler(http.HandlerFunc(controller.Admin.TranscriptReviewRequestCollectorKeyHandler)).ServeHTTP)
-	http.HandleFunc("/api/admin/transcript-review/collector/stats", wrapHandler(http.HandlerFunc(controller.Admin.TranscriptReviewCollectorStatsHandler)).ServeHTTP)
-	http.HandleFunc("/api/admin/transcript-review/collector", wrapHandler(http.HandlerFunc(controller.Admin.TranscriptReviewCollectorHandler)).ServeHTTP)
-	http.HandleFunc("/api/admin/transcript-review", wrapHandler(http.HandlerFunc(controller.Admin.TranscriptReviewHandler)).ServeHTTP)
-	http.HandleFunc("/api/admin/transcript-review/", wrapHandler(http.HandlerFunc(controller.Admin.TranscriptReviewCallHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/transcript-review/collector/request-key", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Admin.TranscriptReviewRequestCollectorKeyHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/transcript-review/collector/stats", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Admin.TranscriptReviewCollectorStatsHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/transcript-review/collector", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Admin.TranscriptReviewCollectorHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/transcript-review", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Admin.TranscriptReviewHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/transcript-review/", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Admin.TranscriptReviewCallHandler))).ServeHTTP)
 
 	http.HandleFunc("/api/admin/tone-import", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.ToneImportHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/sync-tone-sets", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SyncToneSetsHandler)).ServeHTTP)
@@ -400,7 +400,7 @@ func main() {
 	http.HandleFunc("/api/admin/login", securityHeadersWrapper(rateLimitWrapper(adminLoginHandler)).ServeHTTP)
 
 	// Public: tells the admin login page whether password login is disabled (no auth required)
-	http.HandleFunc("/api/admin/login-config", wrapHandler(http.HandlerFunc(controller.Admin.LoginConfigHandler)).ServeHTTP)
+	http.HandleFunc("/api/admin/login-config", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Admin.LoginConfigHandler))).ServeHTTP)
 
 	// SSO: system admin users exchange their TLR user PIN for an admin JWT (no separate password needed)
 	http.HandleFunc("/api/admin/sso", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SSOLoginHandler)).ServeHTTP)
@@ -531,9 +531,9 @@ func main() {
 	http.HandleFunc("/api/admin/groups/admins", wrapHandler(controller.Admin.requireLocalhost(controller.Api.AdminGroupAdminsHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/groups/delete/", wrapHandler(controller.Admin.requireLocalhost(controller.Api.AdminDeleteGroupHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/groups/apply-tax-rate", wrapHandler(controller.Admin.requireLocalhost(controller.Api.AdminApplyGroupTaxRateHandler)).ServeHTTP)
-	http.HandleFunc("/api/admin/users/transfer", wrapHandler(http.HandlerFunc(controller.Api.AdminTransferUserHandler)).ServeHTTP)
-	http.HandleFunc("/api/admin/invitations", wrapHandler(http.HandlerFunc(controller.Api.AdminInviteUserHandler)).ServeHTTP)
-	http.HandleFunc("/api/admin/groups/", wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/admin/users/transfer", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.AdminTransferUserHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/invitations", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.AdminInviteUserHandler))).ServeHTTP)
+	http.HandleFunc("/api/admin/groups/", wrapHandler(corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if strings.HasSuffix(path, "/codes/generate") {
 			controller.Api.AdminGroupGenerateCodeHandler(w, r)
@@ -544,7 +544,7 @@ func main() {
 		} else {
 			http.NotFound(w, r)
 		}
-	})).ServeHTTP)
+	}))).ServeHTTP)
 
 	// Alert routes
 	http.HandleFunc("/api/alerts", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.AlertsHandler))).ServeHTTP)

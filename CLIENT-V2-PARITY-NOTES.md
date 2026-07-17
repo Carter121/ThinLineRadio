@@ -43,9 +43,13 @@ otherwise. Date each item when adding it.
   directly at `/old-site/admin`. (2026-07-17)
 - **No AI Assistant (copilot chat) in the new admin**, consistent with the no-AI-chat-bot rule.
   (2026-07-17)
-- **No dev-server accommodations for the admin panel.** The user explicitly rejected both a
-  vite proxy and adding CORS to admin routes: "pretend the dev server doesn't exist". The
-  admin UI is same-origin only; test it by building into the Go server. (2026-07-17)
+- **No vite proxy, ever.** The user explicitly rejected proxying dev traffic through vite.
+  Dev talks directly to the real server URL. (2026-07-17)
+- **Admin routes DO send CORS headers now** (reversed later on 2026-07-17, after the user
+  understood CORS grants browser permission rather than restricting the server): headers are
+  emitted centrally in `requireLocalhost`, and the non-IP-gated admin routes are wrapped in
+  `corsMiddleware`. The dev UI can call the admin API cross-origin once the prod server is
+  redeployed. (2026-07-17)
 - Stripe/billing is excluded from the admin port (Options Stripe panel, user-group billing
   fields, Stripe Sync tool), per the existing no-Stripe rule.
 
@@ -130,7 +134,10 @@ against the code if something seems off; add new findings here.
 - The token is a JWT sent as the **raw `Authorization` header (no Bearer prefix)**. The server
   keeps at most **5 tokens in memory**; they all die on server restart.
 - Most admin routes are IP-gated (`requireLocalhost`: localhost, else `adminAllowedIPs`, else
-  `adminLocalhostOnly`). **No admin route has CORS headers**; the admin UI must be same-origin.
+  `adminLocalhostOnly`). Since 2026-07-17 `requireLocalhost` also emits CORS headers (with
+  PATCH and X-Full-Import) and answers OPTIONS preflights; the non-gated admin routes
+  (login-config, transcript-review, users/transfer, invitations, group codes) are wrapped in
+  `corsMiddleware` instead.
 - `GET /api/admin/config` returns `{config: {...}, passwordNeedChange}`; the config websocket
   (`/api/admin/config` with WS upgrade, first client message = token) pushes the **bare**
   config payload with no wrapper. A close with code 1000 means the session was invalidated.

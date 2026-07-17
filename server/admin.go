@@ -170,6 +170,19 @@ func (admin *Admin) requireAdminBasicAuth(next http.HandlerFunc) http.HandlerFun
 // behaviour now also respects AdminAllowedIPs).
 func (admin *Admin) requireLocalhost(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// CORS headers so the client-v2 dev UI (a different origin) can call the
+		// admin API. Nothing is granted beyond browser permission: token auth and
+		// the IP allow list below still apply to every real request. Preflights
+		// are answered before the IP check so a denied IP surfaces as a JSON 403
+		// on the real request instead of an opaque preflight failure.
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Full-Import")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
 		clientIP := GetClientIP(r)
 
 		if !admin.isAdminIPAllowed(clientIP) {
