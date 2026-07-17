@@ -132,6 +132,11 @@ export class AdminClient {
 		});
 	}
 
+	//* Sends a test email through the configured provider.
+	emailTest(toEmail: string): Promise<{ success?: boolean; message?: string; error?: string }> {
+		return this.request('/api/admin/email-test', { method: 'POST', body: JSON.stringify({ toEmail }) });
+	}
+
 	subscribe(listener: AdminSocketListener): () => void {
 		this.socketListeners.add(listener);
 		listener({ type: 'status', status: this.socketStatus });
