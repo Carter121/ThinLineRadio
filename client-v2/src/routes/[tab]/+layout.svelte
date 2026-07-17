@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { replaceState } from '$app/navigation';
+	import { toast } from 'svelte-sonner';
 	import type { LayoutProps } from './$types';
 	import { TlrClient } from '$lib/apps/tlr/tlr-client.ts';
 	import { setTlrClient, setAudioCoordinator, setTlrAlertFeed } from '$lib/apps/tlr/context.ts';
@@ -30,6 +32,19 @@
 
 	onMount(() => feed.start());
 	onDestroy(() => feed.destroy());
+
+	//* Verification email links redirect to /?verify=<token>; consume the token here
+	onMount(() => {
+		const url = new URL(window.location.href);
+		const verifyToken = url.searchParams.get('verify');
+		if (!verifyToken) return;
+		url.searchParams.delete('verify');
+		void replaceState(url, {});
+		void tlrClient
+			.verifyEmailToken(verifyToken)
+			.then(() => toast.success('Email verified. You can now sign in.'))
+			.catch((error: unknown) => toast.error(error instanceof Error ? error.message : 'Email verification failed'));
+	});
 </script>
 
 <div class="flex w-full justify-center px-2 pt-0 pb-4 sm:px-10 sm:pt-4">

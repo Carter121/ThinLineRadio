@@ -6,6 +6,9 @@ import type {
 	LclResponse,
 	LivefeedMap,
 	LoginResponse,
+	RegisterPayload,
+	RegisterResponse,
+	RegistrationSettings,
 	ServerStatus,
 	SocketAlertNotification,
 	SocketCall,
@@ -171,6 +174,56 @@ export class TlrClient {
 
 		this.setPin(response.user.pin);
 		return response;
+	}
+
+	async getRegistrationSettings(): Promise<RegistrationSettings> {
+		return this.request<RegistrationSettings>('/registration-settings');
+	}
+
+	//* Sends a signup verification code to the email (only when the server requires it)
+	async requestSignupVerification(email: string): Promise<{ verificationRequired?: boolean; message?: string }> {
+		return this.request('/user/request-signup-verification', {
+			method: 'POST',
+			body: JSON.stringify({ email })
+		});
+	}
+
+	async register(payload: RegisterPayload): Promise<RegisterResponse> {
+		const response = await this.request<RegisterResponse>('/user/register', {
+			method: 'POST',
+			body: JSON.stringify(payload)
+		});
+		if (response.verified && response.pin) this.setPin(response.pin);
+		return response;
+	}
+
+	//* Consumes the token from verification email links (GET /verify redirects to /?verify=token)
+	async verifyEmailToken(token: string): Promise<void> {
+		await this.request<unknown>('/user/verify', {
+			method: 'POST',
+			body: JSON.stringify({ token })
+		});
+	}
+
+	async resendVerification(email: string): Promise<void> {
+		await this.request<unknown>('/user/resend-verification', {
+			method: 'POST',
+			body: JSON.stringify({ email })
+		});
+	}
+
+	async requestPasswordReset(email: string): Promise<void> {
+		await this.request<unknown>('/user/forgot-password', {
+			method: 'POST',
+			body: JSON.stringify({ email })
+		});
+	}
+
+	async resetPassword(email: string, code: string, newPassword: string): Promise<void> {
+		await this.request<unknown>('/user/reset-password', {
+			method: 'POST',
+			body: JSON.stringify({ email, code, newPassword })
+		});
 	}
 
 	async getAlerts(options: { since?: number; limit?: number } = {}): Promise<Alert[]> {

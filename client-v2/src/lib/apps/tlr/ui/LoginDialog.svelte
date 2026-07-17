@@ -82,6 +82,11 @@
 					{/if}
 				</Button>
 			</DialogFooter>
+
+			<div class="flex items-center justify-between text-sm">
+				<a href="/reset-password" class="text-muted-foreground hover:text-foreground hover:underline">Forgot password?</a>
+				<a href="/register" class="font-medium text-primary hover:underline">Create an account</a>
+			</div>
 		</form>
 	</DialogContent>
 </Dialog>

@@ -284,6 +284,27 @@ export interface KeywordList {
 	createdAt?: number | string;
 }
 
+export interface RegistrationSettings {
+	publicRegistrationEnabled: boolean;
+	emailVerificationRequired: boolean;
+}
+
+export interface RegisterPayload {
+	email: string;
+	password: string;
+	firstName: string;
+	lastName: string;
+	zipCode: string;
+	accessCode?: string;
+	verificationCode?: string;
+}
+
+export interface RegisterResponse {
+	message: string;
+	verified: boolean;
+	pin?: string;
+}
+
 export interface TlrConfigUserSettings {
 	alertSound?: string;
 	appFont?: string;
