@@ -8,17 +8,25 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
 	import { Switch } from '$lib/components/ui/switch';
+	import { Select, SelectContent, SelectItem, SelectTrigger } from '$lib/components/ui/select';
 	import BellRing from '@lucide/svelte/icons/bell-ring';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import Loader2 from '@lucide/svelte/icons/loader-2';
+	import Rss from '@lucide/svelte/icons/rss';
 	import Save from '@lucide/svelte/icons/save';
+	import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
+	import type { Component } from 'svelte';
 
 	import { getTlrClient } from '$lib/core/context.ts';
+	import { settingsSections } from '$lib/core/app-settings.svelte.ts';
 	import { AlertPreferencesState, type PreferenceRow } from './AlertPreferencesState.svelte.ts';
 
 	const client = getTlrClient();
 	const state = new AlertPreferencesState(client);
+
+	//* Icon per registry section; unknown sections get a generic sliders icon.
+	const sectionIcons: Record<string, Component> = { 'Alert Feed': Rss };
 
 	onMount(() => {
 		state.start();
@@ -61,6 +69,48 @@
 </script>
 
 <div class="space-y-4 pb-24">
+	{#each settingsSections() as { section, settings } (section)}
+		{@const SectionIcon = sectionIcons[section] ?? SlidersHorizontal}
+		<Card class="gap-0 border-border/60 py-0">
+			<CardHeader class="px-3.5 pt-3 pb-2">
+				<CardTitle class="flex items-center gap-2 text-sm">
+					<SectionIcon class="size-3.5" />
+					{section}
+				</CardTitle>
+			</CardHeader>
+			<CardContent class="space-y-4 px-3.5 pt-0 pb-3.5">
+				<div class="grid gap-4 sm:grid-cols-2">
+					{#each settings as setting (setting.key)}
+						{#if setting.kind === 'select'}
+							<div class="space-y-1.5">
+								<label for={setting.key} class="text-sm font-medium">{setting.label}</label>
+								<Select type="single" value={setting.current} onValueChange={(v) => setting.setFromString(v)}>
+									<SelectTrigger id={setting.key} size="sm" class="w-full">
+										{setting.currentLabel}
+									</SelectTrigger>
+									<SelectContent>
+										{#each setting.options as option (option.value)}
+											<SelectItem value={option.value} label={option.label} />
+										{/each}
+									</SelectContent>
+								</Select>
+								<p class="text-xs text-muted-foreground">{setting.description}</p>
+							</div>
+						{:else if setting.kind === 'toggle'}
+							<div class="flex items-start justify-between gap-3">
+								<div class="space-y-1.5">
+									<label for={setting.key} class="text-sm font-medium">{setting.label}</label>
+									<p class="text-xs text-muted-foreground">{setting.description}</p>
+								</div>
+								<Switch id={setting.key} checked={setting.current} onCheckedChange={(checked: boolean) => (setting.current = checked)} />
+							</div>
+						{/if}
+					{/each}
+				</div>
+			</CardContent>
+		</Card>
+	{/each}
+
 	<Card class="gap-0 border-border/60 py-0">
 		<CardHeader class="px-3.5 pt-3 pb-2">
 			<CardTitle class="flex items-center gap-2 text-sm">

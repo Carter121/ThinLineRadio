@@ -1,4 +1,4 @@
-import { PersistedState } from 'runed';
+import { appSettings } from './app-settings.svelte.ts';
 import type { TlrClient } from './tlr-client.ts';
 import { ResumeWatcher } from './resume-watcher.ts';
 import type { AudioCoordinator } from '$lib/features/AudioCoordinator.svelte.ts';
@@ -24,7 +24,6 @@ export class TlrAlertFeed {
 	newAlertIds = $state.raw(new Set<number>());
 	alertAddressStats = $state({ total: 0, matched: 0 });
 	lastRefreshAt = $state<number | null>(null);
-	notificationFilter = new PersistedState<'all' | 'battalion-only'>('tlr-notification-filter', 'all');
 
 	private client: TlrClient;
 	private coordinator: AudioCoordinator | null;
@@ -181,7 +180,7 @@ export class TlrAlertFeed {
 			return { alert, body, hasBattalion };
 		});
 
-		const parsed = this.notificationFilter.current === 'battalion-only' ? allParsed.filter((item) => item.hasBattalion) : allParsed;
+		const parsed = appSettings.notificationFilter.current === 'battalion-only' ? allParsed.filter((item) => item.hasBattalion) : allParsed;
 		if (parsed.length === 0) return;
 
 		this.coordinator?.playNotification();

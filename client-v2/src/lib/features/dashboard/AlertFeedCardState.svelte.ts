@@ -76,9 +76,6 @@ export class AlertFeedCardState {
 	get lastAlertRefreshAt(): number | null {
 		return this.feed.lastRefreshAt;
 	}
-	get notificationFilter() {
-		return this.feed.notificationFilter;
-	}
 	get recentAlertCount(): number {
 		const now = Date.now();
 		return this.feed.alerts.filter((alert) => now - alert.createdAt < 60 * 60 * 1000).length;

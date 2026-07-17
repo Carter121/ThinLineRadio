@@ -92,6 +92,14 @@ against the code if something seems off; add new findings here.
 - `CAL` flags: `'playback'`, `'alias'`, `'d'` (download). Request a call's audio for download
   with `['CAL', callId, 'd']`; the response is a `CAL` frame with flag `'d'`.
 
+## CORS
+
+- `main.go` has a `corsMiddleware` (wildcard origin) originally added for the Central Management
+  frontend; user-facing API routes are opted in one by one at registration. When adding a client
+  call to a route, check it is wrapped, and check the method is in Access-Control-Allow-Methods
+  (PUT was missing until 2026-07-17). `/api/keyword-lists` routes were unwrapped until then too.
+- The dev workflow "vite dev UI against the prod server" depends on these headers.
+
 ## Alert preferences
 
 - `GET/PUT /api/alerts/preferences`. PUT upserts only the rows sent and resolves rows by
@@ -121,6 +129,38 @@ against the code if something seems off; add new findings here.
 # Session Log
 
 Newest first.
+
+## 2026-07-17 (later still): Settings consolidated + typed settings registry
+
+**Shipped:** on `svelte-ui`, uncommitted at session end.
+
+1. The Alert Settings sheet (gear button) was removed from the dashboard's
+   `AlertFeedCard.svelte`; its two settings (Notification Filter, Time Display) moved to the
+   Settings tab.
+2. **New settings registry**: `core/app-settings.svelte.ts`. Each simple setting is declared
+   once (`selectSetting` / `toggleSetting` helpers wrapping runed PersistedState, with section,
+   label, description, storage key, options, default). Consumers read/write
+   `appSettings.<name>.current` anywhere, typed to the literal union of option values (getter
+   falls back to the default on corrupted stored values). `SettingsTab.svelte` renders the
+   registry generically: one card per section (icon map in SettingsTab, fallback sliders icon),
+   select becomes a Select, toggle becomes a Switch. Adding a setting = one registry entry, no
+   markup changes. `TlrAlertFeed` and AlertFeedCard now consume `appSettings` instead of owning
+   PersistedStates; storage keys unchanged so existing prefs carry over.
+3. **Server CORS fix** so the dev UI can hit a prod server: added PUT to corsMiddleware's
+   allowed methods (alert preferences saves were failing preflight) and wrapped the
+   `/api/keyword-lists` and `/api/keyword-lists/` routes with corsMiddleware in `main.go`.
+
+**Decisions:** user wants all settings consolidated into the Settings tab and chose the typed
+registry approach over hand-composed row components. Complex settings UIs (Alert Preferences)
+stay custom cards; the registry is for simple scalar knobs. Server-synced (users.settings blob)
+scalars were floated as a registry v2 but not built. Other PersistedState usages (collapsible
+open states, map layers, volume, pagination toggle, show-debug) are UI layout memory, not
+settings, and stay where they are.
+
+**Learned:** nothing new about the backend; change was client-local only. The SPA runs with
+`ssr = false`, so module-scope singletons like the registry are safe.
+
+**Next:** admin panel phase (confirm with the user first); alert-sound selection still floated.
 
 ## 2026-07-17 (later): PWA removal and lib restructure
 

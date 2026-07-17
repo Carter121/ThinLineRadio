@@ -8,17 +8,11 @@
 	import { Alert as AlertBox, AlertTitle, AlertDescription } from '$lib/components/ui/alert/index.ts';
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card/index.ts';
 	import { Badge } from '$lib/components/ui/badge/index.ts';
-	import { Select, SelectContent, SelectItem, SelectTrigger } from '$lib/components/ui/select/index.ts';
-	import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '$lib/components/ui/sheet/index.ts';
-	import Settings from '@lucide/svelte/icons/settings';
-	import { PersistedState } from 'runed';
 	import type { AlertFeedCardState } from './AlertFeedCardState.svelte.ts';
+	import { appSettings } from '$lib/core/app-settings.svelte.ts';
 	import type { Alert, TranscriptAnnotationChannel } from '$lib/core/types.ts';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	let { state: cardState }: { state: AlertFeedCardState } = $props();
-	let settingsOpen = $state(false);
-
-	const timeFormat = new PersistedState<'absolute' | 'relative' | 'both'>('tlr-alert-time-format-desktop', 'relative');
 
 	function alertSubtitle(alert: Alert): string {
 		return [alert.systemLabel, alert.talkgroupLabel ?? alert.talkgroupName].filter(Boolean).join(' / ');
@@ -30,8 +24,8 @@
 	function formatAlertTime(alert: Alert): string {
 		const abs = formatAbsoluteTime(alert.createdAt);
 		const rel = formatRelativeTime(alert.createdAt, cardState.nowMs);
-		if (timeFormat.current === 'absolute') return abs;
-		if (timeFormat.current === 'relative') return rel;
+		if (appSettings.timeFormat.current === 'absolute') return abs;
+		if (appSettings.timeFormat.current === 'relative') return rel;
 		return `${abs} · ${rel}`;
 	}
 
@@ -62,9 +56,6 @@
 				<p title="{cardState.alertAddressStats.matched}/{cardState.alertAddressStats.total}">
 					Address: {cardState.alertAddressPercentage.toFixed(0)}%
 				</p>
-				<Button variant="ghost" size="sm" class="size-7 p-0 text-muted-foreground" onclick={() => (settingsOpen = true)}>
-					<Settings class="size-3.5" />
-				</Button>
 			</div>
 		</div>
 	</CardHeader>
@@ -181,56 +172,6 @@
 		{/if}
 	</CardContent>
 </Card>
-
-<Sheet bind:open={settingsOpen}>
-	<SheetContent>
-		<SheetHeader>
-			<SheetTitle>Alert Settings</SheetTitle>
-			<SheetDescription>Configure which alerts trigger notifications and audio.</SheetDescription>
-		</SheetHeader>
-		<div class="px-4">
-			<div class="space-y-1.5">
-				<label for="notification-filter" class="text-sm font-medium">Notification Filter</label>
-				<Select
-					type="single"
-					value={cardState.notificationFilter.current}
-					onValueChange={(v) => {
-						if (v === 'all' || v === 'battalion-only') cardState.notificationFilter.current = v;
-					}}
-				>
-					<SelectTrigger id="notification-filter" size="sm" class="w-full">
-						{cardState.notificationFilter.current === 'battalion-only' ? 'Battalion Only' : 'All Alerts'}
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="all" label="All Alerts" />
-						<SelectItem value="battalion-only" label="Battalion Only" />
-					</SelectContent>
-				</Select>
-				<p class="text-xs text-muted-foreground">Choose whether to receive notifications for all alerts or only those with a battalion unit.</p>
-			</div>
-			<div class="mt-4 space-y-1.5">
-				<label for="time-format" class="text-sm font-medium">Time Display</label>
-				<Select
-					type="single"
-					value={timeFormat.current}
-					onValueChange={(v) => {
-						if (v === 'absolute' || v === 'relative' || v === 'both') timeFormat.current = v;
-					}}
-				>
-					<SelectTrigger id="time-format" size="sm" class="w-full">
-						{timeFormat.current === 'absolute' ? 'Absolute' : timeFormat.current === 'relative' ? 'Relative' : 'Both'}
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="relative" label="Relative (e.g. 5m ago)" />
-						<SelectItem value="absolute" label="Absolute (clock time)" />
-						<SelectItem value="both" label="Both" />
-					</SelectContent>
-				</Select>
-				<p class="text-xs text-muted-foreground">Show alert times as relative, an absolute clock time, or both.</p>
-			</div>
-		</div>
-	</SheetContent>
-</Sheet>
 
 <style>
 	@keyframes flash {
