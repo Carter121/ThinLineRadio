@@ -26,6 +26,8 @@ export interface OptionFieldSpec {
 	//* Select options; 'numeric' casts the chosen value back to a number on save.
 	options?: { value: string; label: string }[];
 	numeric?: boolean;
+	//* Autocomplete suggestions for free-text fields (rendered as a datalist).
+	suggestions?: { value: string; label: string }[];
 	showIf?: (values: OptionValues) => boolean;
 }
 
@@ -71,7 +73,6 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 	{
 		id: 'branding',
 		label: 'Branding',
-		description: 'Favicon and logo uploads are not ported yet; use the old admin for those.',
 		fields: [
 			{ key: 'branding', label: 'Branding Label', type: 'text', placeholder: 'Branding', caption: 'Name shown in the UI header and emails.' },
 			{ key: 'baseUrl', label: 'Base URL', type: 'text', placeholder: 'https://radio.example.com', caption: 'Public URL used for links in emails.' },
@@ -176,7 +177,17 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 		fields: [
 			{ key: 'openAIIntegration.baseUrl', label: 'OpenAI API Base URL', type: 'text', placeholder: 'https://api.openai.com' },
 			{ key: 'openAIIntegration.apiKey', label: 'OpenAI API Key', type: 'text', masked: true, placeholder: 'sk-...' },
-			{ key: 'openAIIntegration.model', label: 'OpenAI Chat Model', type: 'text', placeholder: 'gpt-5.4-mini', caption: 'Used for tone/unit naming and diagnostics.' },
+			{
+				key: 'openAIIntegration.model',
+				label: 'OpenAI Chat Model',
+				type: 'select',
+				options: [
+					{ value: 'gpt-5.4-mini', label: 'GPT-5.4 mini (recommended)' },
+					{ value: 'gpt-4o-mini', label: 'GPT-4o mini (lowest cost)' },
+					{ value: 'gpt-4o', label: 'GPT-4o (highest quality)' }
+				],
+				caption: 'Used for tone/unit naming and diagnostics.'
+			},
 			{ key: 'radioReferenceEnabled', label: 'Radio Reference Integration', type: 'toggle' },
 			{ key: 'radioReferenceUsername', label: 'Radio Reference Username', type: 'text', showIf: (v) => truthy(v, 'radioReferenceEnabled') },
 			{ key: 'radioReferencePassword', label: 'Radio Reference Password', type: 'text', masked: true, showIf: (v) => truthy(v, 'radioReferenceEnabled') },
@@ -204,7 +215,21 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 			},
 			{ key: 'transcriptionConfig.whisperAPIURL', label: 'Whisper API URL', type: 'text', placeholder: 'http://localhost:8000', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
 			{ key: 'transcriptionConfig.whisperAPIKey', label: 'Whisper API Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
-			{ key: 'transcriptionConfig.whisperAPIModel', label: 'Whisper Model', type: 'text', placeholder: 'whisper-1', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
+			{
+				key: 'transcriptionConfig.whisperAPIModel',
+				label: 'Whisper Model',
+				type: 'text',
+				placeholder: 'whisper-1',
+				suggestions: [
+					{ value: 'whisper-1', label: 'original Whisper, works local and cloud' },
+					{ value: 'gpt-4o-transcribe', label: 'OpenAI cloud only' },
+					{ value: 'gpt-4o-mini-transcribe', label: 'OpenAI cloud only, cheaper' },
+					{ value: 'whisper-large-v3', label: '' },
+					{ value: 'whisper-large-v3-turbo', label: 'faster' },
+					{ value: 'distil-whisper-large-v3-en', label: 'English only, fastest' }
+				],
+				showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'whisper-api'
+			},
 			{ key: 'transcriptionConfig.azureKey', label: 'Azure Subscription Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'azure' },
 			{ key: 'transcriptionConfig.azureRegion', label: 'Azure Region', type: 'text', placeholder: 'eastus', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'azure' },
 			{ key: 'transcriptionConfig.googleAPIKey', label: 'Google API Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'google' },
@@ -223,7 +248,18 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 			{ key: 'transcriptionConfig.assemblyAIWordBoost', label: 'AssemblyAI Keyterms', type: 'text', array: 'csv', placeholder: 'ENGINE, LADDER, MEDIC', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'assemblyai' },
 			{ key: 'transcriptionConfig.cloudflareAccountID', label: 'Cloudflare Account ID', type: 'text', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'cloudflare' },
 			{ key: 'transcriptionConfig.cloudflareAPIToken', label: 'Cloudflare API Token', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'cloudflare' },
-			{ key: 'transcriptionConfig.cloudflareModel', label: 'Cloudflare Model', type: 'text', placeholder: '@cf/openai/whisper-large-v3-turbo', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'cloudflare' },
+			{
+				key: 'transcriptionConfig.cloudflareModel',
+				label: 'Cloudflare Model',
+				type: 'text',
+				placeholder: '@cf/openai/whisper-large-v3-turbo',
+				suggestions: [
+					{ value: '@cf/openai/whisper-large-v3-turbo', label: 'faster, recommended' },
+					{ value: '@cf/openai/whisper-large-v3', label: 'higher accuracy' },
+					{ value: '@cf/openai/whisper', label: 'original Whisper' }
+				],
+				showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'cloudflare'
+			},
 			{ key: 'transcriptionConfig.language', label: 'Language', type: 'text', placeholder: 'en', caption: 'Use "auto" for automatic detection.', showIf: (v) => truthy(v, 'transcriptionEnabled') },
 			{ key: 'transcriptionConfig.prompt', label: 'Custom Prompt', type: 'textarea', rows: 4, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
 			{ key: 'transcriptionConfig.timeoutSeconds', label: 'Transcription Timeout', type: 'number', min: 0, max: 600, placeholder: '300', caption: 'Seconds; 0 uses the default.', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'whisper-api' },

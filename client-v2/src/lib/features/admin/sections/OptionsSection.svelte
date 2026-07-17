@@ -10,7 +10,9 @@
 	import Save from '@lucide/svelte/icons/save';
 	import Send from '@lucide/svelte/icons/send';
 	import type { AdminSessionState } from '$lib/core/admin-session.svelte.ts';
+	import BrandingImages from './BrandingImages.svelte';
 	import OptionField from './OptionField.svelte';
+	import SystemOverridesTable from './SystemOverridesTable.svelte';
 	import { OPTION_PANELS, buildPatch, getOptionValue, toDraftValue, toWireValue, type OptionFieldSpec, type OptionPanelSpec } from './options-spec.ts';
 
 	interface Props {
@@ -148,6 +150,10 @@
 							{/each}
 						</div>
 
+						{#if panel.id === 'branding'}
+							<BrandingImages {session} />
+						{/if}
+
 						{#if panel.id === 'email' && draft['emailServiceEnabled'] === true}
 							<div class="flex items-end gap-2 border-t border-border pt-3">
 								<div class="max-w-xs flex-1 space-y-1.5">
@@ -169,4 +175,6 @@
 			</Collapsible.Root>
 		</Card>
 	{/each}
+
+	<SystemOverridesTable {session} />
 </div>

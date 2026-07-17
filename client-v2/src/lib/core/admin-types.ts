@@ -153,12 +153,24 @@ export interface AdminOptions {
 //* A partial Options object for PATCH /api/admin/options (single or few keys).
 export type AdminOptionsPatch = Partial<AdminOptions>;
 
+//* A radio system as it appears in the admin config payload (partial typing;
+//* only the fields the admin UI touches so far).
+export interface AdminSystem {
+	id: number;
+	label: string;
+	noAudioAlertsEnabled?: boolean;
+	noAudioThresholdMinutes?: number;
+	retentionDays?: number;
+	duplicateDetectionEnabled?: boolean;
+	[key: string]: unknown;
+}
+
 //* The `config` key of GET /api/admin/config and of PATCH responses.
 export interface AdminConfigPayload {
 	options: AdminOptions;
 	branding?: string;
 	version?: string;
-	systems?: unknown[];
+	systems?: AdminSystem[];
 	tags?: unknown[];
 	groups?: unknown[];
 	apikeys?: unknown[];

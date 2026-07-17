@@ -132,6 +132,61 @@ export class AdminClient {
 		});
 	}
 
+	//* Per-system overrides (separate endpoints, not part of the Options PATCH).
+	saveSystemNoAudioSettings(systemId: number, enabled: boolean, thresholdMinutes: number): Promise<unknown> {
+		return this.request('/api/admin/system-no-audio-settings', {
+			method: 'POST',
+			body: JSON.stringify({ systemId, noAudioAlertsEnabled: enabled, noAudioThresholdMinutes: thresholdMinutes })
+		});
+	}
+
+	saveSystemRetentionSettings(systemId: number, retentionDays: number): Promise<unknown> {
+		return this.request('/api/admin/system-retention-settings', {
+			method: 'POST',
+			body: JSON.stringify({ systemId, retentionDays })
+		});
+	}
+
+	saveSystemDuplicateDetectionSettings(systemId: number, enabled: boolean): Promise<unknown> {
+		return this.request('/api/admin/system-duplicate-detection-settings', {
+			method: 'POST',
+			body: JSON.stringify({ systemId, duplicateDetectionEnabled: enabled })
+		});
+	}
+
+	//* Branding image uploads (multipart; not Options keys).
+	private async upload(path: string, fieldName: string, file: File): Promise<unknown> {
+		const body = new FormData();
+		body.append(fieldName, file);
+		const headers = new Headers();
+		if (this.token) headers.set('Authorization', this.token);
+		const response = await fetch(this.origin + path, { method: 'POST', body, headers });
+		if (!response.ok) {
+			if (response.status === 401) {
+				this.clearToken();
+				this.onUnauthorized?.();
+			}
+			throw new TlrApiError(`Upload failed (${response.status})`, response.status);
+		}
+		return response.json();
+	}
+
+	uploadFavicon(file: File): Promise<unknown> {
+		return this.upload('/api/admin/favicon', 'favicon', file);
+	}
+
+	deleteFavicon(): Promise<unknown> {
+		return this.request('/api/admin/favicon/delete', { method: 'DELETE' });
+	}
+
+	uploadEmailLogo(file: File): Promise<unknown> {
+		return this.upload('/api/admin/email-logo', 'logo', file);
+	}
+
+	deleteEmailLogo(): Promise<unknown> {
+		return this.request('/api/admin/email-logo/delete', { method: 'DELETE' });
+	}
+
 	//* Sends a test email through the configured provider.
 	emailTest(toEmail: string): Promise<{ success?: boolean; message?: string; error?: string }> {
 		return this.request('/api/admin/email-test', { method: 'POST', body: JSON.stringify({ toEmail }) });

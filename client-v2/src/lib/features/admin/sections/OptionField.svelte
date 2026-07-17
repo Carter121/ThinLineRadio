@@ -56,9 +56,17 @@
 				step={field.step}
 				placeholder={field.placeholder}
 				autocomplete={field.masked ? 'off' : undefined}
+				list={field.suggestions ? `${field.key}-suggestions` : undefined}
 				value={String(value ?? '')}
 				oninput={(e: Event) => onchange((e.currentTarget as HTMLInputElement).value)}
 			/>
+			{#if field.suggestions}
+				<datalist id={`${field.key}-suggestions`}>
+					{#each field.suggestions as suggestion (suggestion.value)}
+						<option value={suggestion.value}>{suggestion.label}</option>
+					{/each}
+				</datalist>
+			{/if}
 		{/if}
 		{#if field.caption}
 			<p class="text-xs text-muted-foreground">{field.caption}</p>
