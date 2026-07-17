@@ -1,8 +1,10 @@
+import { PersistedState } from 'runed';
 import type { TlrClient } from '$lib/apps/tlr/tlr-client.ts';
 import type { LivefeedMap, SocketCall } from '$lib/apps/tlr/types.ts';
 import type { AudioCoordinator } from '../AudioCoordinator.svelte.ts';
 
 const STORAGE_KEY = 'tlr-selected-channels';
+const VOLUME_STORAGE_KEY = 'tlr-volume';
 const MAX_HISTORY = 5;
 
 export interface AudioQueueItem {
@@ -29,7 +31,8 @@ export class AudioPlayerState {
 	history = $state.raw<AudioQueueItem[]>([]);
 	isPlaying = $state(false);
 	isLive = $state(false);
-	volume = $state(1);
+	//* Volume persists across reloads (and syncs across tabs) via localStorage
+	private volumeState = new PersistedState<number>(VOLUME_STORAGE_KEY, 1);
 	duration = $state(0);
 	currentTime = $state(0);
 	autoplayBlocked = $state(false);
@@ -174,9 +177,14 @@ export class AudioPlayerState {
 		}
 	}
 
+	get volume(): number {
+		//* Clamp so a corrupted stored value can never produce an invalid audio volume
+		return Math.max(0, Math.min(1, this.volumeState.current));
+	}
+
 	setVolume(v: number) {
-		this.volume = Math.max(0, Math.min(1, v));
-		this.audio.volume = this.volume;
+		this.volumeState.current = Math.max(0, Math.min(1, v));
+		this.audio.volume = this.volumeState.current;
 	}
 
 	// Talkgroup selection methods
