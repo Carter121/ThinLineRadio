@@ -86,7 +86,24 @@ func (controller *Controller) CreateSystemAlert(alertType, severity, title, mess
 	// Send push notification to all system admins
 	go controller.SendSystemAlertNotification(title, message, alertType, severity, dataJSON)
 
+	//* Also send to the dedicated system-alerts ntfy topic when configured
+	if controller.Options.NtfySystemTopic != "" {
+		go controller.sendNtfyTo(controller.Options.NtfySystemTopic, title, message, ntfyPriorityForSeverity(severity), []string{"warning"})
+	}
+
 	return nil
+}
+
+// * ntfyPriorityForSeverity maps a system alert severity to an ntfy priority (1-5)
+func ntfyPriorityForSeverity(severity string) int {
+	switch severity {
+	case "critical":
+		return 5
+	case "warning":
+		return 4
+	default:
+		return 3
+	}
 }
 
 // SendSystemAlertNotification sends a push notification for system alerts.

@@ -1404,13 +1404,13 @@ func (api *Api) PostVerifyPlanContextHandler(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"requiresPlanSelection":   requires,
-		"pricingOptions":          options,
-		"stripePublishableKey":    api.Controller.Options.StripePublishableKey,
-		"branding":                branding,
-		"email":                   user.Email,
-		"iosAppStoreUrl":          api.Controller.Options.EffectiveIOSAppStoreURL(),
-		"androidPlayStoreUrl":     api.Controller.Options.EffectiveAndroidPlayStoreURL(),
+		"requiresPlanSelection": requires,
+		"pricingOptions":        options,
+		"stripePublishableKey":  api.Controller.Options.StripePublishableKey,
+		"branding":              branding,
+		"email":                 user.Email,
+		"iosAppStoreUrl":        api.Controller.Options.EffectiveIOSAppStoreURL(),
+		"androidPlayStoreUrl":   api.Controller.Options.EffectiveAndroidPlayStoreURL(),
 	})
 }
 
@@ -1730,14 +1730,14 @@ func (api *Api) UserVerifyHandler(w http.ResponseWriter, r *http.Request) {
 
 	requiresPlan, pricingOptions := api.postVerifyRequiresPlanSelection(user)
 	resp := map[string]interface{}{
-		"message":                 "Email verified successfully",
-		"verified":                true,
-		"email":                   user.Email,
-		"requiresPlanSelection":   requiresPlan,
-		"stripePublishableKey":    api.Controller.Options.StripePublishableKey,
-		"pricingOptions":          pricingOptions,
-		"iosAppStoreUrl":          api.Controller.Options.EffectiveIOSAppStoreURL(),
-		"androidPlayStoreUrl":     api.Controller.Options.EffectiveAndroidPlayStoreURL(),
+		"message":               "Email verified successfully",
+		"verified":              true,
+		"email":                 user.Email,
+		"requiresPlanSelection": requiresPlan,
+		"stripePublishableKey":  api.Controller.Options.StripePublishableKey,
+		"pricingOptions":        pricingOptions,
+		"iosAppStoreUrl":        api.Controller.Options.EffectiveIOSAppStoreURL(),
+		"androidPlayStoreUrl":   api.Controller.Options.EffectiveAndroidPlayStoreURL(),
 	}
 	if !requiresPlan {
 		resp["pricingOptions"] = []PricingOption{}
@@ -3540,18 +3540,18 @@ func (api *Api) TranscriptsHandler(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			rowCount++
 			var (
-				callId              uint64
-				sysId               uint64
-				tgId                uint64
-				transcriptionStatus sql.NullString
-				transcript          sql.NullString
-				reviewedTranscript  sql.NullString
+				callId               uint64
+				sysId                uint64
+				tgId                 uint64
+				transcriptionStatus  sql.NullString
+				transcript           sql.NullString
+				reviewedTranscript   sql.NullString
 				trainingReviewStatus sql.NullString
-				callTimestamp       sql.NullInt64
-				alertSummary        sql.NullString
-				systemLabel         sql.NullString
-				talkgroupLabel      sql.NullString
-				talkgroupName       sql.NullString
+				callTimestamp        sql.NullInt64
+				alertSummary         sql.NullString
+				systemLabel          sql.NullString
+				talkgroupLabel       sql.NullString
+				talkgroupName        sql.NullString
 			)
 
 			if err := rows.Scan(&callId, &sysId, &tgId, &transcriptionStatus, &transcript, &reviewedTranscript, &trainingReviewStatus, &callTimestamp, &alertSummary, &systemLabel, &talkgroupLabel, &talkgroupName); err != nil {
@@ -9289,7 +9289,7 @@ func (api *Api) StatsHandler(w http.ResponseWriter, r *http.Request) {
 		WITH filtered_calls AS (
 		    SELECT c.transcript
 		    FROM calls c
-		    WHERE c.timestamp >= EXTRACT(EPOCH FROM date_trunc('day', NOW())) * 1000
+		    WHERE c.timestamp >= $1
 		      AND c.transcript != ''
 		      AND c."transcriptionStatus" = 'completed'
 		      ` + incidentSystemFilter + `
@@ -9353,7 +9353,8 @@ func (api *Api) StatsHandler(w http.ResponseWriter, r *http.Request) {
 		catMap[c] = &IncidentCat{Category: c, Count: 0, Subcategories: []IncidentSub{}}
 	}
 
-	incRows, err := db.Query(incidentQuery)
+	//* Use the Go-computed local midnight so this matches totalCallsToday instead of the DB session timezone (UTC)
+	incRows, err := db.Query(incidentQuery, midnightToday)
 	if err != nil {
 		log.Printf("StatsHandler: incident query error: %v", err)
 	} else {

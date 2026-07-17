@@ -132,6 +132,7 @@ services:
       # ntfy push notifications (battalion dispatch alerts)
       NTFY_SERVER: ${NTFY_SERVER:-https://ntfy.sh}
       NTFY_TOPIC: ${NTFY_TOPIC:-}
+      NTFY_SYSTEM_TOPIC: ${NTFY_SYSTEM_TOPIC:-}
       NTFY_TOKEN: ${NTFY_TOKEN:-}
 
       # System configuration

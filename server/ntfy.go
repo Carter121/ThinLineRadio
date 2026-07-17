@@ -22,8 +22,13 @@ import (
 	"time"
 )
 
+// * sendNtfy sends to the default topic (battalion dispatch alerts)
 func (controller *Controller) sendNtfy(title, body string, priority int, tags []string) bool {
-	topic := controller.Options.NtfyTopic
+	return controller.sendNtfyTo(controller.Options.NtfyTopic, title, body, priority, tags)
+}
+
+// * sendNtfyTo sends a notification to an arbitrary ntfy topic on the configured server
+func (controller *Controller) sendNtfyTo(topic, title, body string, priority int, tags []string) bool {
 	if topic == "" {
 		return false
 	}

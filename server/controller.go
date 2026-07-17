@@ -3525,6 +3525,7 @@ func (controller *Controller) readAllData() error {
 	// Load ntfy config from environment (not stored in DB — set in .env or system env)
 	controller.Options.NtfyServer = os.Getenv("NTFY_SERVER")
 	controller.Options.NtfyTopic = os.Getenv("NTFY_TOPIC")
+	controller.Options.NtfySystemTopic = os.Getenv("NTFY_SYSTEM_TOPIC")
 	controller.Options.NtfyToken = os.Getenv("NTFY_TOKEN")
 
 	// Update reconnection manager settings from options

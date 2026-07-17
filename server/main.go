@@ -152,8 +152,8 @@ window.initialConfig = {
 	return true
 }
 
-//* writeWebappV2Index serves the Svelte SPA shell (webapp-v2/index.html). Its assets are
-//* referenced with absolute /_app paths, so no <base href> injection is needed.
+// * writeWebappV2Index serves the Svelte SPA shell (webapp-v2/index.html). Its assets are
+// * referenced with absolute /_app paths, so no <base href> injection is needed.
 func writeWebappV2Index(w http.ResponseWriter) bool {
 	b, err := webappV2.ReadFile("webapp-v2/index.html")
 	if err != nil {
@@ -167,6 +167,11 @@ func writeWebappV2Index(w http.ResponseWriter) bool {
 }
 
 func main() {
+	//* Load environment variables from a .env file first, before anything touches
+	//* time.Local: Go latches the local timezone from TZ on first use, so TZ from
+	//* .env must be set before the first log.Printf or time.Now()
+	loadDotEnv(".env", "../.env")
+
 	// Record process start time as early as possible so /api/health can report
 	// accurate uptime regardless of how long initialization takes.
 	processStartTime = time.Now()
@@ -174,9 +179,6 @@ func main() {
 	// Enable multi-core processing
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	log.Printf("Starting ThinLine Radio with %d CPU cores", runtime.NumCPU())
-
-	// Load environment variables from a .env file if present
-	loadDotEnv(".env", "../.env")
 
 	const defaultAddr = "0.0.0.0"
 
