@@ -548,16 +548,16 @@ func main() {
 
 	// Alert routes
 	http.HandleFunc("/api/alerts", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.AlertsHandler))).ServeHTTP)
-	http.HandleFunc("/api/alerts/preferences", wrapHandler(http.HandlerFunc(controller.Api.AlertPreferencesHandler)).ServeHTTP)
+	http.HandleFunc("/api/alerts/preferences", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.AlertPreferencesHandler))).ServeHTTP)
 	http.HandleFunc("/api/stats", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.StatsHandler))).ServeHTTP)
 	http.HandleFunc("/api/transcripts", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.TranscriptsHandler))).ServeHTTP)
 	http.HandleFunc("/api/transcripts/training-progress", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.TranscriptsTrainingProgressHandler))).ServeHTTP)
-	http.HandleFunc("/api/keyword-lists", wrapHandler(http.HandlerFunc(controller.Api.KeywordListsHandler)).ServeHTTP)
+	http.HandleFunc("/api/keyword-lists", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.KeywordListsHandler))).ServeHTTP)
 
 	// System alert routes (system admins only)
 	http.HandleFunc("/api/system-alerts", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.SystemAlertsHandler))).ServeHTTP)
 	http.HandleFunc("/api/system-alerts/", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.SystemAlertDismissHandler))).ServeHTTP)
-	http.HandleFunc("/api/keyword-lists/", wrapHandler(http.HandlerFunc(controller.Api.KeywordListHandler)).ServeHTTP)
+	http.HandleFunc("/api/keyword-lists/", wrapHandler(corsMiddleware(http.HandlerFunc(controller.Api.KeywordListHandler))).ServeHTTP)
 
 	// User settings routes — wrapped with CORS so Central Management can call across origins
 	http.HandleFunc("/api/settings", wrapHandler(corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
