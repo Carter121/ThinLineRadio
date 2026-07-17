@@ -28,6 +28,7 @@
 	import Radio from '@lucide/svelte/icons/radio';
 	import RefreshCw from '@lucide/svelte/icons/refresh-cw';
 	import ChevronsDown from '@lucide/svelte/icons/chevrons-down';
+	import Download from '@lucide/svelte/icons/download';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { PersistedState } from 'runed';
 	import FavoriteStar from '$lib/apps/tlr/ui/call-history/FavoriteStar.svelte';
@@ -255,6 +256,7 @@
 									{/if}
 								</TableHead>
 							{/each}
+							<TableHead class="w-12"><span class="sr-only">Download</span></TableHead>
 						</TableRow>
 					{/each}
 				</TableHeader>
@@ -270,11 +272,31 @@
 										<FlexRender content={cell.column.columnDef.cell} context={cell.getContext()} />
 									</TableCell>
 								{/each}
+								<TableCell class="py-0">
+									<Button
+										variant="ghost"
+										size="sm"
+										class="size-7 p-0 text-muted-foreground hover:text-foreground"
+										aria-label="Download call audio"
+										title="Download call audio"
+										disabled={state.downloadingCallId === row.original.id}
+										onclick={(e: MouseEvent) => {
+											e.stopPropagation();
+											state.downloadCall(row.original.id);
+										}}
+									>
+										{#if state.downloadingCallId === row.original.id}
+											<Loader2 class="size-3.5 animate-spin" />
+										{:else}
+											<Download class="size-3.5" />
+										{/if}
+									</Button>
+								</TableCell>
 							</TableRow>
 						{/each}
 					{:else}
 						<TableRow>
-							<TableCell colspan={table.getVisibleLeafColumns().length} class="text-center text-sm text-muted-foreground">
+							<TableCell colspan={table.getVisibleLeafColumns().length + 1} class="text-center text-sm text-muted-foreground">
 								{#if state.isLoading}
 									<div class="flex items-center justify-center gap-2">
 										<Loader2 class="size-4 animate-spin" />
@@ -289,7 +311,7 @@
 					{@const emptyRows = state.pageSize - (state.isLoading || table.getRowModel().rows.length === 0 ? 1 : table.getRowModel().rows.length)}
 					{#each Array.from({ length: emptyRows }, (__, i) => i) as i (`pad-${i}`)}
 						<TableRow>
-							<TableCell colspan={table.getVisibleLeafColumns().length}>&nbsp;</TableCell>
+							<TableCell colspan={table.getVisibleLeafColumns().length + 1}>&nbsp;</TableCell>
 						</TableRow>
 					{/each}
 				</TableBody>

@@ -119,6 +119,9 @@ export class CallHistoryState {
 	duration = $state(0);
 	volume = $state(1);
 
+	// Download
+	downloadingCallId = $state<number | null>(null);
+
 	// Config
 	config = $state.raw<TlrConfig | null>(null);
 
@@ -433,6 +436,31 @@ export class CallHistoryState {
 		this.currentTime = time;
 	}
 
+	downloadCall(callId: number) {
+		//* Prefetched playback data already contains the audio bytes, so reuse it
+		const cached = this.callCache.get(callId);
+		if (cached?.audio?.data?.length) {
+			this.saveCallAudio(cached);
+			return;
+		}
+		this.downloadingCallId = callId;
+		this.client.requestCallDownload(callId);
+	}
+
+	private saveCallAudio(call: SocketCall) {
+		if (!call.audio?.data?.length) return;
+		const bytes = new Uint8Array(call.audio.data);
+		const blob = new Blob([bytes], { type: call.audioType || 'audio/wav' });
+		const url = URL.createObjectURL(blob);
+		const anchor = document.createElement('a');
+		anchor.href = url;
+		anchor.download = call.audioName || `call-${call.id}`;
+		document.body.appendChild(anchor);
+		anchor.click();
+		anchor.remove();
+		URL.revokeObjectURL(url);
+	}
+
 	private playNextCall() {
 		if (this.playbackCallId == null) return;
 		const idx = this.buffer.findIndex((r) => r.id === this.playbackCallId);
@@ -489,6 +517,14 @@ export class CallHistoryState {
 				this.prefetchInFlight.delete(event.payload.id);
 				this.cacheSourceAliases(event.payload);
 				this.handlePlaybackCall(event.payload);
+				break;
+			case 'call-download':
+				this.callCache.set(event.payload.id, event.payload);
+				this.cacheSourceAliases(event.payload);
+				if (this.downloadingCallId === event.payload.id) {
+					this.downloadingCallId = null;
+					this.saveCallAudio(event.payload);
+				}
 				break;
 			case 'call':
 				this.callCache.set(event.payload.id, event.payload);
