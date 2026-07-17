@@ -1006,15 +1006,8 @@ func main() {
 				return
 			}
 
-			//* The admin panel is part of the old Angular UI; keep existing /admin links working.
-			if requestPath == "/admin" || strings.HasPrefix(requestPath, "/admin/") {
-				target := "/old-site" + requestPath
-				if rawQuery := strings.TrimSpace(r.URL.RawQuery); rawQuery != "" {
-					target += "?" + rawQuery
-				}
-				http.Redirect(w, r, target, http.StatusFound)
-				return
-			}
+			//* /admin is served by the new UI (client-v2); the old Angular admin
+			//* remains directly reachable at /old-site/admin.
 
 			//* Legacy Angular service workers were registered at root scope. Serve the Angular
 			//* safety worker in their place so stale clients unregister and stop serving the
