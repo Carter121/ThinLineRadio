@@ -64,8 +64,12 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 			{ key: 'pruneDays', label: 'Prune Days', type: 'number', min: 0, step: 1, caption: 'Days of calls to keep; 0 disables pruning.' },
 			{ key: 'showListenersCount', label: 'Show Listeners Count', type: 'toggle', caption: 'Show the live listener count in the UI.' },
 			{ key: 'sortTalkgroups', label: 'Sort Talkgroups', type: 'toggle', caption: 'Sort talkgroups alphabetically instead of by config order.' },
-			{ key: 'reconnectionGracePeriod', label: 'Reconnection Grace Period', type: 'number', min: 5, max: 300, placeholder: '60', caption: 'Seconds a dropped listener can reconnect without losing buffered calls.' },
-			{ key: 'reconnectionMaxBufferSize', label: 'Reconnection Max Buffer Size', type: 'number', min: 10, max: 500, step: 10, placeholder: '100', caption: 'Maximum calls buffered for a reconnecting listener.' },
+			{ key: 'reconnectionEnabled', label: 'Listener Reconnection', type: 'toggle', caption: 'Buffer calls for listeners that briefly drop their connection.' },
+			{ key: 'reconnectionGracePeriod', label: 'Reconnection Grace Period', type: 'number', min: 5, max: 300, placeholder: '60', caption: 'Seconds a dropped listener can reconnect without losing buffered calls.', showIf: (v) => truthy(v, 'reconnectionEnabled') },
+			{ key: 'reconnectionMaxBufferSize', label: 'Reconnection Max Buffer Size', type: 'number', min: 10, max: 500, step: 10, placeholder: '100', caption: 'Maximum calls buffered for a reconnecting listener.', showIf: (v) => truthy(v, 'reconnectionEnabled') },
+			{ key: 'adminLocalhostOnly', label: 'Admin: Localhost Only', type: 'toggle', caption: 'Restrict the admin API to localhost plus the allowed IPs below.' },
+			{ key: 'adminAllowedIPs', label: 'Admin Allowed IPs', type: 'text', array: 'csv', placeholder: '10.0.0.5, 192.168.1.20', caption: 'Comma-separated IPs allowed to reach the admin API in addition to localhost.' },
+			{ key: 'adminPasswordLoginDisabled', label: 'Disable Admin Password Login', type: 'toggle', caption: 'Only allow admin sign-in through a system admin account. Requires at least one system admin user.' },
 			{ key: 'configSyncEnabled', label: 'Config Sync to Filesystem', type: 'toggle', caption: 'Write the config to a JSON file on every change.' },
 			{ key: 'configSyncPath', label: 'Config Sync Path', type: 'text', placeholder: '/backups/config.json', showIf: (v) => truthy(v, 'configSyncEnabled') }
 		]
@@ -97,6 +101,9 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 			{ key: 'noAudioAlertsEnabled', label: 'No Audio Alerts', type: 'toggle', showIf: (v) => truthy(v, 'systemHealthAlertsEnabled') },
 			{ key: 'noAudioThresholdMinutes', label: 'No Audio Baseline Threshold', type: 'number', min: 5, step: 5, placeholder: '60', caption: 'Minutes of silence before alerting.', showIf: (v) => truthy(v, 'systemHealthAlertsEnabled') && truthy(v, 'noAudioAlertsEnabled') },
 			{ key: 'noAudioRepeatMinutes', label: 'No Audio Repeat Interval', type: 'number', min: 15, step: 15, placeholder: '120', caption: 'Minutes between repeated alerts.', showIf: (v) => truthy(v, 'systemHealthAlertsEnabled') && truthy(v, 'noAudioAlertsEnabled') },
+			{ key: 'noAudioMultiplier', label: 'No Audio Multiplier', type: 'number', min: 1, step: 0.5, placeholder: '3', caption: 'Alert when silence exceeds this multiple of the typical gap between calls.', showIf: (v) => truthy(v, 'systemHealthAlertsEnabled') && truthy(v, 'noAudioAlertsEnabled') },
+			{ key: 'noAudioTimeWindow', label: 'No Audio Time Window', type: 'number', min: 1, max: 168, placeholder: '24', caption: 'Hours of recent activity used to compute the typical call gap.', showIf: (v) => truthy(v, 'systemHealthAlertsEnabled') && truthy(v, 'noAudioAlertsEnabled') },
+			{ key: 'noAudioHistoricalDataDays', label: 'No Audio Historical Days', type: 'number', min: 1, placeholder: '7', caption: 'Days of call history considered for the baseline.', showIf: (v) => truthy(v, 'systemHealthAlertsEnabled') && truthy(v, 'noAudioAlertsEnabled') },
 			{ key: 'autoLearnToneSetConfig.aToneMinDuration', label: 'A-Tone Min Duration', type: 'number', min: 0.1, step: 0.1, caption: 'Seconds.', showIf: (v) => truthy(v, 'systemHealthAlertsEnabled') },
 			{ key: 'autoLearnToneSetConfig.aToneMaxDuration', label: 'A-Tone Max Duration', type: 'number', min: 0.1, step: 0.1, caption: 'Seconds.', showIf: (v) => truthy(v, 'systemHealthAlertsEnabled') },
 			{ key: 'autoLearnToneSetConfig.bToneMinDuration', label: 'B-Tone Min Duration', type: 'number', min: 0.1, step: 0.1, caption: 'Seconds.', showIf: (v) => truthy(v, 'systemHealthAlertsEnabled') },
@@ -191,14 +198,20 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 			{ key: 'radioReferenceEnabled', label: 'Radio Reference Integration', type: 'toggle' },
 			{ key: 'radioReferenceUsername', label: 'Radio Reference Username', type: 'text', showIf: (v) => truthy(v, 'radioReferenceEnabled') },
 			{ key: 'radioReferencePassword', label: 'Radio Reference Password', type: 'text', masked: true, showIf: (v) => truthy(v, 'radioReferenceEnabled') },
-			{ key: 'relayServerAPIKey', label: 'Relay Server API Key', type: 'text', masked: true, caption: 'Connects this server to the ThinLine relay.' }
+			{ key: 'radioReferenceAPIKey', label: 'Radio Reference API Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'radioReferenceEnabled') },
+			{ key: 'relayServerAPIKey', label: 'Relay Server API Key', type: 'text', masked: true, caption: 'Connects this server to the ThinLine relay.' },
+			{ key: 'relayServerURL', label: 'Relay Server URL', type: 'text', placeholder: 'https://relay.thinlineradio.com', caption: 'Leave the default unless directed otherwise.' },
+			{ key: 'centralManagementEnabled', label: 'Central Management', type: 'toggle', caption: 'Connect this server to a Central Management instance.' },
+			{ key: 'centralManagementURL', label: 'Central Management URL', type: 'text', placeholder: 'https://cm.example.com', showIf: (v) => truthy(v, 'centralManagementEnabled') },
+			{ key: 'centralManagementAPIKey', label: 'Central Management API Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'centralManagementEnabled') },
+			{ key: 'centralManagementServerName', label: 'Central Management Server Name', type: 'text', placeholder: 'My TLR Server', showIf: (v) => truthy(v, 'centralManagementEnabled') }
 		]
 	},
 	{
 		id: 'transcription',
 		label: 'Transcription',
 		fields: [
-			{ key: 'transcriptionEnabled', label: 'Transcription', type: 'toggle', caption: 'Master switch for call transcription.' },
+			{ key: 'transcriptionConfig.enabled', label: 'Transcription', type: 'toggle', caption: 'Master switch for call transcription. Generates the text used by keyword alerts and the dashboard feed.' },
 			{ key: 'transcriptionEnhancement', label: 'Audio Enhancement', type: 'toggle', caption: 'Pre-process audio before transcribing.' },
 			{
 				key: 'transcriptionConfig.provider',
@@ -211,10 +224,10 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 					{ value: 'assemblyai', label: 'AssemblyAI' },
 					{ value: 'cloudflare', label: 'Cloudflare' }
 				],
-				showIf: (v) => truthy(v, 'transcriptionEnabled')
+				showIf: (v) => truthy(v, 'transcriptionConfig.enabled')
 			},
-			{ key: 'transcriptionConfig.whisperAPIURL', label: 'Whisper API URL', type: 'text', placeholder: 'http://localhost:8000', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
-			{ key: 'transcriptionConfig.whisperAPIKey', label: 'Whisper API Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
+			{ key: 'transcriptionConfig.whisperAPIURL', label: 'Whisper API URL', type: 'text', placeholder: 'http://localhost:8000', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
+			{ key: 'transcriptionConfig.whisperAPIKey', label: 'Whisper API Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
 			{
 				key: 'transcriptionConfig.whisperAPIModel',
 				label: 'Whisper Model',
@@ -228,13 +241,13 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 					{ value: 'whisper-large-v3-turbo', label: 'faster' },
 					{ value: 'distil-whisper-large-v3-en', label: 'English only, fastest' }
 				],
-				showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'whisper-api'
+				showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'whisper-api'
 			},
-			{ key: 'transcriptionConfig.azureKey', label: 'Azure Subscription Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'azure' },
-			{ key: 'transcriptionConfig.azureRegion', label: 'Azure Region', type: 'text', placeholder: 'eastus', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'azure' },
-			{ key: 'transcriptionConfig.googleAPIKey', label: 'Google API Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'google' },
-			{ key: 'transcriptionConfig.googleCredentials', label: 'Google Credentials JSON', type: 'textarea', rows: 4, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'google' },
-			{ key: 'transcriptionConfig.assemblyAIKey', label: 'AssemblyAI API Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'assemblyai' },
+			{ key: 'transcriptionConfig.azureKey', label: 'Azure Subscription Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'azure' },
+			{ key: 'transcriptionConfig.azureRegion', label: 'Azure Region', type: 'text', placeholder: 'eastus', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'azure' },
+			{ key: 'transcriptionConfig.googleAPIKey', label: 'Google API Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'google' },
+			{ key: 'transcriptionConfig.googleCredentials', label: 'Google Credentials JSON', type: 'textarea', rows: 4, showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'google' },
+			{ key: 'transcriptionConfig.assemblyAIKey', label: 'AssemblyAI API Key', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'assemblyai' },
 			{
 				key: 'transcriptionConfig.assemblyAISpeechModel',
 				label: 'AssemblyAI Speech Model',
@@ -243,11 +256,11 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 					{ value: 'universal-2', label: 'Universal 2' },
 					{ value: 'universal-3-pro', label: 'Universal 3 Pro' }
 				],
-				showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'assemblyai'
+				showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'assemblyai'
 			},
-			{ key: 'transcriptionConfig.assemblyAIWordBoost', label: 'AssemblyAI Keyterms', type: 'text', array: 'csv', placeholder: 'ENGINE, LADDER, MEDIC', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'assemblyai' },
-			{ key: 'transcriptionConfig.cloudflareAccountID', label: 'Cloudflare Account ID', type: 'text', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'cloudflare' },
-			{ key: 'transcriptionConfig.cloudflareAPIToken', label: 'Cloudflare API Token', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'cloudflare' },
+			{ key: 'transcriptionConfig.assemblyAIWordBoost', label: 'AssemblyAI Keyterms', type: 'text', array: 'csv', placeholder: 'ENGINE, LADDER, MEDIC', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'assemblyai' },
+			{ key: 'transcriptionConfig.cloudflareAccountID', label: 'Cloudflare Account ID', type: 'text', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'cloudflare' },
+			{ key: 'transcriptionConfig.cloudflareAPIToken', label: 'Cloudflare API Token', type: 'text', masked: true, showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'cloudflare' },
 			{
 				key: 'transcriptionConfig.cloudflareModel',
 				label: 'Cloudflare Model',
@@ -258,14 +271,14 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 					{ value: '@cf/openai/whisper-large-v3', label: 'higher accuracy' },
 					{ value: '@cf/openai/whisper', label: 'original Whisper' }
 				],
-				showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'cloudflare'
+				showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'cloudflare'
 			},
-			{ key: 'transcriptionConfig.language', label: 'Language', type: 'text', placeholder: 'en', caption: 'Use "auto" for automatic detection.', showIf: (v) => truthy(v, 'transcriptionEnabled') },
-			{ key: 'transcriptionConfig.prompt', label: 'Custom Prompt', type: 'textarea', rows: 4, showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
-			{ key: 'transcriptionConfig.timeoutSeconds', label: 'Transcription Timeout', type: 'number', min: 0, max: 600, placeholder: '300', caption: 'Seconds; 0 uses the default.', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
-			{ key: 'transcriptionConfig.minCallDuration', label: 'Minimum Call Duration', type: 'number', min: 0, step: 0.1, placeholder: '0', caption: 'Seconds; shorter calls are skipped.', showIf: (v) => truthy(v, 'transcriptionEnabled') },
-			{ key: 'transcriptionConfig.workerPoolSize', label: 'Worker Pool Size', type: 'number', min: 1, max: 16, placeholder: '1', showIf: (v) => truthy(v, 'transcriptionEnabled') },
-			{ key: 'transcriptionConfig.hallucinationPatterns', label: 'Hallucination Removal Patterns', type: 'textarea', rows: 4, array: 'lines', caption: 'One pattern per line.', showIf: (v) => truthy(v, 'transcriptionEnabled') },
+			{ key: 'transcriptionConfig.language', label: 'Language', type: 'text', placeholder: 'en', caption: 'Use "auto" for automatic detection.', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') },
+			{ key: 'transcriptionConfig.prompt', label: 'Custom Prompt', type: 'textarea', rows: 4, showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
+			{ key: 'transcriptionConfig.timeoutSeconds', label: 'Transcription Timeout', type: 'number', min: 0, max: 600, placeholder: '300', caption: 'Seconds; 0 uses the default.', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.provider'] === 'whisper-api' },
+			{ key: 'transcriptionConfig.minCallDuration', label: 'Minimum Call Duration', type: 'number', min: 0, step: 0.1, placeholder: '0', caption: 'Seconds; shorter calls are skipped.', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') },
+			{ key: 'transcriptionConfig.workerPoolSize', label: 'Worker Pool Size', type: 'number', min: 1, max: 16, placeholder: '1', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') },
+			{ key: 'transcriptionConfig.hallucinationPatterns', label: 'Hallucination Removal Patterns', type: 'textarea', rows: 4, array: 'lines', caption: 'One pattern per line.', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') },
 			{
 				key: 'transcriptionConfig.hallucinationDetectionMode',
 				label: 'Automatic Hallucination Detection',
@@ -275,10 +288,11 @@ export const OPTION_PANELS: OptionPanelSpec[] = [
 					{ value: 'learning', label: 'Learning' },
 					{ value: 'auto-remove', label: 'Auto-remove' }
 				],
-				showIf: (v) => truthy(v, 'transcriptionEnabled')
+				showIf: (v) => truthy(v, 'transcriptionConfig.enabled')
 			},
-			{ key: 'transcriptionConfig.hallucinationConfidenceThreshold', label: 'Hallucination Confidence Threshold', type: 'number', min: 0, max: 1, step: 0.05, placeholder: '0.90', showIf: (v) => truthy(v, 'transcriptionEnabled') && v['transcriptionConfig.hallucinationDetectionMode'] !== 'off' },
-			{ key: 'nominatimUrl', label: 'Nominatim Geocoding URL', type: 'text', placeholder: 'http://localhost:8088', caption: 'Used to geocode addresses heard in transcripts.', showIf: (v) => truthy(v, 'transcriptionEnabled') }
+			{ key: 'transcriptionConfig.hallucinationConfidenceThreshold', label: 'Hallucination Confidence Threshold', type: 'number', min: 0, max: 1, step: 0.05, placeholder: '0.90', caption: 'Minimum confidence for auto-removal. 0.85-0.95 is a good default.', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.hallucinationDetectionMode'] !== 'off' },
+			{ key: 'transcriptionConfig.hallucinationMinOccurrences', label: 'Hallucination Min Occurrences', type: 'number', min: 1, placeholder: '5', caption: 'Times a phrase must be flagged before it counts as a hallucination.', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') && v['transcriptionConfig.hallucinationDetectionMode'] !== 'off' },
+			{ key: 'nominatimUrl', label: 'Nominatim Geocoding URL', type: 'text', placeholder: 'http://localhost:8088', caption: 'Used to geocode addresses heard in transcripts.', showIf: (v) => truthy(v, 'transcriptionConfig.enabled') }
 		]
 	},
 	{

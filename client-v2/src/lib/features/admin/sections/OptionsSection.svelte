@@ -5,6 +5,8 @@
 	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import Loader2 from '@lucide/svelte/icons/loader-2';
+	import MapPin from '@lucide/svelte/icons/map-pin';
+	import Plug from '@lucide/svelte/icons/plug';
 	import Save from '@lucide/svelte/icons/save';
 	import Send from '@lucide/svelte/icons/send';
 	import type { AdminSessionState } from '$lib/core/admin-session.svelte.ts';
@@ -59,8 +61,6 @@
 		const previous = draft[field.key];
 		draft[field.key] = checked;
 		const entries: Record<string, unknown> = { [field.key]: checked };
-		//* The flat transcription toggle is mirrored into transcriptionConfig.enabled.
-		if (field.key === 'transcriptionEnabled') entries['transcriptionConfig.enabled'] = checked;
 		try {
 			await session.saveOptions(buildPatch(entries));
 		} catch (error) {
@@ -81,6 +81,79 @@
 			toast.error(error instanceof Error ? error.message : `Failed to save ${panel.label}`);
 		} finally {
 			saving = false;
+		}
+	}
+
+	//* Relay suspension status, loaded when the Integrations page opens.
+	interface RelaySuspensionStatus {
+		fully_suspended?: boolean;
+		suspend_message?: string;
+		relay_owner_unlocked_public?: boolean;
+		public_listener_blocked?: boolean;
+		push_notifications_blocked?: boolean;
+	}
+	let relayStatus = $state<RelaySuspensionStatus | null>(null);
+	let unlockingRelay = $state(false);
+	let testingCentral = $state(false);
+
+	$effect(() => {
+		if (panel.id !== 'integrations') return;
+		void session.client
+			.request<RelaySuspensionStatus>('/api/admin/relay-suspension')
+			.then((status) => (relayStatus = status))
+			.catch(() => (relayStatus = null));
+	});
+
+	//* Restores the public web listener while the relay suspension stands.
+	async function unlockPublicListener() {
+		unlockingRelay = true;
+		try {
+			await session.client.request('/api/admin/relay-unlock-public-client', { method: 'POST' });
+			relayStatus = await session.client.request<RelaySuspensionStatus>('/api/admin/relay-suspension');
+			toast.success('Public web listener unlocked');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Failed to unlock public listener');
+		} finally {
+			unlockingRelay = false;
+		}
+	}
+
+	//* Tests the CM connection with the CURRENT draft values (may be unsaved).
+	async function testCentralConnection() {
+		testingCentral = true;
+		try {
+			const result = await session.client.request<{ status?: string; error?: string }>('/api/admin/test-central-connection', {
+				method: 'POST',
+				body: JSON.stringify({
+					central_management_url: String(draft['centralManagementURL'] ?? ''),
+					api_key: String(draft['centralManagementAPIKey'] ?? ''),
+					server_name: String(draft['centralManagementServerName'] ?? ''),
+					server_url: String(getOptionValue(session.options ?? ({} as never), 'baseUrl') ?? '')
+				})
+			});
+			if (result?.error) toast.error(result.error);
+			else toast.success('Central Management connection OK');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Connection test failed');
+		} finally {
+			testingCentral = false;
+		}
+	}
+
+	let backfillingAddresses = $state(false);
+
+	//* Geocodes historical calls that are missing address data via Nominatim.
+	async function backfillAddresses() {
+		backfillingAddresses = true;
+		try {
+			const result = await session.client.request<{ processed?: number; geocoded?: number; skipped?: number }>('/api/admin/backfill-addresses', {
+				method: 'POST'
+			});
+			toast.success(`Backfill complete: ${result?.processed ?? 0} processed, ${result?.geocoded ?? 0} geocoded, ${result?.skipped ?? 0} skipped`);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Address backfill failed');
+		} finally {
+			backfillingAddresses = false;
 		}
 	}
 
@@ -151,6 +224,70 @@
 		<Card class="py-0">
 			<CardContent class="px-5 py-4">
 				<BrandingImages {session} />
+			</CardContent>
+		</Card>
+	{/if}
+
+	{#if panel.id === 'integrations'}
+		{#if relayStatus?.fully_suspended || relayStatus?.public_listener_blocked || relayStatus?.push_notifications_blocked}
+			<Card class="border-destructive/50 py-0">
+				<CardContent class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+					<div>
+						<p class="text-sm font-medium text-destructive">Relay suspension active</p>
+						<p class="text-xs text-muted-foreground">
+							{relayStatus?.suspend_message || 'This server is suspended by the ThinLine relay.'}
+							{#if relayStatus?.push_notifications_blocked}
+								Push notifications stay disabled until the relay clears the suspension.
+							{/if}
+						</p>
+					</div>
+					{#if relayStatus?.public_listener_blocked && !relayStatus?.relay_owner_unlocked_public}
+						<Button variant="outline" size="sm" disabled={unlockingRelay} onclick={unlockPublicListener}>
+							{#if unlockingRelay}
+								<Loader2 data-icon="inline-start" class="animate-spin" />
+							{/if}
+							Unlock public web listener
+						</Button>
+					{/if}
+				</CardContent>
+			</Card>
+		{/if}
+
+		{#if draft['centralManagementEnabled'] === true}
+			<Card class="py-0">
+				<CardContent class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+					<div>
+						<p class="text-sm font-medium">Test Central Management connection</p>
+						<p class="text-xs text-muted-foreground">Uses the URL and API key entered above, even before saving.</p>
+					</div>
+					<Button variant="outline" size="sm" disabled={testingCentral || !draft['centralManagementURL'] || !draft['centralManagementAPIKey']} onclick={testCentralConnection}>
+						{#if testingCentral}
+							<Loader2 data-icon="inline-start" class="animate-spin" />
+						{:else}
+							<Plug data-icon="inline-start" />
+						{/if}
+						Test connection
+					</Button>
+				</CardContent>
+			</Card>
+		{/if}
+	{/if}
+
+	{#if panel.id === 'transcription' && draft['transcriptionConfig.enabled'] === true}
+		<Card class="py-0">
+			<CardContent class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+				<div>
+					<p class="text-sm font-medium">Backfill Past Addresses</p>
+					<p class="text-xs text-muted-foreground">Geocode addresses in historical transcripts using the Nominatim server above. Can take a while on large call databases.</p>
+				</div>
+				<Button variant="outline" size="sm" disabled={backfillingAddresses || !draft['nominatimUrl']} onclick={backfillAddresses}>
+					{#if backfillingAddresses}
+						<Loader2 data-icon="inline-start" class="animate-spin" />
+					{:else}
+						<MapPin data-icon="inline-start" />
+					{/if}
+					Backfill
+				</Button>
 			</CardContent>
 		</Card>
 	{/if}

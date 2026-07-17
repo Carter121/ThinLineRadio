@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { replaceState } from '$app/navigation';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Separator } from '$lib/components/ui/separator';
@@ -27,7 +28,7 @@
 
 	function selectSection(id: string) {
 		activeSectionId = id;
-		history.replaceState(null, '', `#${id}`);
+		replaceState(`#${id}`, {});
 	}
 
 	const socketLabel = $derived.by(() => {

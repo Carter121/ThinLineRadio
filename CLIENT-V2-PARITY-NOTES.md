@@ -182,6 +182,50 @@ against the code if something seems off; add new findings here.
 
 Newest first.
 
+## 2026-07-17 (admin redesign): desktop-first sidebar shell, Server group completed
+
+**Shipped:** on `svelte-ui` (commits `4bfdc0d`, `c793a7f`, plus this session's final commit).
+
+1. **New admin shell**: full-width desktop-first layout using the shadcn-svelte `sidebar`
+   component (added via CLI along with `tooltip` and `skeleton`; the generated
+   `sidebar-trigger.svelte` needed a local typing fix against the project's customized Button).
+   Grouped sidebar nav from `admin-sections.ts` (groups + sections registry), header with live
+   badge/section title/logout, hash deep links per section (via `replaceState` from
+   `$app/navigation`; raw history calls trigger a SvelteKit warning). Root `+layout.svelte`
+   skips its padding for `/admin` so the shell is full-bleed.
+2. **Options redesigned into per-topic pages** (General, Branding, Alerts & Health, Audio,
+   Email, Integrations, Transcription, Registration): each an `OptionsSection` instance with a
+   `panelId` prop; toggles in a top card (auto-save), inputs in a 2-3 column grid card, save
+   button + unsaved count in the page header. System Overrides is its own page under Radio.
+3. **Server-group parity gaps filled**: transcription master toggle now reads
+   `transcriptionConfig.enabled` (the config document has NO flat `transcriptionEnabled` key;
+   the old flat-key toggle made the whole panel hide), added hallucinationMinOccurrences,
+   no-audio multiplier/time window/historical days, reconnectionEnabled gate, admin access
+   controls (adminLocalhostOnly, adminAllowedIPs, adminPasswordLoginDisabled), Radio Reference
+   API key, relayServerURL, Central Management fields + test-connection button
+   (POST /api/admin/test-central-connection with snake_case body), relay suspension status card
+   + unlock-public-listener button, and Backfill Past Addresses on the Transcription page.
+4. Stub components for the remaining sections (Systems, Users, User Groups, API Keys,
+   Dirwatch, Downstreams, Logs, System Health, Tools, ...) exist in `sections/` but are NOT
+   registered in the nav; `AdminClient.request` is now public so future section code can live
+   in per-section modules.
+
+**Decisions:** user stopped the full-section port mid-flight due to Claude usage limits; ONLY
+the Server group (plus System Overrides) is in scope for now. No whisper training/collector
+fields (user does not participate in whisper model training). Transcription settings are
+important (they feed dashboard alert text); they are unrelated to the excluded AI chat-bot.
+
+**Learned:** the dev UI at :4200 points at the production server, so admin edits during dev
+testing touch real config (avoid destructive testing). The admin config websocket/GET carries
+full systems including talkgroups (no lazy loading needed, unlike the old admin). A complete
+old-admin feature inventory (every section, endpoint, and behavior) was produced this session;
+see the conversation or re-derive from client/src/app/components/rdio-scanner/admin/admin.service.ts.
+
+**Next:** port the remaining sections into the new shell when usage allows: Systems,
+Users/User Groups (no billing), API Keys, Dirwatch, Downstreams, Logs, System Health, Tools
+(password, import/export with X-Full-Import, purge, keyword lists, transcript parser),
+Radio Reference import wizard.
+
 ## 2026-07-17 (admin phase start): admin shell, login, and Options section
 
 **Shipped:** on `svelte-ui` as commits `5ee14ab`, `d978165` (plus history cleanup around an
