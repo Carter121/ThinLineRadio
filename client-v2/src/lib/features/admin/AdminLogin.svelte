@@ -56,7 +56,12 @@
 			{/if}
 
 			{#if session.ssoAvailable}
-				<Button variant={passwordLoginDisabled ? 'default' : 'outline'} class="w-full" disabled={session.isLoggingIn} onclick={() => session.loginWithSso()}>
+				<Button
+					variant={passwordLoginDisabled ? 'default' : 'outline'}
+					class="w-full"
+					disabled={session.isLoggingIn}
+					onclick={() => session.loginWithSso()}
+				>
 					<KeyRound class="size-4" /> Sign in with my TLR account
 				</Button>
 			{:else if passwordLoginDisabled}

@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { Button, type ButtonElementProps } from "$lib/components/ui/button/index.js";
+	import { Button, type ButtonElementProps } from '$lib/components/ui/button/index.js';
 	import PanelLeftIcon from '@lucide/svelte/icons/panel-left';
-	import { cn } from "$lib/utils/shadcn.js";
-	import { useSidebar } from "./context.svelte.js";
+	import { cn } from '$lib/utils/shadcn.js';
+	import { useSidebar } from './context.svelte.js';
 
 	//* Typed against the button-element props only (not the anchor union); the
 	//* project's customized Button union is too complex for ComponentProps here.
@@ -24,7 +24,7 @@
 	data-slot="sidebar-trigger"
 	variant="ghost"
 	size="icon-sm"
-	class={cn("cn-sidebar-trigger", className)}
+	class={cn('cn-sidebar-trigger', className)}
 	type="button"
 	onclick={(e) => {
 		onclick?.(e);
@@ -32,6 +32,6 @@
 	}}
 	{...restProps}
 >
-	<PanelLeftIcon  />
+	<PanelLeftIcon />
 	<span class="sr-only">Toggle Sidebar</span>
 </Button>

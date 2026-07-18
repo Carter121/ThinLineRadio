@@ -92,22 +92,14 @@ export class AdminClient {
 	}
 
 	async login(password: string): Promise<AdminLoginResponse> {
-		const response = await this.request<AdminLoginResponse>(
-			'/api/admin/login',
-			{ method: 'POST', body: JSON.stringify({ password }) },
-			false
-		);
+		const response = await this.request<AdminLoginResponse>('/api/admin/login', { method: 'POST', body: JSON.stringify({ password }) }, false);
 		this.setToken(response.token);
 		return response;
 	}
 
 	//* SSO: exchanges the logged-in user's PIN for an admin token (system admins only).
 	async ssoLogin(pin: string): Promise<AdminLoginResponse> {
-		const response = await this.request<AdminLoginResponse>(
-			'/api/admin/sso',
-			{ method: 'POST', body: JSON.stringify({ pin }) },
-			false
-		);
+		const response = await this.request<AdminLoginResponse>('/api/admin/sso', { method: 'POST', body: JSON.stringify({ pin }) }, false);
 		this.setToken(response.token);
 		return response;
 	}

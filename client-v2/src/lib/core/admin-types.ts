@@ -190,6 +190,4 @@ export interface AdminConfigDocument {
 
 export type AdminSocketStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'logged-out';
 
-export type AdminSocketEvent =
-	| { type: 'config'; payload: AdminConfigDocument }
-	| { type: 'status'; status: AdminSocketStatus };
+export type AdminSocketEvent = { type: 'config'; payload: AdminConfigDocument } | { type: 'status'; status: AdminSocketStatus };

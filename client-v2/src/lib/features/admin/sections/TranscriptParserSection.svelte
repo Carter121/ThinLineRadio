@@ -142,13 +142,13 @@
 		</Collapsible.Trigger>
 		<Collapsible.Content>
 			<div class="mt-2 rounded-md border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-				<ol class="list-decimal flex flex-col gap-1 pl-5">
+				<ol class="flex list-decimal flex-col gap-1 pl-5">
 					<li>Corrections are applied to the raw transcript first; the corrected text is what gets stored and shown.</li>
 					<li>Units are matched as optional Prefix + Unit Type + Number (e.g. MEDIC ENGINE 5).</li>
 					<li>Channels are matched as Dispatch Name + optional Separator + Number (e.g. CITY FIRE 3), or via a Shorthand.</li>
 					<li>
-						Max Distance allows fuzzy matches: the number of letter edits tolerated (0 = exact). Aliases are alternative
-						spellings treated as exact matches regardless of distance.
+						Max Distance allows fuzzy matches: the number of letter edits tolerated (0 = exact). Aliases are alternative spellings treated as exact
+						matches regardless of distance.
 					</li>
 				</ol>
 			</div>
@@ -203,8 +203,8 @@
 						</Button>
 					</CardTitle>
 					<p class="text-xs text-muted-foreground">
-						Abbreviated channel labels mapped to a full dispatch name. Matched exactly; space, dash, or no separator before
-						the number all work (SF 3, SF-3, SF3). Separator is the optional word recorded alongside the channel.
+						Abbreviated channel labels mapped to a full dispatch name. Matched exactly; space, dash, or no separator before the number all work (SF 3,
+						SF-3, SF3). Separator is the optional word recorded alongside the channel.
 					</p>
 				</CardHeader>
 				<CardContent class="px-5 pt-2 pb-4">

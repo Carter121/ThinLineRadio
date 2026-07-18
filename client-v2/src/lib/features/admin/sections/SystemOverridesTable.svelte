@@ -102,7 +102,9 @@
 									<Switch
 										checked={system.duplicateDetectionEnabled ?? true}
 										onCheckedChange={(checked: boolean) =>
-											void save(`duplicate detection for ${system.label}`, () => session.client.saveSystemDuplicateDetectionSettings(system.id, checked))}
+											void save(`duplicate detection for ${system.label}`, () =>
+												session.client.saveSystemDuplicateDetectionSettings(system.id, checked)
+											)}
 										aria-label={`Duplicate detection for ${system.label}`}
 									/>
 								</TableCell>

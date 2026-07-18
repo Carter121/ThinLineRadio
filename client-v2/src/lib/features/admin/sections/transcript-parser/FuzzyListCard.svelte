@@ -33,7 +33,6 @@
 		list.splice(index, 1);
 		onchange();
 	}
-
 </script>
 
 <Card class="py-0">

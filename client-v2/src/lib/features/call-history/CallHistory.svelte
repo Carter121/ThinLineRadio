@@ -11,6 +11,8 @@
 	import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '$lib/components/ui/table';
 	import { Button } from '$lib/components/ui/button';
 	import { Toggle } from '$lib/components/ui/toggle';
+	import { Switch } from '$lib/components/ui/switch';
+	import { Label } from '$lib/components/ui/label';
 	import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger } from '$lib/components/ui/select';
 	import CallDatePicker from './CallDatePicker.svelte';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
@@ -102,9 +104,16 @@
 	<!-- Filter bar -->
 	<Card class="gap-0 border-border/60 py-0">
 		<CardHeader class="px-3.5 pt-3 pb-2">
-			<CardTitle class="flex items-center gap-2 text-sm">
-				<Radio class="size-3.5" />
-				Call History
+			<CardTitle class="flex items-center justify-between gap-2">
+				<div class="flex items-center gap-2 text-sm">
+					<Radio class="size-3.5" />
+					Call History
+				</div>
+
+				<Label class="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+					<Switch bind:checked={state.showDownloads} />
+					Downloads
+				</Label>
 			</CardTitle>
 		</CardHeader>
 		<CardContent class="px-3.5 pt-0 pb-3.5">
@@ -254,7 +263,9 @@
 									{/if}
 								</TableHead>
 							{/each}
-							<TableHead class="w-12"><span class="sr-only">Download</span></TableHead>
+							{#if state.showDownloads}
+								<TableHead class="w-12"><span class="sr-only">Download</span></TableHead>
+							{/if}
 						</TableRow>
 					{/each}
 				</TableHeader>
@@ -270,31 +281,36 @@
 										<FlexRender content={cell.column.columnDef.cell} context={cell.getContext()} />
 									</TableCell>
 								{/each}
-								<TableCell class="py-0">
-									<Button
-										variant="ghost"
-										size="sm"
-										class="size-7 p-0 text-muted-foreground hover:text-foreground"
-										aria-label="Download call audio"
-										title="Download call audio"
-										disabled={state.downloadingCallId === row.original.id}
-										onclick={(e: MouseEvent) => {
-											e.stopPropagation();
-											state.downloadCall(row.original.id);
-										}}
-									>
-										{#if state.downloadingCallId === row.original.id}
-											<Loader2 class="size-3.5 animate-spin" />
-										{:else}
-											<Download class="size-3.5" />
-										{/if}
-									</Button>
-								</TableCell>
+								{#if state.showDownloads}
+									<TableCell class="py-0">
+										<Button
+											variant="ghost"
+											size="sm"
+											class="size-7 p-0 text-muted-foreground hover:text-foreground"
+											aria-label="Download call audio"
+											title="Download call audio"
+											disabled={state.downloadingCallId === row.original.id}
+											onclick={(e: MouseEvent) => {
+												e.stopPropagation();
+												state.downloadCall(row.original.id);
+											}}
+										>
+											{#if state.downloadingCallId === row.original.id}
+												<Loader2 class="size-3.5 animate-spin" />
+											{:else}
+												<Download class="size-3.5" />
+											{/if}
+										</Button>
+									</TableCell>
+								{/if}
 							</TableRow>
 						{/each}
 					{:else}
 						<TableRow>
-							<TableCell colspan={table.getVisibleLeafColumns().length + 1} class="text-center text-sm text-muted-foreground">
+							<TableCell
+								colspan={table.getVisibleLeafColumns().length + (state.showDownloads ? 1 : 0)}
+								class="text-center text-sm text-muted-foreground"
+							>
 								{#if state.isLoading}
 									<div class="flex items-center justify-center gap-2">
 										<Loader2 class="size-4 animate-spin" />
@@ -309,7 +325,7 @@
 					{@const emptyRows = state.pageSize - (state.isLoading || table.getRowModel().rows.length === 0 ? 1 : table.getRowModel().rows.length)}
 					{#each Array.from({ length: emptyRows }, (__, i) => i) as i (`pad-${i}`)}
 						<TableRow>
-							<TableCell colspan={table.getVisibleLeafColumns().length + 1}>&nbsp;</TableCell>
+							<TableCell colspan={table.getVisibleLeafColumns().length + (state.showDownloads ? 1 : 0)}>&nbsp;</TableCell>
 						</TableRow>
 					{/each}
 				</TableBody>

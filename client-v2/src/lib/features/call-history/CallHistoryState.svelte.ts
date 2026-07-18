@@ -124,6 +124,8 @@ export class CallHistoryState {
 
 	// Download
 	downloadingCallId = $state<number | null>(null);
+	//* Intentionally not persisted; the download column resets to hidden on every page load
+	showDownloads = $state(false);
 
 	// Config
 	config = $state.raw<TlrConfig | null>(null);

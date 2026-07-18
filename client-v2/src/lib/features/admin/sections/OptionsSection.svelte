@@ -260,7 +260,12 @@
 						<p class="text-sm font-medium">Test Central Management connection</p>
 						<p class="text-xs text-muted-foreground">Uses the URL and API key entered above, even before saving.</p>
 					</div>
-					<Button variant="outline" size="sm" disabled={testingCentral || !draft['centralManagementURL'] || !draft['centralManagementAPIKey']} onclick={testCentralConnection}>
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={testingCentral || !draft['centralManagementURL'] || !draft['centralManagementAPIKey']}
+						onclick={testCentralConnection}
+					>
 						{#if testingCentral}
 							<Loader2 data-icon="inline-start" class="animate-spin" />
 						{:else}
@@ -278,7 +283,9 @@
 			<CardContent class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
 				<div>
 					<p class="text-sm font-medium">Backfill Past Addresses</p>
-					<p class="text-xs text-muted-foreground">Geocode addresses in historical transcripts using the Nominatim server above. Can take a while on large call databases.</p>
+					<p class="text-xs text-muted-foreground">
+						Geocode addresses in historical transcripts using the Nominatim server above. Can take a while on large call databases.
+					</p>
 				</div>
 				<Button variant="outline" size="sm" disabled={backfillingAddresses || !draft['nominatimUrl']} onclick={backfillAddresses}>
 					{#if backfillingAddresses}
@@ -295,7 +302,7 @@
 	{#if panel.id === 'email' && draft['emailServiceEnabled'] === true}
 		<Card class="py-0">
 			<CardContent class="flex items-end gap-2 px-5 py-4">
-				<div class="max-w-xs flex-1 flex flex-col gap-1.5">
+				<div class="flex max-w-xs flex-1 flex-col gap-1.5">
 					<label for="admin-test-email" class="text-sm font-medium">Send a test email</label>
 					<Input id="admin-test-email" type="email" placeholder="you@example.com" bind:value={testEmailAddress} />
 				</div>
