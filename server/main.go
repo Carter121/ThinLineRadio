@@ -645,9 +645,10 @@ func main() {
 
 	// Debug page — lists recent calls with audio playback and duplicate flags.
 	// Protected by HTTP Basic Auth using the admin password.
-	http.HandleFunc("/calls", controller.Admin.requireAdminBasicAuth(controller.CallsDebugHandler))
-	http.HandleFunc("/calls/audio/", controller.Admin.requireAdminBasicAuth(controller.CallsAudioHandler))
-	http.HandleFunc("/calls/verify", controller.Admin.requireAdminBasicAuth(controller.CallsVerifyHandler))
+	// Lives under /debug so it doesn't shadow the SPA's /calls tab route.
+	http.HandleFunc("/debug/calls", controller.Admin.requireAdminBasicAuth(controller.CallsDebugHandler))
+	http.HandleFunc("/debug/calls/audio/", controller.Admin.requireAdminBasicAuth(controller.CallsAudioHandler))
+	http.HandleFunc("/debug/calls/verify", controller.Admin.requireAdminBasicAuth(controller.CallsVerifyHandler))
 
 	// Performance monitoring endpoint
 	http.HandleFunc("/api/status/performance", wrapHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -699,7 +700,7 @@ func main() {
 	}))
 
 	// Read-only Health API, gated by HTTP Basic Auth using the admin password
-	// (same scheme as /calls). Cached internally for ~3s to avoid amplification
+	// (same scheme as /debug/calls). Cached internally for ~3s to avoid amplification
 	// by aggressive scrapers.
 	http.HandleFunc("/api/health", wrapHandler(controller.Admin.requireAdminBasicAuth(controller.Health.FullHandler)).ServeHTTP)
 	http.HandleFunc("/api/health/live", wrapHandler(controller.Admin.requireAdminBasicAuth(controller.Health.LiveHandler)).ServeHTTP)

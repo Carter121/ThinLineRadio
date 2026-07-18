@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// CallsDebugHandler serves an admin-only HTML page at /calls showing
+// CallsDebugHandler serves an admin-only HTML page at /debug/calls showing
 // recent calls with full metadata, audio playback, and duplicate flags.
 func (controller *Controller) CallsDebugHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -216,7 +216,7 @@ audio{height:28px;width:200px}
       <button class="%s" onclick="verify(%d,'unreviewed',this)">?</button>
     </div>
   </td>
-  <td><audio controls preload="none" src="/calls/audio/%d" onplay="stopOthers(this)"></audio></td>
+  <td><audio controls preload="none" src="/debug/calls/audio/%d" onplay="stopOthers(this)"></audio></td>
 </tr>`,
 			rowClass, c.ID, c.ID, c.ID,
 			ts.In(time.Local).Format("15:04:05"),
@@ -246,7 +246,7 @@ function stopOthers(el) {
 function verify(callId, status, btn) {
   var container = document.getElementById('vb' + callId);
   container.classList.add('saving');
-  fetch('/calls/verify', {
+  fetch('/debug/calls/verify', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({callId: callId, status: status})
@@ -272,9 +272,9 @@ function verify(callId, status, btn) {
 </body></html>`)
 }
 
-// CallsAudioHandler serves raw audio for a single call at /calls/audio/{id}.
+// CallsAudioHandler serves raw audio for a single call at /debug/calls/audio/{id}.
 func (controller *Controller) CallsAudioHandler(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/calls/audio/"), "/")
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/debug/calls/audio/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
 		http.NotFound(w, r)
 		return
@@ -319,7 +319,7 @@ func boolAttr(cond bool, attr string) string {
 	return ""
 }
 
-// CallsVerifyHandler handles POST /calls/verify to save human review decisions.
+// CallsVerifyHandler handles POST /debug/calls/verify to save human review decisions.
 // Body: {"callId": 123, "status": "duplicate"|"not_duplicate"|"unreviewed"}
 func (controller *Controller) CallsVerifyHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
