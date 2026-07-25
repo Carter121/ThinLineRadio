@@ -96,11 +96,12 @@ func (controller *Controller) CreateSystemAlert(alertType, severity, title, mess
 
 // * ntfyPriorityForSeverity maps a system alert severity to an ntfy priority (1-5)
 func ntfyPriorityForSeverity(severity string) int {
+	//* Force all notifications to be level 3
 	switch severity {
-	case "critical":
-		return 5
-	case "warning":
-		return 4
+	//case "critical":
+	//	return 5
+	//case "warning":
+	//	return 4
 	default:
 		return 3
 	}
