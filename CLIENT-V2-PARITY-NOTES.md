@@ -182,6 +182,28 @@ against the code if something seems off; add new findings here.
 
 Newest first.
 
+## 2026-08-09: screen wake lock during call playback
+
+**Shipped:** new `client-v2/src/lib/core/screen-wake-lock.ts` (`ScreenWakeLock`: request/release/
+destroy, no-ops when `navigator.wakeLock` is missing, re-acquires on `visibilitychange` since the OS
+drops the lock whenever the tab hides). `AudioCoordinator` now owns one instance and drives it from
+`callAudio` events only: `playing` requests it (skipping the `SILENT_WAV` priming clip), and
+`pause`/`ended`/`emptied` schedule a release after a 5s grace period so gaps between queued calls do
+not thrash it. `AudioCoordinator.destroy()` added and called from `routes/[tab]/+layout.svelte`.
+
+Also permanent: a small status badge fixed above the playback bar in `routes/[tab]/+layout.svelte`,
+rendered and polled (500ms) only while the debug toggle in the tab bar is on. It reads
+`coordinator.wakeLockDebug()`, whose `active` comes from the live `WakeLockSentinel.released`
+property rather than our own intent flag, so a browser-side revoke shows up honestly. Also reports
+`supported`, `requested`, `audioPaused`, `releasePending`, and the last request error.
+
+**Decisions:** always on during playback, no settings toggle. The status badge is a keeper, not
+temporary scaffolding, but stays behind the debug toggle. User reaches the app over HTTPS, so no
+hidden-video fallback for insecure origins was added. `navigator.mediaSession` was left out of scope.
+
+**Learned:** because the alert chime lives on the separate `notificationAudio` element, keying the
+wake lock off `callAudio` alone automatically excludes it, which was the user's explicit requirement.
+
 ## 2026-07-17 (admin redesign): desktop-first sidebar shell, Server group completed
 
 **Shipped:** on `svelte-ui` (commits `4bfdc0d`, `c793a7f`, plus this session's final commit).

@@ -31,7 +31,18 @@
 	setTlrAlertFeed(feed);
 
 	onMount(() => feed.start());
-	onDestroy(() => feed.destroy());
+	onDestroy(() => {
+		feed.destroy();
+		coordinator.destroy();
+	});
+
+	//* Wake lock status badge, only polled while the debug toggle is on
+	let wakeLockDebug = $state(coordinator.wakeLockDebug());
+	$effect(() => {
+		if (!showDebug.current) return;
+		const id = setInterval(() => (wakeLockDebug = coordinator.wakeLockDebug()), 500);
+		return () => clearInterval(id);
+	});
 
 	//* Verification email links redirect to /?verify=<token>; consume the token here
 	onMount(() => {
@@ -72,6 +83,26 @@
 		</Toggle>
 	</nav>
 </div>
+
+<!--* Wake lock status readout -->
+{#if showDebug.current}
+	<div
+		class="pointer-events-none fixed right-2 bottom-28 z-60 rounded-md border border-border bg-background/95 px-2 py-1 font-mono text-[10px] leading-tight text-muted-foreground shadow-md"
+	>
+		<div class="font-medium {wakeLockDebug.active ? 'text-primary' : 'text-foreground'}">
+			wake lock: {wakeLockDebug.active ? 'ACTIVE' : 'off'}
+		</div>
+		<div>
+			supported={wakeLockDebug.supported} requested={wakeLockDebug.requested}
+		</div>
+		<div>
+			audioPaused={wakeLockDebug.audioPaused} releasePending={wakeLockDebug.releasePending}
+		</div>
+		{#if wakeLockDebug.lastError}
+			<div class="text-destructive">err: {wakeLockDebug.lastError}</div>
+		{/if}
+	</div>
+{/if}
 
 <svelte:boundary onerror={(error) => console.error('[tlr] Component error caught by boundary:', error)}>
 	{@render children()}
