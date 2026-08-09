@@ -22,8 +22,9 @@
 	//* absolute clock time first (the value used to find audio on the calls page)
 	//* followed by the relative time so no mental math is needed.
 	function formatAlertTime(alert: Alert): string {
-		const abs = formatAbsoluteTime(alert.createdAt);
-		const rel = formatRelativeTime(alert.createdAt, cardState.nowMs);
+		const timestamp = alert.callTimestamp ?? alert.createdAt;
+		const abs = formatAbsoluteTime(timestamp);
+		const rel = formatRelativeTime(timestamp, cardState.nowMs);
 		if (appSettings.timeFormat.current === 'absolute') return abs;
 		if (appSettings.timeFormat.current === 'relative') return rel;
 		return `${abs} · ${rel}`;
