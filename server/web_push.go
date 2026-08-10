@@ -427,7 +427,13 @@ func (controller *Controller) sendWebPushIfBattalion(call *Call, transcript stri
 		if ntfyTitle == "" {
 			ntfyTitle = title
 		}
-		go controller.sendNtfy(ntfyTitle, body, 3, []string{"fire_engine"})
+		//* Deep link to the alert page; skipped when BaseUrl is unset so the
+		//* normalizePublicBaseURL localhost fallback never reaches subscribers
+		alertUrl := ""
+		if call != nil && strings.TrimSpace(controller.Options.BaseUrl) != "" {
+			alertUrl = normalizePublicBaseURL(controller.Options.BaseUrl) + fmt.Sprintf("/alert/%d", call.Id)
+		}
+		go controller.sendNtfy(ntfyTitle, body, 3, []string{"fire_engine"}, alertUrl)
 	}
 
 	// Send Web Push notifications

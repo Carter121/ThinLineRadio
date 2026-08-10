@@ -1,6 +1,7 @@
 import type {
 	Alert,
 	AlertPreference,
+	CallMeta,
 	KeywordList,
 	LclFilters,
 	LclResponse,
@@ -228,6 +229,23 @@ export class TlrClient {
 
 	async getAlerts(options: { since?: number; limit?: number } = {}): Promise<Alert[]> {
 		return this.request<Alert[]>(`/alerts${toQueryString({ since: options.since, limit: options.limit })}`);
+	}
+
+	async getCallMeta(callId: number | string): Promise<CallMeta> {
+		return this.request<CallMeta>(`/calls/${callId}/meta`);
+	}
+
+	//* Fetches raw call audio into a Blob; request() only handles JSON responses
+	async getCallAudioBlob(callId: number | string): Promise<Blob> {
+		const pin = this.getPin();
+		let url = `${this.baseUrl}/calls/${callId}/audio`;
+		if (pin) url += `?pin=${encodeURIComponent(pin)}`;
+
+		const res = await fetch(url);
+		if (!res.ok) {
+			throw new TlrApiError(res.statusText || 'Failed to fetch call audio', res.status);
+		}
+		return res.blob();
 	}
 
 	async getTranscripts(options: TranscriptQuery = {}): Promise<Transcript[]> {

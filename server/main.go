@@ -639,9 +639,9 @@ func main() {
 
 	http.HandleFunc("/api/trunk-recorder-call-upload", controller.Api.TrunkRecorderCallUploadHandler)
 
-	// Pager-alert audio download — authenticated by admin PIN.
-	// Pattern /api/calls/ also covers /api/calls/{id}/audio.
-	http.HandleFunc("/api/calls/", controller.Api.CallAudioDownloadHandler)
+	// Pager-alert audio download and call metadata — authenticated by user PIN.
+	// Pattern /api/calls/ covers /api/calls/{id}/audio and /api/calls/{id}/meta.
+	http.HandleFunc("/api/calls/", controller.Api.CallsRouter)
 
 	// Debug page — lists recent calls with audio playback and duplicate flags.
 	// Protected by HTTP Basic Auth using the admin password.

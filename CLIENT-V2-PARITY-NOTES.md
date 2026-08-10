@@ -160,6 +160,23 @@ against the code if something seems off; add new findings here.
 - Defaults: `alertEnabled=false`, `toneAlerts=true`, `keywordAlerts=true`.
 - Keyword lists: `GET /api/keyword-lists`.
 
+## Single-call metadata and audio (alert page)
+
+- `GET /api/calls/{id}/meta` (added 2026-08-09): transcript (parser-corrected, with
+  `transcriptAnnotations`), `transcriptionStatus`, `alertSummary`, `parsedAddress`, system and
+  talkgroup ids/labels, `timestamp` (UnixMilli), `hasAudio`. Auth is user PIN via `?pin=` or
+  `Authorization: Bearer` (same as the audio endpoint). Returns 404 (never 403) for both unknown
+  calls and calls on talkgroups the user cannot access, so existence is not confirmed. Admin
+  tokens skip the access check. The `/api/calls/` prefix is dispatched by `CallsRouter`
+  (`server/call_meta.go`); the audio contract is unchanged.
+- `GET /api/calls/{id}/audio` now also enforces `userHasAccess` (it previously served any call
+  to any valid PIN).
+- ntfy battalion notifications (`sendWebPushIfBattalion` in `server/web_push.go`) set a `Click`
+  header and an `Actions: view, View, <url>` button pointing at `<BaseUrl>/alert/<callId>`.
+  The link is only added when the admin `BaseUrl` option is set; when unset the notification
+  still sends without it (the `normalizePublicBaseURL` localhost fallback must never reach
+  subscribers).
+
 ## Registration / verification / password reset
 
 - `POST /api/user/register` with
@@ -181,6 +198,27 @@ against the code if something seems off; add new findings here.
 # Session Log
 
 Newest first.
+
+## 2026-08-09: single-alert page deep-linked from ntfy notifications
+
+**Shipped:** new standalone route `client-v2/src/routes/alert/[callId]/+page.svelte` (mobile-first
+alert detail page: transcript with unit/channel badges, `AlertMiniMap` preview when geocoded,
+HTTP audio player, LoginDialog when unauthenticated); `CallMeta` type in `core/types.ts`;
+`getCallMeta` and `getCallAudioBlob` in `core/tlr-client.ts`. Server: `server/call_meta.go`
+(`CallsRouter` + `CallMetaHandler`, `GET /api/calls/{id}/meta`), `userHasAccess` check added to
+the audio endpoint, ntfy `Click`/`Actions` deep link on battalion notifications (see Server API
+Reference).
+**Decisions:** battalion ntfy notifications only (alert engine stays un-wired from ntfy); page
+requires login, no signed tokens in links; ntfy gets both the Click header and a "View" action
+button (label is "View", not "View alert"); the page fetches audio over HTTP into a Blob
+instead of using the websocket playback path (no AudioCoordinator or socket needed on a
+standalone page).
+**Learned:** the Go server already has a `CallMeta` type (`call.go`), so the meta handler builds
+a `map[string]any`; `GetCall` returns an error (not nil) for unknown ids; the audio Blob is
+prefetched at page load so the play tap can call `play()` synchronously (iOS autoplay policy);
+`server/webapp` and `server/webapp-v2` need at least a `.gitkeep` to satisfy the go:embed
+directives on a clean checkout.
+**Next:** nothing specified.
 
 ## 2026-08-09: screen wake lock during call playback
 

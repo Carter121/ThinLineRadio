@@ -88,7 +88,7 @@ func (controller *Controller) CreateSystemAlert(alertType, severity, title, mess
 
 	//* Also send to the dedicated system-alerts ntfy topic when configured
 	if controller.Options.NtfySystemTopic != "" {
-		go controller.sendNtfyTo(controller.Options.NtfySystemTopic, title, message, ntfyPriorityForSeverity(severity), []string{"warning"})
+		go controller.sendNtfyTo(controller.Options.NtfySystemTopic, title, message, ntfyPriorityForSeverity(severity), []string{"warning"}, "")
 	}
 
 	return nil

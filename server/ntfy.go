@@ -22,13 +22,14 @@ import (
 	"time"
 )
 
-// * sendNtfy sends to the default topic (battalion dispatch alerts)
-func (controller *Controller) sendNtfy(title, body string, priority int, tags []string) bool {
-	return controller.sendNtfyTo(controller.Options.NtfyTopic, title, body, priority, tags)
+// * sendNtfy sends to the default topic (battalion dispatch alerts).
+// * clickUrl, when non-empty, becomes the tap target and a "View" action button.
+func (controller *Controller) sendNtfy(title, body string, priority int, tags []string, clickUrl string) bool {
+	return controller.sendNtfyTo(controller.Options.NtfyTopic, title, body, priority, tags, clickUrl)
 }
 
 // * sendNtfyTo sends a notification to an arbitrary ntfy topic on the configured server
-func (controller *Controller) sendNtfyTo(topic, title, body string, priority int, tags []string) bool {
+func (controller *Controller) sendNtfyTo(topic, title, body string, priority int, tags []string, clickUrl string) bool {
 	if topic == "" {
 		return false
 	}
@@ -50,6 +51,11 @@ func (controller *Controller) sendNtfyTo(topic, title, body string, priority int
 	req.Header.Set("Priority", fmt.Sprintf("%d", priority))
 	if len(tags) > 0 {
 		req.Header.Set("Tags", strings.Join(tags, ","))
+	}
+
+	if clickUrl != "" {
+		req.Header.Set("Click", clickUrl)
+		req.Header.Set("Actions", "view, View, "+clickUrl)
 	}
 
 	if token := controller.Options.NtfyToken; token != "" {

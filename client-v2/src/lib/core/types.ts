@@ -95,6 +95,23 @@ export interface Alert {
 	matchedToneSetNames?: string[];
 }
 
+//* Single-call metadata from GET /api/calls/{id}/meta (the /alert/[callId] page)
+export interface CallMeta {
+	callId: number;
+	timestamp?: number;
+	systemId?: number;
+	talkgroupId?: number;
+	systemLabel?: string;
+	talkgroupLabel?: string;
+	talkgroupName?: string;
+	transcript?: string;
+	transcriptAnnotations?: TranscriptAnnotation[];
+	transcriptionStatus?: string;
+	alertSummary?: string;
+	parsedAddress?: ParsedAddress;
+	hasAudio?: boolean;
+}
+
 export interface Transcript {
 	callId: number;
 	systemId: number;

@@ -75,6 +75,12 @@ func (api *Api) CallAudioDownloadHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	//* 404 (not 403) so existence isn't confirmed; admin tokens have no User and skip the check
+	if client.User != nil && !api.Controller.userHasAccess(client.User, call) {
+		api.exitWithError(w, http.StatusNotFound, "Call audio not found")
+		return
+	}
+
 	mimeType := call.AudioMime
 	if mimeType == "" {
 		mimeType = "audio/aac"
