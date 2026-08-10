@@ -388,6 +388,13 @@ func hasBattalionUnit(parser *TranscriptParser, transcript string) bool {
 // Called as a goroutine from the transcription queue after transcription.
 func (controller *Controller) sendWebPushIfBattalion(call *Call, transcript string) {
 	parser := activeTranscriptParser.Load()
+
+	//* Apply the fuzzy corrections list so detection, title, and body all match
+	//* what the UI shows (the API applies AnnotateTranscript at read time)
+	if parser != nil {
+		transcript = parser.CorrectTranscript(transcript)
+	}
+
 	if !hasBattalionUnit(parser, transcript) {
 		return
 	}
