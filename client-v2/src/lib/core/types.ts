@@ -413,7 +413,6 @@ export type TlrSocketEvent =
 	| { type: 'call-list'; payload: LclResponse }
 	| { type: 'call-playback'; payload: SocketCall }
 	| { type: 'call-alias'; payload: SocketCall }
-	| { type: 'call-download'; payload: SocketCall }
 	| { type: 'error'; message: string };
 
 export interface LclFilters {

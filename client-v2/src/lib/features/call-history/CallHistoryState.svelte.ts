@@ -1,5 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity';
-import type { TlrClient } from '$lib/core/tlr-client.ts';
+import { TlrApiError, type TlrClient } from '$lib/core/tlr-client.ts';
 import {
 	type LclFilters,
 	type LclResultItem,
@@ -20,6 +20,10 @@ import { PersistedState } from 'runed';
 const PAGE_SIZE = 20;
 //* Fetch 10 pages worth of data as a buffer
 const FETCH_SIZE = PAGE_SIZE * 20;
+//* Max audio blobs kept in the in-memory LRU cache
+const AUDIO_CACHE_MAX = 40;
+//* How many upcoming calls to prefetch while one is playing
+const LOOKAHEAD_COUNT = 2;
 const DEFAULT_DATE_PARAM = dateToParam(today(getLocalTimeZone()));
 const VOLUME_STORAGE_KEY = 'tlr-history-volume';
 
@@ -43,6 +47,12 @@ function dateFromParam(value: string): DateValue | undefined {
 	} catch {
 		return undefined;
 	}
+}
+
+//* Builds a download name when the server does not supply one via Content-Disposition
+function fallbackFilename(callId: number, mimeType: string): string {
+	const ext = mimeType === 'audio/mpeg' ? 'mp3' : mimeType === 'audio/wav' || mimeType === 'audio/x-wav' ? 'wav' : 'm4a';
+	return `call-${callId}.${ext}`;
 }
 
 function numberFromParam(value: string): number | undefined {
@@ -113,7 +123,7 @@ export class CallHistoryState {
 
 	// Playback
 	playbackCallId = $state<number | null>(null);
-	playbackCall = $state.raw<SocketCall | null>(null);
+	playbackCall = $state.raw<LclResultItem | null>(null);
 	playbackLoading = $state(false);
 	playbackError = $state<string | null>(null);
 	isPlaying = $state(false);
@@ -212,14 +222,19 @@ export class CallHistoryState {
 	private coordinator: AudioCoordinator;
 	private audio: HTMLAudioElement;
 	private objectUrl: string | null = null;
-	private pendingPlaybackId: number | null = null;
 	private autoAdvancing = false;
 	private initialSearchDone = false;
 	private userRequestedPause = false;
+	//* Invalidates stale async audio fetches when a newer play or stop happens
+	private playbackToken = 0;
+	//* Set when a call ends while the list is refreshing; resumed on the next call-list
+	private pendingAdvanceFromId: number | null = null;
+	//* id to audio blob, bounded LRU via Map insertion order
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
-	private callCache = new Map<number, SocketCall>();
+	private audioCache = new Map<number, Blob>();
+	//* Dedups fetches between lookahead prefetch and playCall
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
-	private prefetchInFlight = new Set<number>();
+	private audioInFlight = new Map<number, Promise<Blob>>();
 
 	constructor(client: TlrClient, coordinator: AudioCoordinator) {
 		this.client = client;
@@ -280,8 +295,7 @@ export class CallHistoryState {
 		this.isLoadingMore = false;
 		this.offset = 0;
 		this.buffer = [];
-		this.callCache.clear();
-		this.prefetchInFlight.clear();
+		this.audioCache.clear();
 		const filters = this.buildFilters({ limit: FETCH_SIZE, offset: 0 });
 		this.client.requestCallList(filters);
 	}
@@ -331,7 +345,6 @@ export class CallHistoryState {
 	setPage(page: number) {
 		const targetPage = Math.max(1, Math.min(page, this.pageCount));
 		this.offset = (targetPage - 1) * this.pageSize;
-		this.prefetchWindow();
 		// Pre-fetch next buffer when approaching the end (5 pages before last)
 		const bufferedPages = Math.ceil(this.buffer.length / this.pageSize);
 		if (targetPage >= bufferedPages - 5 && this.hasMore) {
@@ -351,16 +364,43 @@ export class CallHistoryState {
 		this.followCallPage(this.buffer.findIndex((r) => r.id === callId));
 	}
 
-	private prefetchWindow() {
-		const page = this.currentPage;
-		const startIdx = Math.max(0, (page - 2) * this.pageSize); // page - 1
-		const endIdx = Math.min(this.buffer.length, (page + 1) * this.pageSize); // page + 1
-		for (let i = startIdx; i < endIdx; i++) {
-			const call = this.buffer[i];
-			if (!this.callCache.has(call.id) && !this.prefetchInFlight.has(call.id)) {
-				this.prefetchInFlight.add(call.id);
-				this.client.requestCallPlayback(call.id);
-			}
+	//* Resolves audio for a call: LRU hit, in-flight join, or a fresh HTTP fetch
+	private getAudio(callId: number): Promise<Blob> {
+		const cached = this.audioCache.get(callId);
+		if (cached) {
+			//* Re-insert to mark as most recently used
+			this.audioCache.delete(callId);
+			this.audioCache.set(callId, cached);
+			return Promise.resolve(cached);
+		}
+		const inFlight = this.audioInFlight.get(callId);
+		if (inFlight) return inFlight;
+		const fetchPromise = this.client
+			.getCallAudioBlob(callId)
+			.then((blob) => {
+				this.audioCache.set(callId, blob);
+				while (this.audioCache.size > AUDIO_CACHE_MAX) {
+					const oldest = this.audioCache.keys().next().value;
+					if (oldest == null) break;
+					this.audioCache.delete(oldest);
+				}
+				return blob;
+			})
+			.finally(() => {
+				this.audioInFlight.delete(callId);
+			});
+		this.audioInFlight.set(callId, fetchPromise);
+		return fetchPromise;
+	}
+
+	//* Warms audio for the next calls in auto-advance order so playback stays gapless
+	private lookahead(fromCallId: number) {
+		const idx = this.buffer.findIndex((r) => r.id === fromCallId);
+		if (idx === -1) return;
+		for (let i = 1; i <= LOOKAHEAD_COUNT; i++) {
+			const next = this.buffer[idx - i];
+			if (!next) break;
+			this.getAudio(next.id).catch(() => {});
 		}
 	}
 
@@ -372,7 +412,10 @@ export class CallHistoryState {
 			this.objectUrl = null;
 		}
 		this.followCallById(callId);
+		this.pendingAdvanceFromId = null;
 		this.playbackCallId = callId;
+		//* The playback bar only needs the list row (system/talkgroup), not the audio payload
+		this.playbackCall = this.buffer.find((r) => r.id === callId) ?? null;
 		this.playbackError = null;
 		this.isPlaying = false;
 		this.autoAdvancing = options.autoAdvance ?? false;
@@ -382,17 +425,38 @@ export class CallHistoryState {
 		// Prime the audio element during the user gesture to satisfy Chromium autoplay policy.
 		this.coordinator.prime();
 
-		// Use cached call data if available (prefetched)
-		const cached = this.callCache.get(callId);
-		if (cached) {
-			this.playbackLoading = false;
-			this.pendingPlaybackId = callId;
-			this.handlePlaybackCall(cached);
-		} else {
-			this.playbackLoading = true;
-			this.pendingPlaybackId = callId;
-			this.client.requestCallPlayback(callId);
-		}
+		const token = ++this.playbackToken;
+		this.playbackLoading = true;
+		this.getAudio(callId)
+			.then((blob) => {
+				if (token !== this.playbackToken) return;
+				this.playbackLoading = false;
+				this.startPlayback(blob);
+				this.lookahead(callId);
+			})
+			.catch((err) => {
+				if (token !== this.playbackToken) return;
+				this.playbackLoading = false;
+				this.playbackError =
+					err instanceof TlrApiError && err.status === 404
+						? 'No audio available for this call'
+						: 'Failed to load call audio';
+				if (this.autoAdvancing) this.playNextCall();
+			});
+	}
+
+	private startPlayback(blob: Blob) {
+		this.objectUrl = URL.createObjectURL(blob);
+		this.audio.volume = this.volume;
+		this.audio.src = this.objectUrl;
+		this.audio
+			.play()
+			.then(() => {
+				this.isPlaying = true;
+			})
+			.catch(() => {
+				this.playbackError = 'Playback blocked by browser';
+			});
 	}
 
 	stopPlayback() {
@@ -411,7 +475,8 @@ export class CallHistoryState {
 		this.isPlaying = false;
 		this.currentTime = 0;
 		this.duration = 0;
-		this.pendingPlaybackId = null;
+		this.playbackToken++;
+		this.pendingAdvanceFromId = null;
 		this.autoAdvancing = false;
 	}
 
@@ -446,25 +511,24 @@ export class CallHistoryState {
 		this.currentTime = time;
 	}
 
-	downloadCall(callId: number) {
-		//* Prefetched playback data already contains the audio bytes, so reuse it
-		const cached = this.callCache.get(callId);
-		if (cached?.audio?.data?.length) {
-			this.saveCallAudio(cached);
-			return;
-		}
+	async downloadCall(callId: number) {
 		this.downloadingCallId = callId;
-		this.client.requestCallDownload(callId);
+		try {
+			//* Fetch over HTTP even if cached; the response carries the real filename
+			const { blob, filename } = await this.client.getCallAudioDownload(callId);
+			this.saveBlob(blob, filename ?? fallbackFilename(callId, blob.type));
+		} catch {
+			//* No dedicated download error UI; just reset the spinner
+		} finally {
+			this.downloadingCallId = null;
+		}
 	}
 
-	private saveCallAudio(call: SocketCall) {
-		if (!call.audio?.data?.length) return;
-		const bytes = new Uint8Array(call.audio.data);
-		const blob = new Blob([bytes], { type: call.audioType || 'audio/wav' });
+	private saveBlob(blob: Blob, filename: string) {
 		const url = URL.createObjectURL(blob);
 		const anchor = document.createElement('a');
 		anchor.href = url;
-		anchor.download = call.audioName || `call-${call.id}`;
+		anchor.download = filename;
 		document.body.appendChild(anchor);
 		anchor.click();
 		anchor.remove();
@@ -474,7 +538,11 @@ export class CallHistoryState {
 	private playNextCall() {
 		if (this.playbackCallId == null) return;
 		const idx = this.buffer.findIndex((r) => r.id === this.playbackCallId);
-		if (idx === -1) return;
+		if (idx === -1) {
+			//* A list refresh emptied the buffer mid-playback; resume once the new list arrives
+			if (this.isLoading) this.pendingAdvanceFromId = this.playbackCallId;
+			return;
+		}
 		if (idx - 1 >= 0) {
 			this.playCall(this.buffer[idx - 1].id, { autoAdvance: true });
 		} else {
@@ -508,11 +576,11 @@ export class CallHistoryState {
 					this.buffer = [...this.buffer, ...newCalls];
 					this.isLoadingMore = false;
 				} else {
-					// Fresh fetch — replace buffer
+					//* Fresh fetch: replace buffer
 					this.buffer = incoming;
 				}
 				this.isLoading = false;
-				this.prefetchWindow();
+				this.resumeDeferredAdvance();
 				if (this.isLoadingAll) {
 					if (this.hasMore) {
 						this.isLoadingAll = this.loadMore();
@@ -522,28 +590,23 @@ export class CallHistoryState {
 				}
 				break;
 			}
-			case 'call-playback':
-				this.callCache.set(event.payload.id, event.payload);
-				this.prefetchInFlight.delete(event.payload.id);
-				this.cacheSourceAliases(event.payload);
-				this.handlePlaybackCall(event.payload);
-				break;
-			case 'call-download':
-				this.callCache.set(event.payload.id, event.payload);
-				this.cacheSourceAliases(event.payload);
-				if (this.downloadingCallId === event.payload.id) {
-					this.downloadingCallId = null;
-					this.saveCallAudio(event.payload);
-				}
-				break;
 			case 'call':
-				this.callCache.set(event.payload.id, event.payload);
-				this.prefetchInFlight.delete(event.payload.id);
+				//* Live call events still carry source unit tags worth caching
 				this.cacheSourceAliases(event.payload);
-				if (this.pendingPlaybackId != null && event.payload.id === this.pendingPlaybackId) {
-					this.handlePlaybackCall(event.payload);
-				}
 				break;
+		}
+	}
+
+	//* Continues auto-advance that was deferred while the list refreshed mid-playback
+	private resumeDeferredAdvance() {
+		if (this.pendingAdvanceFromId == null) return;
+		const fromId = this.pendingAdvanceFromId;
+		this.pendingAdvanceFromId = null;
+		const idx = this.buffer.findIndex((r) => r.id === fromId);
+		if (idx > 0) {
+			this.playCall(this.buffer[idx - 1].id, { autoAdvance: true });
+		} else {
+			this.stopPlayback();
 		}
 	}
 
@@ -557,35 +620,6 @@ export class CallHistoryState {
 			}
 		}
 		if (changed) this.sourceAliases = new SvelteMap(this.sourceAliases);
-	}
-
-	private handlePlaybackCall(call: SocketCall) {
-		if (this.pendingPlaybackId == null || call.id !== this.pendingPlaybackId) return;
-		this.pendingPlaybackId = null;
-		this.playbackCall = call;
-		this.playbackLoading = false;
-
-		if (!call.audio?.data?.length) {
-			this.playbackError = 'No audio available for this call';
-			if (this.autoAdvancing) this.playNextCall();
-			return;
-		}
-
-		const bytes = new Uint8Array(call.audio.data);
-		const mimeType = call.audioType || 'audio/wav';
-		const blob = new Blob([bytes], { type: mimeType });
-		this.objectUrl = URL.createObjectURL(blob);
-
-		this.audio.volume = this.volume;
-		this.audio.src = this.objectUrl;
-		this.audio
-			.play()
-			.then(() => {
-				this.isPlaying = true;
-			})
-			.catch(() => {
-				this.playbackError = 'Playback blocked by browser';
-			});
 	}
 
 	skipToNewer() {

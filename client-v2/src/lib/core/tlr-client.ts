@@ -248,6 +248,20 @@ export class TlrClient {
 		return res.blob();
 	}
 
+	//* Fetches raw call audio plus the server-supplied filename from Content-Disposition
+	async getCallAudioDownload(callId: number | string): Promise<{ blob: Blob; filename: string | null }> {
+		const pin = this.getPin();
+		let url = `${this.baseUrl}/calls/${callId}/audio`;
+		if (pin) url += `?pin=${encodeURIComponent(pin)}`;
+
+		const res = await fetch(url);
+		if (!res.ok) {
+			throw new TlrApiError(res.statusText || 'Failed to fetch call audio', res.status);
+		}
+		const filename = res.headers.get('content-disposition')?.match(/filename="([^"]+)"/)?.[1] ?? null;
+		return { blob: await res.blob(), filename };
+	}
+
 	async getTranscripts(options: TranscriptQuery = {}): Promise<Transcript[]> {
 		return this.request<Transcript[]>(
 			`/transcripts${toQueryString({
@@ -437,10 +451,6 @@ export class TlrClient {
 		this.send(['CAL', callId, 'playback']);
 	}
 
-	requestCallDownload(callId: number) {
-		this.send(['CAL', callId, 'd']);
-	}
-
 	requestCall(callId: number, flag?: string) {
 		if (flag) {
 			this.send(['CAL', callId, flag]);
@@ -544,8 +554,6 @@ export class TlrClient {
 					this.emit({ type: 'call-playback', payload: payload as SocketCall });
 				} else if (data[2] === 'alias') {
 					this.emit({ type: 'call-alias', payload: payload as SocketCall });
-				} else if (data[2] === 'd') {
-					this.emit({ type: 'call-download', payload: payload as SocketCall });
 				} else {
 					this.emit({ type: 'call', payload: payload as SocketCall });
 				}

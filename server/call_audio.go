@@ -38,6 +38,7 @@ func (api *Api) CallAudioDownloadHandler(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Disposition")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -94,7 +95,8 @@ func (api *Api) CallAudioDownloadHandler(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
 	w.Header().Set("Content-Length", strconv.Itoa(len(call.Audio)))
-	w.Header().Set("Cache-Control", "no-store")
+	//* Call audio is immutable per id, so let the user's browser cache it
+	w.Header().Set("Cache-Control", "private, max-age=86400, immutable")
 	w.WriteHeader(http.StatusOK)
 	w.Write(call.Audio) //nolint:errcheck
 }

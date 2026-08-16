@@ -110,6 +110,11 @@ against the code if something seems off; add new findings here.
 - Commands: `PIN`, `PNS`, `CFG`, `LFM`, `CAL`, `LCL`, `ALT`, `LSC`, `VER`, `XPR`, `MAX`, `ERR`.
 - `CAL` flags: `'playback'`, `'alias'`, `'d'` (download). Request a call's audio for download
   with `['CAL', callId, 'd']`; the response is a `CAL` frame with flag `'d'`.
+- Since 2026-08-16 client-v2 no longer sends the `'d'` flag anywhere (call-history playback and
+  download both use `GET /api/calls/{id}/audio`); `'playback'` is still used by the alert feed,
+  alert history, and transcripts features. The websocket CAL response encodes audio as a JSON
+  array of decimal byte values, roughly 3-4x the raw size; prefer the HTTP endpoint for new
+  audio consumers.
 
 ## CORS
 
@@ -171,6 +176,10 @@ against the code if something seems off; add new findings here.
   (`server/call_meta.go`); the audio contract is unchanged.
 - `GET /api/calls/{id}/audio` now also enforces `userHasAccess` (it previously served any call
   to any valid PIN).
+- Since 2026-08-16 the audio endpoint is also the playback and download path for the calls
+  page (not just the alert page). It sends `Cache-Control: private, max-age=86400, immutable`
+  (call audio never changes per id) and exposes `Content-Disposition` via CORS so the client
+  can read the server-side filename for downloads.
 - ntfy battalion notifications (`sendWebPushIfBattalion` in `server/web_push.go`) set a `Click`
   header and an `Actions: view, View, <url>` button pointing at `<BaseUrl>/alert/<callId>`.
   The link is only added when the admin `BaseUrl` option is set; when unset the notification
@@ -198,6 +207,29 @@ against the code if something seems off; add new findings here.
 # Session Log
 
 Newest first.
+
+## 2026-08-16: calls page audio loading optimized for slow links
+
+**Shipped:** removed the 60-call eager audio prefetch window from
+`CallHistoryState.svelte.ts` (it downloaded audio for a 3-page window on every search and page
+change). Playback and download now use `GET /api/calls/{id}/audio` (raw binary) instead of the
+websocket CAL path with its JSON byte-array encoding. Added lookahead-while-playing (the next 2
+calls in auto-advance order are prefetched once a call starts playing) and a bounded LRU cache
+of 40 audio Blobs replacing the unbounded `SocketCall` cache. New `getCallAudioDownload` in
+`tlr-client.ts` (parses Content-Disposition for the filename); `requestCallDownload` and the
+`call-download` socket event removed. Server: audio endpoint caching headers (see Server API
+Reference). Also fixed a bug where auto-play died if the user hit Refresh during playback and
+the clip ended before the new list arrived (deferred advance via `pendingAdvanceFromId`,
+resumed when the fresh `call-list` lands).
+**Decisions:** lazy audio loading with a 2-call lookahead over eager prefetch; HTTP transport
+over websocket for calls-page audio; browser caching of call audio allowed (private, 1 day);
+scope limited to the calls page.
+**Learned:** the websocket CAL frame serializes audio as `{data: [byte, byte, ...]}` (decimal
+JSON, ~3-4x raw size). Accepted minor regression: `sourceAliases` unit tags are no longer
+harvested from playback responses, only from live `call` events; `directory.unitLabel` remains
+the primary source.
+**Next:** alert feed, alert history, and transcripts playback still use the websocket
+`'playback'` path and could move to the HTTP endpoint later for the same 3-4x saving per play.
 
 ## 2026-08-09: single-alert page deep-linked from ntfy notifications
 
