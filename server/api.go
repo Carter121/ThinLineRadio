@@ -3088,6 +3088,14 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				var parsedAddr models.ParsedAddress
 				if json.Unmarshal([]byte(callParsedAddress.String), &parsedAddr) == nil {
 					alertMap["parsedAddress"] = parsedAddr
+					//* Calls transcribed before incident threading existed have no
+					//* incident link; classify their own incident type instead so
+					//* historical fire alerts still highlight
+					if _, ok := alertMap["fireTier"]; !ok && parsedAddr.IncidentType != "" {
+						if tier, _, notify := classifyFireTier(parsedAddr.IncidentType, api.Controller.Options.FireIncidentTypes); notify {
+							alertMap["fireTier"] = tier
+						}
+					}
 				}
 			}
 			if toneSetId != "" {

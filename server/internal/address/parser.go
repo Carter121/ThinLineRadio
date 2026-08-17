@@ -25,20 +25,36 @@ import (
 
 // Address extraction patterns
 var (
-	// Pattern A/C: "RESPOND TO [code] [incident] AT [address] [IN city]"
-	respondToAt = regexp.MustCompile(`(?i)RESPOND\s+TO\s+(?:(\d{1,2}\s+[A-Z]+)\s*,\s*)?(.+?)\s+AT\s+(.+?)(?:\s+IN\s+([A-Z][A-Z\s]*?))?(?:\.|,?\s*RESPOND\s+ON|,?\s*NEAR\s|$)`)
+	// Pattern A/C: "RESPOND TO [code] [incident] AT [address] [IN city]".
+	// The incident group must not cross a sentence boundary: dispatchers repeat
+	// the message and sometimes only the repeat contains "AT", which used to
+	// make the lazy group swallow everything up to the second half's AT.
+	respondToAt = regexp.MustCompile(`(?i)RESPOND\s+TO\s+(?:(\d{1,2}\s+[A-Z]+)\s*,\s*)?([^.]+?)[.,]?\s+AT\s+(.+?)(?:\s+IN\s+([A-Z][A-Z\s]*?))?(?:\.|,?\s*RESPOND\s+ON|,?\s*NEAR\s|$)`)
 
-	// Pattern B: "PRIORITY N, ADDRESS"
-	priorityAddr = regexp.MustCompile(`(?i),\s*PRIORITY\s+\d\s*,\s*(.+?)(?:\.|,?\s*RESPOND\s+ON|$)`)
+	// Pattern B: "PRIORITY N, ADDRESS". Dispatchers vary the punctuation around
+	// PRIORITY ("ASSAULT PRIORITY 3," / "PROBLEM. PRIORITY 2," / "PRIORITY 4. 1214"),
+	// so both separators accept a comma or a period.
+	priorityAddr = regexp.MustCompile(`(?i)\bPRIORITY\s+\d\s*[.,]\s*(.+?)(?:\.|,?\s*RESPOND\s+ON|$)`)
 
-	// Incident type for pattern B (before PRIORITY)
-	priorityIncident = regexp.MustCompile(`(?i),\s*([A-Z][A-Z\s]+?)\s*,\s*PRIORITY\s+\d`)
+	// Incident type for pattern B (before PRIORITY). Anchored after punctuation
+	// or a unit number ("QUINT 14 MEDICAL ALARM, PRIORITY 3"); allows hyphens
+	// and apostrophes ("HIGH-RISE FIRE", "CHILLER'S FALL").
+	priorityIncident = regexp.MustCompile(`(?i)(?:^|[.,]|\d)\s*([A-Z][A-Z\s'-]+?)\s*[.,]?\s*PRIORITY\s+\d`)
 
-	// Pattern D: "INCIDENT, ADDRESS" where address starts with number + direction
-	commaIncidentAddr = regexp.MustCompile(`(?i),\s*([A-Z][A-Z\s]+?)\s*,\s*(\d+\s+(?:NORTH|SOUTH|EAST|WEST|N|S|E|W)[,\s]+.+?)(?:\.|,?\s*RESPOND\s+ON|,?\s*ON\s+CITY|$)`)
+	// Pattern D: "INCIDENT, ADDRESS" where address starts with number + direction.
+	// Dispatchers sometimes pause after the house number ("FIRE, 1300, SOUTH I-15"),
+	// so an optional comma is allowed between the number and the direction. The
+	// incident may end with a period ("MEDIC. 158 NORTH") and can contain hyphens
+	// and apostrophes ("HIGH-RISE FIRE").
+	commaIncidentAddr = regexp.MustCompile(`(?i)[.,]\s*([A-Z][A-Z\s'-]+?)\s*[.,]\s*(\d+(?:\s*,\s*|\s+)(?:NORTH|SOUTH|EAST|WEST|N|S|E|W)[,\s]+.+?)(?:\.|,?\s*RESPOND\s+ON|,?\s*ON\s+CITY|$)`)
+
+	// Pattern D2: "INCIDENT, FREEWAY ADDRESS" (no house number). Freeway fires
+	// ("FIELD OR GRASS FIRE, I-80 WESTBOUND ... RAMP") rarely geocode, but the
+	// incident type must still be extracted so fire notifications fire.
+	commaIncidentFreeway = regexp.MustCompile(`(?i)[.,]\s*([A-Z][A-Z\s'-]+?)\s*[.,]\s*((?:I|SR|US)-\d+\S*\s+.+?)(?:\.|,?\s*RESPOND\s+ON|,?\s*ON\s+CITY|$)`)
 
 	// Pattern E: Known incident types followed by address (no commas)
-	incidentAddrNoComma = regexp.MustCompile(`(?i)(?:ANIMAL\s+RESCUE|ROLLOVER|VEHICLE\s+FIRE|STRUCTURE\s+FIRE|FIRE\s+ALARM|GRASS\s+FIRE)\s+(\d+\s+(?:NORTH|SOUTH|EAST|WEST|N|S|E|W)\s+.+?)(?:\.|,?\s*RESPOND\s+ON|,?\s*ON\s+CITY|$)`)
+	incidentAddrNoComma = regexp.MustCompile(`(?i)(ANIMAL\s+RESCUE|ROLLOVER|VEHICLE\s+FIRE|STRUCTURE\s+FIRE|FIRE\s+ALARM|GRASS\s+FIRE)\s+(\d+(?:\s*,\s*|\s+)(?:NORTH|SOUTH|EAST|WEST|N|S|E|W)\s+.+?)(?:\.|,?\s*RESPOND\s+ON|,?\s*ON\s+CITY|$)`)
 
 	// NEAR cross street
 	nearPattern = regexp.MustCompile(`(?i)NEAR\s+(.+?)(?:\.|,?\s*RESPOND|,?\s*TIME\s*(?:OUT|OF)|,?\s*TIMEOUT|$)`)
@@ -228,10 +244,21 @@ func ParseAddress(transcript string) *models.ParsedAddress {
 		}
 	}
 
+	// Try Pattern D2: INCIDENT, FREEWAY ADDRESS (no house number)
+	if address == "" {
+		if result := extractAddress(commaIncidentFreeway, 2); result != nil {
+			incidentType = strings.TrimSpace(result.match[1])
+			address = strings.TrimSpace(result.match[2])
+			originalAddress = result.origAddress
+			raw = result.match[0]
+		}
+	}
+
 	// Try Pattern E: INCIDENT ADDRESS (no commas)
 	if address == "" {
-		if result := extractAddress(incidentAddrNoComma, 1); result != nil {
-			address = strings.TrimSpace(result.match[1])
+		if result := extractAddress(incidentAddrNoComma, 2); result != nil {
+			incidentType = strings.TrimSpace(result.match[1])
+			address = strings.TrimSpace(result.match[2])
 			originalAddress = result.origAddress
 			raw = result.match[0]
 		}

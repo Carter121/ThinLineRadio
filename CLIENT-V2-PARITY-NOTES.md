@@ -121,7 +121,24 @@ against the code if something seems off; add new findings here.
   (`bg-fire/15`) in the alert log and dashboard feed; the battalion red tint wins when both
   apply. Incident assignment is NOT gated on the `alertingTalkgroup` flag (it is false in prod
   even for SLC FD1 / VECC 01; transcription is driven by keyword-alert reasons): every
-  transcribed call with a parsed address threads.
+  transcribed call with a parsed address threads. Alerts with no incident link (pre-threading
+  history) fall back to classifying their own `parsedAddress.incidentType`, so a force backfill
+  re-parse makes historical fire alerts highlight too. Parser hardening (validated against all
+  5.7k prod transcripts, parse rate 89.0% -> 90.0%, incidentType coverage 5028 -> 5118): patterns
+  D/E accept an optional comma after the house number ("FIRE, 1300, SOUTH I-15"); pattern B
+  accepts period/no punctuation around PRIORITY; incident groups allow hyphens and apostrophes
+  ("HIGH-RISE FIRE", "CHILLER'S FALL") and may be anchored after a unit number; new pattern D2
+  extracts freeway incidents with no house number ("FIELD OR GRASS FIRE, I-80 ... RAMP") so fire
+  notifications still fire; pattern E now sets incidentType; pattern A's incident group cannot
+  cross a sentence boundary and allows an optional period before AT, fixing the old
+  swallowed-transcript bug (8 -> 1 remaining, a garbled transcription). Fire tier matching is
+  punctuation-insensitive (both sides normalized to alphanumerics), and SECOND through FIFTH
+  ALARM are default structure-tier rows. `TestParseAddressProdShapes` locks in the real prod
+  transcript shapes. Browser notification filter (Settings > Alert Feed) is now All / Only
+  Selected Types / None with per-type toggles (battalion, structure fire, wildland fire); the
+  old stored 'battalion-only' value migrates to 'selected' with only battalion on. The feed
+  re-freshes an alert whose fireTier arrives on a later refetch (incident assignment races the
+  first fetch) and tracks notified ids so nothing double-notifies.
 - The `ALT` websocket command also carries `{"type":"incident","incidentId":N}` pokes; treat any
   ALT frame as "refetch the alert feed".
 

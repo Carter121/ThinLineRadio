@@ -37,6 +37,9 @@ func TestClassifyFireTier(t *testing.T) {
 		{"unmatched variant does not notify", "HOT FIRE", "", 0, false},
 		{"empty incident type", "", "", 0, false},
 		{"case insensitive", "house fire", fireTierStructure, 5, true},
+		{"punctuation insensitive", "HIGH-RISE FIRE", fireTierStructure, 5, true},
+		{"second alarm is structure", "SECOND ALARM", fireTierStructure, 5, true},
+		{"fifth alarm is structure", "FIFTH ALARM", fireTierStructure, 5, true},
 		//* Parser bug: incidentType swallowed the whole transcript. The none
 		//* row for VEHICLE FIRE must still win by substring.
 		{"swallowed transcript still matches none row", "VEHICLE FIRE, 10700, EAST I-80 WESTBOUND FREEWAY. RESPOND ON DECK, FIRE 2. BATTALION 11", fireTierNone, 0, false},

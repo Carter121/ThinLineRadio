@@ -55,6 +55,10 @@ func defaultFireIncidentTypes() []FireIncidentType {
 		{Pattern: "GARAGE FIRE", Tier: fireTierStructure},
 		{Pattern: "HIGHRISE FIRE", Tier: fireTierStructure},
 		{Pattern: "SHED FIRE", Tier: fireTierStructure},
+		{Pattern: "SECOND ALARM", Tier: fireTierStructure},
+		{Pattern: "THIRD ALARM", Tier: fireTierStructure},
+		{Pattern: "FOURTH ALARM", Tier: fireTierStructure},
+		{Pattern: "FIFTH ALARM", Tier: fireTierStructure},
 		{Pattern: "FIELD FIRE", Tier: fireTierWildland},
 		{Pattern: "GRASS FIRE", Tier: fireTierWildland},
 		{Pattern: "BRUSH FIRE", Tier: fireTierWildland},
@@ -79,17 +83,30 @@ func fireTierNotifies(tier string) bool {
 	return tier == fireTierStructure || tier == fireTierWildland
 }
 
+//* fireMatchForm normalizes a string for tier matching: uppercase with every
+//* non-alphanumeric character removed, so "HIGH-RISE FIRE" matches a
+//* "HIGHRISE FIRE" pattern and punctuation can never break a match
+func fireMatchForm(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(s) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 //* classifyFireTier maps an extracted incidentType to a notification tier.
-//* Substring matching covers parser variants ("AN EQUIPMENT FIRE", "HOT FIRE")
-//* and transcripts the parser failed to terminate cleanly. Returns tier "" and
-//* notify false when nothing matches.
+//* Punctuation-insensitive substring matching covers parser variants ("AN
+//* EQUIPMENT FIRE", "HIGH-RISE FIRE") and transcripts the parser failed to
+//* terminate cleanly. Returns tier "" and notify false when nothing matches.
 func classifyFireTier(incidentType string, rows []FireIncidentType) (tier string, priority int, notify bool) {
-	upper := strings.ToUpper(strings.TrimSpace(incidentType))
+	upper := fireMatchForm(incidentType)
 	if upper == "" {
 		return "", 0, false
 	}
 	for _, row := range rows {
-		pattern := strings.ToUpper(strings.TrimSpace(row.Pattern))
+		pattern := fireMatchForm(row.Pattern)
 		if pattern == "" || !strings.Contains(upper, pattern) {
 			continue
 		}

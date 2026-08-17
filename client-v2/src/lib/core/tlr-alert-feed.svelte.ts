@@ -27,6 +27,11 @@ export class TlrAlertFeed {
 
 	private client: TlrClient;
 	private coordinator: AudioCoordinator | null;
+	//* Alert ids already browser-notified, so an alert re-entering freshIds
+	//* (e.g. its fire classification arrived on a later refetch) never
+	//* notifies twice. Bounded by the feed window, no cleanup needed.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	private notifiedAlertIds = new Set<number>();
 	private hydrating = false;
 	private resyncing = false;
 	private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -67,6 +72,7 @@ export class TlrAlertFeed {
 		this.allAlerts = [];
 		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		this.newAlertIds = new Set<number>();
+		this.notifiedAlertIds.clear();
 		this.lastRefreshAt = null;
 	}
 
@@ -134,7 +140,13 @@ export class TlrAlertFeed {
 					merged.delete(alertKey(existing));
 				}
 			}
+			const previous = merged.get(alertKey(alert));
 			if (!this.hydrating && !existingKeys.has(alertKey(alert))) {
+				freshIds.push(alert.alertId);
+			} else if (!this.hydrating && previous && !previous.fireTier && alert.fireTier) {
+				//* Incident assignment races the alert feed: the fire tier can
+				//* arrive on a later refetch. Re-fresh so fire-type notification
+				//* filters get a second look; notifiedAlertIds prevents dupes.
 				freshIds.push(alert.alertId);
 			}
 			merged.set(alertKey(alert), alert);
@@ -170,7 +182,10 @@ export class TlrAlertFeed {
 	}
 
 	private async sendBrowserNotification(alerts: Alert[], freshIds: number[]) {
-		const freshAlerts = alerts.filter((a) => freshIds.includes(a.alertId));
+		const mode = appSettings.notificationFilter.current;
+		if (mode === 'none') return;
+
+		const freshAlerts = alerts.filter((a) => freshIds.includes(a.alertId) && !this.notifiedAlertIds.has(a.alertId));
 		if (freshAlerts.length === 0) return;
 
 		const allParsed = freshAlerts.map((alert) => {
@@ -180,8 +195,18 @@ export class TlrAlertFeed {
 			return { alert, body, hasBattalion };
 		});
 
-		const parsed = appSettings.notificationFilter.current === 'battalion-only' ? allParsed.filter((item) => item.hasBattalion) : allParsed;
+		const parsed =
+			mode === 'selected'
+				? allParsed.filter(
+						(item) =>
+							(appSettings.notifyBattalion.current && item.hasBattalion) ||
+							(appSettings.notifyStructureFire.current && item.alert.fireTier === 'structure') ||
+							(appSettings.notifyWildlandFire.current && item.alert.fireTier === 'wildland')
+					)
+				: allParsed;
 		if (parsed.length === 0) return;
+
+		for (const item of parsed) this.notifiedAlertIds.add(item.alert.alertId);
 
 		this.coordinator?.playNotification();
 

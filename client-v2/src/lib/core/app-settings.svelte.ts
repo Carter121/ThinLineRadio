@@ -92,8 +92,18 @@ function toggleSetting(def: SettingCommon & { default: boolean }): ToggleSetting
 	return new ToggleSetting(def);
 }
 
-//* Referenced so eslint/ts do not flag it before the first toggle setting exists.
-void toggleSetting;
+//* One-time migration: the old 'battalion-only' filter value becomes 'selected'
+//* with only the battalion toggle on (PersistedState stores JSON strings)
+try {
+	if (typeof localStorage !== 'undefined' && localStorage.getItem('tlr-notification-filter') === '"battalion-only"') {
+		localStorage.setItem('tlr-notification-filter', '"selected"');
+		localStorage.setItem('tlr-notify-battalion', 'true');
+		localStorage.setItem('tlr-notify-structure-fire', 'false');
+		localStorage.setItem('tlr-notify-wildland-fire', 'false');
+	}
+} catch {
+	//* Storage unavailable; defaults apply
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnySetting = SelectSetting<any> | ToggleSetting;
@@ -103,13 +113,35 @@ export const appSettings = {
 	notificationFilter: selectSetting({
 		section: 'Alert Feed',
 		label: 'Notification Filter',
-		description: 'Choose whether to receive notifications for all alerts or only those with a battalion unit.',
+		description: 'Receive browser notifications for every alert, only the selected types below, or none.',
 		key: 'tlr-notification-filter',
 		options: [
 			{ value: 'all', label: 'All Alerts' },
-			{ value: 'battalion-only', label: 'Battalion Only' }
+			{ value: 'selected', label: 'Only Selected Types' },
+			{ value: 'none', label: 'None' }
 		],
 		default: 'all'
+	}),
+	notifyBattalion: toggleSetting({
+		section: 'Alert Feed',
+		label: 'Notify: Battalion',
+		description: 'With "Only Selected Types", notify when a battalion unit is dispatched.',
+		key: 'tlr-notify-battalion',
+		default: true
+	}),
+	notifyStructureFire: toggleSetting({
+		section: 'Alert Feed',
+		label: 'Notify: Structure Fire',
+		description: 'With "Only Selected Types", notify on structure-tier fire incidents.',
+		key: 'tlr-notify-structure-fire',
+		default: true
+	}),
+	notifyWildlandFire: toggleSetting({
+		section: 'Alert Feed',
+		label: 'Notify: Wildland Fire',
+		description: 'With "Only Selected Types", notify on wildland-tier fire incidents.',
+		key: 'tlr-notify-wildland-fire',
+		default: true
 	}),
 	timeFormat: selectSetting({
 		section: 'Alert Feed',

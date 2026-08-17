@@ -261,6 +261,98 @@ func TestParseAddressGeocodeQuery(t *testing.T) {
 	}
 }
 
+func TestParseAddressCommaAfterHouseNumber(t *testing.T) {
+	//* Dispatchers pause after the house number; the comma must not break
+	//* incident extraction (this exact shape was seen in prod unparsed)
+	result := ParseAddress("ENGINE 2, COMPANY 4, AND COMPANY 9, FIELD OR GRASS FIRE, 1300, SOUTH I-15 SOUTHBOUND FREEWAY. RESPOND ON CITY FIRE 2.")
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.IncidentType != "FIELD OR GRASS FIRE" {
+		t.Errorf("IncidentType = %q, want %q", result.IncidentType, "FIELD OR GRASS FIRE")
+	}
+	if result.Address != "1300, SOUTH I-15 SOUTHBOUND FREEWAY" {
+		t.Errorf("Address = %q, want %q", result.Address, "1300, SOUTH I-15 SOUTHBOUND FREEWAY")
+	}
+	if result.GeocodeQuery != "1300 SOUTH I-15 SOUTHBOUND FREEWAY" {
+		t.Errorf("GeocodeQuery = %q, want %q", result.GeocodeQuery, "1300 SOUTH I-15 SOUTHBOUND FREEWAY")
+	}
+}
+
+func TestParseAddressProdShapes(t *testing.T) {
+	//* Regression suite of real prod transcript shapes that used to fail
+	tests := []struct {
+		name         string
+		transcript   string
+		wantIncident string
+		wantAddress  string
+	}{
+		{
+			"no comma before PRIORITY",
+			"MEDIC SQUAD 6, ASSAULT PRIORITY 3, 36 WEST FREMONT AVENUE ON 1110 SOUTH. RESPOND ON CITY FIRE 2.",
+			"ASSAULT", "36 WEST FREMONT AVENUE",
+		},
+		{
+			"period before PRIORITY",
+			"SQUAD 6 AND CHAT 6, UNKNOWN MEDICAL PROBLEM. PRIORITY 3, 1818 SOUTH 300 WEST. RESPOND ON CHI FIRE 2.",
+			"UNKNOWN MEDICAL PROBLEM", "1818 SOUTH 300 WEST",
+		},
+		{
+			"period after PRIORITY digit",
+			"CHAT 5. PSYCHIATRIC PROBLEM. PRIORITY 4. 1214 WEST 400 SOUTH. RESPOND ON CITY FIRE 2.",
+			"PSYCHIATRIC PROBLEM", "1214 WEST 400 SOUTH",
+		},
+		{
+			"incident after unit number without comma",
+			"QUINT 14 MEDICAL ALARM, PRIORITY 3, 1960 SOUTH INDUSTRIAL ROAD ON 1900 WEST. RESPOND ON CITY FIRE 2.",
+			"MEDICAL ALARM", "1960 SOUTH INDUSTRIAL ROAD",
+		},
+		{
+			"apostrophe in incident",
+			"MEDIC SQUAD 2, CHILLER'S FALL, PRIORITY 3, 1369 WEST DORAY AVENUE ON 440 NORTH.",
+			"CHILLER'S FALL", "1369 WEST DORAY AVENUE",
+		},
+		{
+			"hyphenated incident with apartment",
+			"BATTALION 1, TRUCK 2, HIGH-RISE FIRE, 89 EAST 200 SOUTH, APARTMENT 522.",
+			"HIGH-RISE FIRE", "89 EAST 200 SOUTH",
+		},
+		{
+			"period separates incident from address",
+			"MEDIC ENGINE 2, MEDIC. 158 NORTH, 600 WEST, APARTMENT 223. RESPOND ON CITY FIRE 2.",
+			"MEDIC", "158 NORTH, 600 WEST",
+		},
+		{
+			"freeway fire with no house number",
+			"COMPANY 6, FIELD OR GRASS FIRE, I-80 WESTBOUND TO I-80 WESTBOUND RAMP AND SOUTH I-215E NORTHBOUND FREEWAY.",
+			"FIELD OR GRASS FIRE", "I-80 WESTBOUND TO I-80 WESTBOUND RAMP AND SOUTH I-215E NORTHBOUND FREEWAY",
+		},
+		{
+			"repeat carries the AT, incident must not span sentences",
+			"BATTALION 11 AND MEDIC ENGINE 112, RESPOND TO VEHICLE FIRE, 10,700, EAST I-80 WESTBOUND FREEWAY. RESPOND ON DECK, FIRE 2. BATTALION 11 AND MEDIC ENGINE 112, RESPOND TO VEHICLE FIRE AT 10,700, EAST I-80 WESTBOUND FREEWAY. RESPOND ON DECK, FIRE 2. TIME OUT, 07:45.",
+			"VEHICLE FIRE", "10700, EAST I-80 WESTBOUND FREEWAY",
+		},
+		{
+			"period between incident and AT",
+			"MEDIC ENGINE 63 AND MEDIC AMBULANCE 63, RESPOND TO STATION MOVE-UP. AT STATION 106. TIME OUT 1810",
+			"STATION MOVE-UP", "STATION 106",
+		},
+	}
+	for _, tt := range tests {
+		result := ParseAddress(tt.transcript)
+		if result == nil {
+			t.Errorf("%s: ParseAddress returned nil", tt.name)
+			continue
+		}
+		if result.IncidentType != tt.wantIncident {
+			t.Errorf("%s: IncidentType = %q, want %q", tt.name, result.IncidentType, tt.wantIncident)
+		}
+		if result.Address != tt.wantAddress {
+			t.Errorf("%s: Address = %q, want %q", tt.name, result.Address, tt.wantAddress)
+		}
+	}
+}
+
 func TestSplitAddressGridDirections(t *testing.T) {
 	parts := splitAddress("1300 SOUTH 900 WEST")
 	if parts == nil {
