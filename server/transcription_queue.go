@@ -323,7 +323,7 @@ func (queue *TranscriptionQueue) worker(workerId int) {
 			Language:     result.Language,
 			AlertSummary: strings.TrimSpace(result.AlertSummary),
 		}
-		go queue.storeTranscription(job.CallId, cleanedResult)
+		go queue.storeTranscription(job.CallId, cleanedResult, job.SystemId, job.TalkgroupId)
 
 		// Capture the pre-transcription call for the post-transcription goroutine.
 		// Tone detection has almost certainly completed by the time transcription finishes,
@@ -532,14 +532,14 @@ func (queue *TranscriptionQueue) updateCallTranscriptionStatus(callId uint64, st
 }
 
 // storeTranscription stores the transcription result in the database
-func (queue *TranscriptionQueue) storeTranscription(callId uint64, result *TranscriptionResult) {
+func (queue *TranscriptionQueue) storeTranscription(callId uint64, result *TranscriptionResult, systemId uint64, talkgroupId uint64) {
 	if result == nil {
 		return
 	}
 
-	// Parse address from transcript and optionally geocode via Nominatim
+	// Parse address from transcript and geocode (UGRC primary, Nominatim fallback)
 	transcript := strings.ToUpper(result.Transcript) // Ensure ALL CAPS
-	parsedAddr := queue.parseAddress(transcript)
+	parsedAddr := queue.parseAddress(transcript, systemId, talkgroupId)
 
 	parsedAddressJSON := ""
 	if parsedAddr != nil {
@@ -566,10 +566,17 @@ func (queue *TranscriptionQueue) storeTranscription(callId uint64, result *Trans
 }
 
 // parseAddress extracts and optionally geocodes an address from a transcript
-func (queue *TranscriptionQueue) parseAddress(transcript string) *models.ParsedAddress {
+func (queue *TranscriptionQueue) parseAddress(transcript string, systemId uint64, talkgroupId uint64) *models.ParsedAddress {
 	parsedAddr := address.ParseAddress(transcript)
 	if parsedAddr == nil {
 		return nil
+	}
+
+	// County priority from the call's talkgroup (admin option addressCountyHints)
+	if system, ok := queue.controller.Systems.GetSystemById(systemId); ok {
+		if talkgroup, ok := system.Talkgroups.GetTalkgroupById(talkgroupId); ok {
+			parsedAddr.CountyHint = resolveCountyHint(queue.controller.Options.AddressCountyHints, system.SystemRef, talkgroup.TalkgroupRef)
+		}
 	}
 
 	// Primary: UGRC address points; fallback: Nominatim
@@ -590,6 +597,17 @@ func (queue *TranscriptionQueue) parseAddress(transcript string) *models.ParsedA
 	}
 
 	return parsedAddr
+}
+
+// resolveCountyHint returns the configured county FIPS code for a talkgroup,
+// or "" when no hint row matches
+func resolveCountyHint(hints []AddressCountyHint, systemRef uint, talkgroupRef uint) string {
+	for _, h := range hints {
+		if h.SystemRef == systemRef && h.TalkgroupRef == talkgroupRef {
+			return h.County
+		}
+	}
+	return ""
 }
 
 // addressPointsTableExists reports whether the UGRC address_points table has

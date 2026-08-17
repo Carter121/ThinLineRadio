@@ -25,7 +25,10 @@ type ParsedAddress struct {
 	IncidentType    string        `json:"incidentType,omitempty"`
 	DispatchCode    string        `json:"dispatchCode,omitempty"`
 	Raw             string        `json:"raw"`
-	Match           *AddressMatch `json:"match,omitempty"`
+	//* CountyHint is a Utah county FIPS code the geocoder should prefer,
+	//* resolved from the call's talkgroup
+	CountyHint string        `json:"countyHint,omitempty"`
+	Match      *AddressMatch `json:"match,omitempty"`
 }
 
 // AddressMatch holds a geocoded result (UGRC address points or Nominatim)

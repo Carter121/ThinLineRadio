@@ -7188,13 +7188,15 @@ func (admin *Admin) BackfillAddressesHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	type callRow struct {
-		id         uint64
-		transcript string
-		parsed     string // existing parsedAddress JSON, may be empty
+		id          uint64
+		transcript  string
+		parsed      string // existing parsedAddress JSON, may be empty
+		systemId    uint64
+		talkgroupId uint64
 	}
 
 	rows, err := admin.Controller.Database.Sql.Query(
-		`SELECT "callId", "transcript", "parsedAddress" FROM "calls" WHERE "transcript" != '' AND "transcriptionStatus" = 'completed'`,
+		`SELECT "callId", "transcript", "parsedAddress", "systemId", "talkgroupId" FROM "calls" WHERE "transcript" != '' AND "transcriptionStatus" = 'completed'`,
 	)
 	if err != nil {
 		admin.Controller.Logs.LogEvent(LogLevelError, fmt.Sprintf("backfill-addresses: query failed: %v", err))
@@ -7205,7 +7207,7 @@ func (admin *Admin) BackfillAddressesHandler(w http.ResponseWriter, r *http.Requ
 	var calls []callRow
 	for rows.Next() {
 		var row callRow
-		if err := rows.Scan(&row.id, &row.transcript, &row.parsed); err == nil {
+		if err := rows.Scan(&row.id, &row.transcript, &row.parsed, &row.systemId, &row.talkgroupId); err == nil {
 			calls = append(calls, row)
 		}
 	}
@@ -7240,6 +7242,13 @@ func (admin *Admin) BackfillAddressesHandler(w http.ResponseWriter, r *http.Requ
 		if parsed == nil {
 			skipped++
 			continue
+		}
+
+		// County priority from the call's talkgroup, same as live transcription
+		if system, ok := admin.Controller.Systems.GetSystemById(row.systemId); ok {
+			if talkgroup, ok := system.Talkgroups.GetTalkgroupById(row.talkgroupId); ok {
+				parsed.CountyHint = resolveCountyHint(admin.Controller.Options.AddressCountyHints, system.SystemRef, talkgroup.TalkgroupRef)
+			}
 		}
 
 		hadMatch := strings.Contains(row.parsed, `"match"`)

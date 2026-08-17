@@ -133,6 +133,7 @@ export interface AdminOptions {
 	transcriptionEnhancement?: boolean;
 	transcriptionConfig?: AdminTranscriptionConfig;
 	nominatimUrl?: string;
+	addressCountyHints?: AdminCountyHint[];
 	//* Registration
 	userRegistrationEnabled?: boolean;
 	publicRegistrationEnabled?: boolean;
@@ -155,9 +156,26 @@ export type AdminOptionsPatch = Partial<AdminOptions>;
 
 //* A radio system as it appears in the admin config payload (partial typing;
 //* only the fields the admin UI touches so far).
+//* Prioritizes a county (FIPS code) when geocoding calls from a talkgroup.
+export interface AdminCountyHint {
+	systemRef: number;
+	talkgroupRef: number;
+	county: string;
+}
+
+export interface AdminTalkgroupSummary {
+	id: number;
+	talkgroupRef: number;
+	label?: string;
+	name?: string;
+	[key: string]: unknown;
+}
+
 export interface AdminSystem {
 	id: number;
 	label: string;
+	systemRef?: number;
+	talkgroups?: AdminTalkgroupSummary[];
 	noAudioAlertsEnabled?: boolean;
 	noAudioThresholdMinutes?: number;
 	retentionDays?: number;

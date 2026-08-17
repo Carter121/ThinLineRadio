@@ -1,10 +1,12 @@
 //* Benchmarks the PostgresGeocoder against real production transcripts.
-//* Reads a CSV export (callId, transcript, parsedAddress) and reports the
-//* match rate versus the recorded Nominatim results.
+//* Reads a CSV export (callId, transcript, parsedAddress[, systemRef, talkgroupRef])
+//* and reports the match rate versus the recorded Nominatim results.
 //*
 //* Usage:
 //*   go run ./cmd/geocode-bench -csv prod-transcripts.csv \
-//*     -db "postgresql://thinline_user:devpass@localhost:5432/thinline_radio" [-v]
+//*     -db "postgresql://thinline_user:devpass@localhost:5432/thinline_radio" \
+//*     [-hints hints.json] [-v]
+//* hints.json: [{"systemRef":1,"talkgroupRef":101,"county":"49035"}, ...]
 package main
 
 import (
@@ -16,6 +18,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -24,13 +27,30 @@ import (
 )
 
 func main() {
-	csvPath := flag.String("csv", "", "CSV export of transcriptions (callId,transcript,parsedAddress)")
+	csvPath := flag.String("csv", "", "CSV export of transcriptions (callId,transcript,parsedAddress[,systemRef,talkgroupRef])")
 	dbURL := flag.String("db", "", "Postgres URL with address_points loaded")
+	hintsPath := flag.String("hints", "", "JSON file of county hints [{systemRef,talkgroupRef,county}]")
 	verbose := flag.Bool("v", false, "print each miss")
 	flag.Parse()
 	if *csvPath == "" || *dbURL == "" {
 		flag.Usage()
 		os.Exit(1)
+	}
+
+	type countyHint struct {
+		SystemRef    uint64 `json:"systemRef"`
+		TalkgroupRef uint64 `json:"talkgroupRef"`
+		County       string `json:"county"`
+	}
+	var hints []countyHint
+	if *hintsPath != "" {
+		b, err := os.ReadFile(*hintsPath)
+		if err != nil {
+			log.Fatalf("read hints: %v", err)
+		}
+		if err := json.Unmarshal(b, &hints); err != nil {
+			log.Fatalf("parse hints: %v", err)
+		}
 	}
 
 	db, err := sql.Open("pgx", *dbURL)
@@ -51,7 +71,7 @@ func main() {
 		log.Fatalf("read header: %v", err)
 	}
 
-	var total, parsed, pgMatched, nomMatched, both, pgOnly, nomOnly, neither int
+	var total, parsed, pgMatched, nomMatched, both, pgOnly, nomOnly, neither, hinted int
 	precisions := map[string]int{}
 	for {
 		rec, err := reader.Read()
@@ -69,6 +89,19 @@ func main() {
 			continue
 		}
 		parsed++
+
+		//* Apply county hint when the CSV carries refs and a hints file was given
+		if len(hints) > 0 && len(rec) >= 5 {
+			sysRef, _ := strconv.ParseUint(rec[3], 10, 64)
+			tgRef, _ := strconv.ParseUint(rec[4], 10, 64)
+			for _, h := range hints {
+				if h.SystemRef == sysRef && h.TalkgroupRef == tgRef {
+					parsedAddr.CountyHint = h.County
+					hinted++
+					break
+				}
+			}
+		}
 
 		//* Nominatim baseline comes from the stored parsedAddress JSON
 		nomHit := false
@@ -118,6 +151,9 @@ func main() {
 	fmt.Printf("nominatim matched: %d (%.1f%% of parsed)\n", nomMatched, pct(nomMatched, parsed))
 	fmt.Printf("both=%d pg-only=%d nominatim-only=%d neither=%d\n", both, pgOnly, nomOnly, neither)
 	fmt.Printf("precision: %v\n", precisions)
+	if len(hints) > 0 {
+		fmt.Printf("county hint applied to %d of %d parsed\n", hinted, parsed)
+	}
 }
 
 func pct(n, d int) float64 {

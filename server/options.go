@@ -27,6 +27,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+//* AddressCountyHint prioritizes a county when geocoding calls from a talkgroup
+type AddressCountyHint struct {
+	SystemRef    uint   `json:"systemRef"`
+	TalkgroupRef uint   `json:"talkgroupRef"`
+	County       string `json:"county"` //* Utah county FIPS code, e.g. "49035"
+}
+
 type Options struct {
 	AudioConversion             uint   `json:"audioConversion"`
 	AutoPopulate                bool   `json:"autoPopulate"`
@@ -95,6 +102,7 @@ type Options struct {
 	TranscriptionFailureThreshold uint                   `json:"transcriptionFailureThreshold"`
 	TranscriptParserConfig        TranscriptConfig       `json:"transcriptParserConfig"`
 	NominatimURL                  string                 `json:"nominatimUrl"`
+	AddressCountyHints            []AddressCountyHint    `json:"addressCountyHints"`
 	ToneDetectionIssueThreshold   uint                   `json:"toneDetectionIssueThreshold"`
 	AlertRetentionDays            uint                   `json:"alertRetentionDays"`
 	NoAudioThresholdMinutes       uint                   `json:"noAudioThresholdMinutes"`
@@ -908,6 +916,16 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		options.NominatimURL = v
 	}
 
+	if v, ok := m["addressCountyHints"]; ok {
+		//* Round-trip through JSON to coerce []any of maps into the typed slice
+		if b, err := json.Marshal(v); err == nil {
+			var hints []AddressCountyHint
+			if err := json.Unmarshal(b, &hints); err == nil {
+				options.AddressCountyHints = hints
+			}
+		}
+	}
+
 	// Transcription: allow flat toggle and nested config from admin UI
 	if v, ok := m["transcriptionEnabled"].(bool); ok {
 		options.TranscriptionConfig.Enabled = v
@@ -1603,6 +1621,11 @@ func (options *Options) Read(db *Database) error {
 			if err := json.Unmarshal([]byte(value.String), &cfg); err == nil {
 				options.TranscriptParserConfig = cfg
 			}
+		case "addressCountyHints":
+			var hints []AddressCountyHint
+			if err := json.Unmarshal([]byte(value.String), &hints); err == nil {
+				options.AddressCountyHints = hints
+			}
 		case "transcriptionEnhancement":
 			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
 				switch v := f.(type) {
@@ -2027,6 +2050,7 @@ func (options *Options) Write(db *Database) error {
 	set("transcriptionEnhancement", options.TranscriptionEnhancement)
 	set("transcriptParserConfig", options.TranscriptParserConfig)
 	set("nominatimUrl", options.NominatimURL)
+	set("addressCountyHints", options.AddressCountyHints)
 
 	if setErr != nil {
 		tx.Rollback()

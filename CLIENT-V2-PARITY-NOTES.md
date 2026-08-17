@@ -208,6 +208,27 @@ against the code if something seems off; add new findings here.
 
 Newest first.
 
+## 2026-08-17: county priority for geocoding (talkgroup-based)
+
+**Shipped:** New admin option `addressCountyHints` (array of `{systemRef, talkgroupRef, county}`,
+county = Utah FIPS code) plumbed through `options.go` (struct, FromMap, Read, Write; no migration,
+options table is key/value). The transcription queue resolves the call's talkgroup to a hint and
+stores it as `countyHint` in the parsed address JSON; the geocoder prefers that county at every
+stage (score weight 10 beats all other components combined; fuzzy stages demand higher similarity
+from out-of-county candidates: 0.6/0.7 vs 0.4/0.55; street-centroid tries county-restricted first).
+Nominatim fallback sends the hinted county instead of hardcoded Salt Lake County. Backfill applies
+hints too. Admin UI: "County Priority" card in Options > Transcription (talkgroup + county selects,
+add/delete rows, saves via the normal options PATCH since arrays replace wholesale).
+`geocode-bench` gained `-hints file.json` and reads optional systemRef/talkgroupRef CSV columns.
+**Decisions:** Hint source is the talkgroup only (not the spoken channel in the transcript).
+Prefer-but-allow: out-of-county matches still return when nothing fits in the hinted county.
+**Learned:** Admin config systems payload already exposes `systemRef` and per-talkgroup
+`talkgroupRef`/`label` (server MarshalJSON), so the UI selects need no new API. `Options.ApplyPartial`
+deep-merges maps (deletes impossible) but replaces arrays wholesale, so array-shaped options are
+PATCH-friendly.
+**Next:** Deploy, set the two real hint rows (VECC 01 and SLC FD1, both Salt Lake 49035), re-run
+backfill.
+
 ## 2026-08-17: UGRC address points geocoder replaces Nominatim as primary
 
 **Shipped:** New Postgres-backed geocoder (`server/internal/address/postgres.go`) querying a

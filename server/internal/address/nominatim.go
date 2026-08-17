@@ -63,12 +63,18 @@ func NewNominatimClient(baseURL string) *NominatimClient {
 
 // Lookup geocodes a parsed address using Nominatim
 func (n *NominatimClient) Lookup(parsed *models.ParsedAddress) (*models.AddressMatch, error) {
+	//* Default to Salt Lake County unless the call carries a county hint
+	county := "Salt Lake County"
+	if name := utahCountyNames[parsed.CountyHint]; name != "" {
+		county = name + " County"
+	}
+
 	params := url.Values{
 		"format":         {"jsonv2"},
 		"addressdetails": {"1"},
 		"countrycodes":   {"us"},
 		"limit":          {"5"},
-		"county":         {"Salt Lake County"},
+		"county":         {county},
 		"state":          {"Utah"},
 		"street":         {parsed.GeocodeQuery},
 	}

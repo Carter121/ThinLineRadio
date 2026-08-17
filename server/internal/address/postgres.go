@@ -185,13 +185,16 @@ type candidate struct {
 const candidateColumns = `coalesce(full_add,''), coalesce(add_num,''), coalesce(street_name,''), coalesce(city,''), zip_code, county_id, lat, lon`
 
 //* scoreExpr ranks candidates by how many optional components agree.
-//* Placeholder order: prefix_dir, suffix_dir, street_type, city
-func scoreExpr(p1, p2, p3, p4 string) string {
+//* Placeholder order: prefix_dir, suffix_dir, street_type, city, county hint.
+//* County weight (10) exceeds the sum of all other components (8) so an
+//* in-county candidate always outranks an out-of-county one.
+func scoreExpr(p1, p2, p3, p4, p5 string) string {
 	return fmt.Sprintf(`(coalesce(prefix_dir,'') = %s AND %s <> '')::int * 2
 		+ (coalesce(suffix_dir,'') = %s AND %s <> '')::int * 2
 		+ (coalesce(street_type,'') = %s AND %s <> '')::int
-		+ (coalesce(city,'') = %s AND %s <> '')::int * 3`,
-		p1, p1, p2, p2, p3, p3, p4, p4)
+		+ (coalesce(city,'') = %s AND %s <> '')::int * 3
+		+ (coalesce(county_id,'') = %s AND %s <> '')::int * 10`,
+		p1, p1, p2, p2, p3, p3, p4, p4, p5, p5)
 }
 
 //* Lookup resolves a parsed dispatch address to coordinates.
@@ -202,9 +205,10 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 	}
 
 	city := strings.TrimSpace(strings.ToUpper(parsed.City))
+	hint := strings.TrimSpace(parsed.CountyHint)
 	parts := splitAddress(parsed.Address)
 	if parts == nil {
-		return g.lookupIntersection(parsed.Address, city)
+		return g.lookupIntersection(parsed.Address, city, hint)
 	}
 
 	//* Cross street ("... ON 1700 WEST") disambiguates same-number matches in
@@ -223,11 +227,11 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 
 	//* Stage 1: exact house number + exact street name, best component score wins
 	rows, err := g.queryCandidates(`
-		SELECT `+candidateColumns+`, `+scoreExpr("$3", "$4", "$5", "$6")+` AS score, 1.0 AS sim, 0 AS numdist
+		SELECT `+candidateColumns+`, `+scoreExpr("$3", "$4", "$5", "$6", "$7")+` AS score, 1.0 AS sim, 0 AS numdist
 		FROM address_points
 		WHERE add_num = $1 AND street_name = $2
 		ORDER BY score DESC LIMIT 5`,
-		parts.AddNum, parts.StreetName, parts.PrefixDir, parts.SuffixDir, parts.StreetType, city)
+		parts.AddNum, parts.StreetName, parts.PrefixDir, parts.SuffixDir, parts.StreetType, city, hint)
 	if err != nil {
 		return nil, err
 	}
@@ -235,14 +239,16 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 		return toMatch(row, "rooftop"), nil
 	}
 
-	//* Stage 2: exact house number + fuzzy street name (Whisper misspellings)
+	//* Stage 2: exact house number + fuzzy street name (Whisper misspellings).
+	//* With a county hint, out-of-county candidates need a stronger similarity.
 	row, err := g.queryOne(`
-		SELECT `+candidateColumns+`, `+scoreExpr("$3", "$4", "$5", "$6")+` AS score,
+		SELECT `+candidateColumns+`, `+scoreExpr("$3", "$4", "$5", "$6", "$7")+` AS score,
 			similarity(street_name, $2) AS sim, 0 AS numdist
 		FROM address_points
-		WHERE add_num = $1 AND similarity(street_name, $2) >= 0.4
+		WHERE add_num = $1 AND similarity(street_name, $2) >=
+			CASE WHEN $7 = '' OR coalesce(county_id,'') = $7 THEN 0.4 ELSE 0.6 END
 		ORDER BY sim DESC, score DESC LIMIT 1`,
-		parts.AddNum, parts.StreetName, parts.PrefixDir, parts.SuffixDir, parts.StreetType, city)
+		parts.AddNum, parts.StreetName, parts.PrefixDir, parts.SuffixDir, parts.StreetType, city, hint)
 	if err != nil {
 		return nil, err
 	}
@@ -260,12 +266,12 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 	//* addresses often do not exist as exact points)
 	if street != "" && parts.AddNumInt > 0 {
 		rows, err = g.queryCandidates(`
-			SELECT `+candidateColumns+`, `+scoreExpr("$3", "$4", "$5", "$6")+` AS score, 1.0 AS sim,
+			SELECT `+candidateColumns+`, `+scoreExpr("$3", "$4", "$5", "$6", "$7")+` AS score, 1.0 AS sim,
 				abs(add_num_int - $1) AS numdist
 			FROM address_points
 			WHERE street_name = $2 AND add_num_int IS NOT NULL AND abs(add_num_int - $1) <= `+strconv.Itoa(maxHouseNumberDistance)+`
-			ORDER BY numdist ASC, score DESC LIMIT 5`,
-			parts.AddNumInt, street, parts.PrefixDir, parts.SuffixDir, parts.StreetType, city)
+			ORDER BY (coalesce(county_id,'') = $7 AND $7 <> '')::int DESC, numdist ASC, score DESC LIMIT 5`,
+			parts.AddNumInt, street, parts.PrefixDir, parts.SuffixDir, parts.StreetType, city, hint)
 		if err != nil {
 			return nil, err
 		}
@@ -287,12 +293,15 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 		normalized += " " + parts.SuffixDir
 	}
 	row, err = g.queryOne(`
-		SELECT `+candidateColumns+`, (coalesce(city,'') = $2 AND $2 <> '')::int AS score,
+		SELECT `+candidateColumns+`,
+			(coalesce(city,'') = $2 AND $2 <> '')::int
+			+ (coalesce(county_id,'') = $3 AND $3 <> '')::int * 10 AS score,
 			similarity(full_add, $1) AS sim, 0 AS numdist
 		FROM address_points
-		WHERE full_add % $1 AND similarity(full_add, $1) >= 0.55
+		WHERE full_add % $1 AND similarity(full_add, $1) >=
+			CASE WHEN $3 = '' OR coalesce(county_id,'') = $3 THEN 0.55 ELSE 0.7 END
 		ORDER BY sim DESC, score DESC LIMIT 1`,
-		normalized, city)
+		normalized, city, hint)
 	if err != nil {
 		return nil, err
 	}
@@ -302,25 +311,34 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 
 	//* Stage 5: street-level fallback, the point nearest the street centroid.
 	//* Only for confident street names with an unambiguously small extent.
+	//* With a county hint, try the county-restricted street first: a street
+	//* ambiguous statewide (e.g. MAIN) may be unambiguous within one county.
 	if street != "" && streetSim >= 0.65 && !highwayName.MatchString(street) && !highwayName.MatchString(parts.StreetName) {
-		row, err = g.queryOne(`
-			WITH pts AS (
-				SELECT * FROM address_points WHERE street_name = $1
-			), agg AS (
-				SELECT avg(lat) AS clat, avg(lon) AS clon,
-					max(lat) - min(lat) AS dlat, max(lon) - min(lon) AS dlon
-				FROM pts
-			)
-			SELECT `+candidateColumns+`, `+scoreExpr("$2", "$3", "$4", "$5")+` AS score, 1.0 AS sim, 0 AS numdist
-			FROM pts, agg
-			WHERE agg.dlat <= `+fmt.Sprintf("%f", maxStreetSpanDegrees)+` AND agg.dlon <= `+fmt.Sprintf("%f", maxStreetSpanDegrees*1.3)+`
-			ORDER BY score DESC, abs(lat - agg.clat) + abs(lon - agg.clon) ASC LIMIT 1`,
-			street, parts.PrefixDir, parts.SuffixDir, parts.StreetType, city)
-		if err != nil {
-			return nil, err
+		counties := []string{""}
+		if hint != "" {
+			counties = []string{hint, ""}
 		}
-		if row != nil {
-			return toMatch(row, "street"), nil
+		for _, county := range counties {
+			row, err = g.queryOne(`
+				WITH pts AS (
+					SELECT * FROM address_points WHERE street_name = $1
+						AND ($6 = '' OR coalesce(county_id,'') = $6)
+				), agg AS (
+					SELECT avg(lat) AS clat, avg(lon) AS clon,
+						max(lat) - min(lat) AS dlat, max(lon) - min(lon) AS dlon
+					FROM pts
+				)
+				SELECT `+candidateColumns+`, `+scoreExpr("$2", "$3", "$4", "$5", "$7")+` AS score, 1.0 AS sim, 0 AS numdist
+				FROM pts, agg
+				WHERE agg.dlat <= `+fmt.Sprintf("%f", maxStreetSpanDegrees)+` AND agg.dlon <= `+fmt.Sprintf("%f", maxStreetSpanDegrees*1.3)+`
+				ORDER BY score DESC, abs(lat - agg.clat) + abs(lon - agg.clon) ASC LIMIT 1`,
+				street, parts.PrefixDir, parts.SuffixDir, parts.StreetType, city, county, hint)
+			if err != nil {
+				return nil, err
+			}
+			if row != nil {
+				return toMatch(row, "street"), nil
+			}
 		}
 	}
 
@@ -329,7 +347,7 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 
 //* lookupIntersection resolves "STREET A AND STREET B" to the closest pair of
 //* address points on the two streets, pinning their midpoint.
-func (g *PostgresGeocoder) lookupIntersection(addr, city string) (*models.AddressMatch, error) {
+func (g *PostgresGeocoder) lookupIntersection(addr, city, hint string) (*models.AddressMatch, error) {
 	cleaned := nonAddressChars.ReplaceAllString(strings.ToUpper(addr), " ")
 	sides := regexp.MustCompile(`\s+AND\s+`).Split(cleaned, 2)
 	if len(sides) != 2 {
@@ -363,10 +381,11 @@ func (g *PostgresGeocoder) lookupIntersection(addr, city string) (*models.Addres
 		JOIN address_points b ON b.street_name = $2
 			AND abs(a.lat - b.lat) < 0.01 AND abs(a.lon - b.lon) < 0.013
 		WHERE a.street_name = $1
-		ORDER BY (a.lat - b.lat)^2 + ((a.lon - b.lon) * 0.75)^2 ASC,
+		ORDER BY (coalesce(a.county_id,'') = $4 AND $4 <> '')::int DESC,
+			(a.lat - b.lat)^2 + ((a.lon - b.lon) * 0.75)^2 ASC,
 			(coalesce(a.city,'') = $3 AND $3 <> '')::int DESC
 		LIMIT 1`,
-		streetA, streetB, city).Scan(&lat, &lon, &matchCity, &countyID)
+		streetA, streetB, city, hint).Scan(&lat, &lon, &matchCity, &countyID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

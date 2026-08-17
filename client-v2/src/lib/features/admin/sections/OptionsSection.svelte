@@ -7,9 +7,14 @@
 	import Loader2 from '@lucide/svelte/icons/loader-2';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	import Plug from '@lucide/svelte/icons/plug';
+	import Plus from '@lucide/svelte/icons/plus';
 	import Save from '@lucide/svelte/icons/save';
 	import Send from '@lucide/svelte/icons/send';
+	import Trash2 from '@lucide/svelte/icons/trash-2';
+	import { Select, SelectContent, SelectItem, SelectTrigger } from '$lib/components/ui/select';
 	import type { AdminSessionState } from '$lib/core/admin-session.svelte.ts';
+	import type { AdminCountyHint } from '$lib/core/admin-types.ts';
+	import { UTAH_COUNTIES, countyName } from '../utah-counties.ts';
 	import BrandingImages from './BrandingImages.svelte';
 	import OptionField from './OptionField.svelte';
 	import { OPTION_PANELS, buildPatch, getOptionValue, toDraftValue, toWireValue, type OptionFieldSpec } from './options-spec.ts';
@@ -141,6 +146,59 @@
 	}
 
 	let backfillingAddresses = $state(false);
+
+	//* County priority rows, managed outside the spec-driven draft (array option).
+	let countyHints = $state<AdminCountyHint[]>([]);
+	let countyHintsBaseline = '[]';
+	let savingCountyHints = $state(false);
+	const countyHintsDirty = $derived(JSON.stringify(countyHints) !== countyHintsBaseline);
+
+	//* Adopt server state on every config document unless there are unsaved edits.
+	$effect(() => {
+		const options = session.options;
+		if (!options) return;
+		untrack(() => {
+			const incoming = JSON.stringify(options.addressCountyHints ?? []);
+			if (JSON.stringify(countyHints) === countyHintsBaseline) {
+				countyHints = (options.addressCountyHints ?? []).map((h) => ({ ...h }));
+			}
+			countyHintsBaseline = incoming;
+		});
+	});
+
+	//* All talkgroups across systems, for the county priority selects.
+	const talkgroupChoices = $derived(
+		(session.config?.systems ?? []).flatMap((system) =>
+			(system.talkgroups ?? []).map((tg) => ({
+				value: `${system.systemRef ?? 0}:${tg.talkgroupRef}`,
+				systemRef: system.systemRef ?? 0,
+				talkgroupRef: tg.talkgroupRef,
+				label: `${system.label}: ${tg.label ?? tg.name ?? tg.talkgroupRef}`
+			}))
+		)
+	);
+
+	function addCountyHint() {
+		countyHints = [...countyHints, { systemRef: 0, talkgroupRef: 0, county: '' }];
+	}
+
+	function removeCountyHint(index: number) {
+		countyHints = countyHints.filter((_, i) => i !== index);
+	}
+
+	async function saveCountyHints() {
+		savingCountyHints = true;
+		try {
+			const rows = countyHints.filter((h) => h.talkgroupRef > 0 && h.county !== '');
+			await session.saveOptions({ addressCountyHints: rows });
+			countyHints = rows.map((h) => ({ ...h }));
+			toast.success('County priority saved');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Failed to save county priority');
+		} finally {
+			savingCountyHints = false;
+		}
+	}
 
 	//* Geocodes historical calls that are missing address data via Nominatim.
 	async function backfillAddresses() {
@@ -295,6 +353,78 @@
 					{/if}
 					Backfill
 				</Button>
+			</CardContent>
+		</Card>
+
+		<Card class="py-0">
+			<CardContent class="space-y-3 px-5 py-4">
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<div>
+						<p class="text-sm font-medium">County Priority</p>
+						<p class="text-xs text-muted-foreground">
+							Prefer addresses in a county when geocoding calls from a talkgroup. Other counties still match when nothing fits nearby.
+						</p>
+					</div>
+					<div class="flex items-center gap-2">
+						{#if countyHintsDirty}
+							<Button size="sm" disabled={savingCountyHints} onclick={saveCountyHints}>
+								{#if savingCountyHints}
+									<Loader2 data-icon="inline-start" class="animate-spin" />
+								{:else}
+									<Save data-icon="inline-start" />
+								{/if}
+								Save
+							</Button>
+						{/if}
+						<Button variant="outline" size="sm" onclick={addCountyHint}>
+							<Plus data-icon="inline-start" />
+							Add
+						</Button>
+					</div>
+				</div>
+				{#if countyHints.length === 0}
+					<p class="text-xs text-muted-foreground">No county priorities configured. All counties are searched equally.</p>
+				{:else}
+					<div class="space-y-2">
+						{#each countyHints as hint (hint)}
+							<div class="flex flex-wrap items-center gap-2">
+								<Select
+									type="single"
+									value={hint.talkgroupRef > 0 ? `${hint.systemRef}:${hint.talkgroupRef}` : ''}
+									onValueChange={(v) => {
+										const choice = talkgroupChoices.find((c) => c.value === v);
+										if (choice) {
+											hint.systemRef = choice.systemRef;
+											hint.talkgroupRef = choice.talkgroupRef;
+										}
+									}}
+								>
+									<SelectTrigger class="h-8 w-64 text-xs">
+										{talkgroupChoices.find((c) => c.systemRef === hint.systemRef && c.talkgroupRef === hint.talkgroupRef)?.label ?? 'Select talkgroup...'}
+									</SelectTrigger>
+									<SelectContent>
+										{#each talkgroupChoices as choice (choice.value)}
+											<SelectItem value={choice.value}>{choice.label}</SelectItem>
+										{/each}
+									</SelectContent>
+								</Select>
+								<Select type="single" value={hint.county} onValueChange={(v) => (hint.county = v)}>
+									<SelectTrigger class="h-8 w-44 text-xs">
+										{hint.county ? `${countyName(hint.county)} County` : 'Select county...'}
+									</SelectTrigger>
+									<SelectContent>
+										{#each UTAH_COUNTIES as county (county.fips)}
+											<SelectItem value={county.fips}>{county.name}</SelectItem>
+										{/each}
+									</SelectContent>
+								</Select>
+								<Button variant="ghost" size="sm" class="size-8 p-0" onclick={() => removeCountyHint(countyHints.indexOf(hint))}>
+									<Trash2 class="size-3.5" />
+								</Button>
+							</div>
+						{/each}
+					</div>
+				{/if}
 			</CardContent>
 		</Card>
 	{/if}
