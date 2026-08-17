@@ -138,7 +138,10 @@ against the code if something seems off; add new findings here.
   Selected Types / None with per-type toggles (battalion, structure fire, wildland fire); the
   old stored 'battalion-only' value migrates to 'selected' with only battalion on. The feed
   re-freshes an alert whose fireTier arrives on a later refetch (incident assignment races the
-  first fetch) and tracks notified ids so nothing double-notifies.
+  first fetch) and tracks notified ids so nothing double-notifies. Fire ntfy notifications send
+  at normal priority 3 (same as battalion), and calls carrying a battalion unit skip the fire
+  topic entirely (battalion topic only, no double-send). Map pins are raised oldest to newest
+  every marker sync so overlapping incidents keep the newest pin clickable.
 - The `ALT` websocket command also carries `{"type":"incident","incidentId":N}` pokes; treat any
   ALT frame as "refetch the alert feed".
 

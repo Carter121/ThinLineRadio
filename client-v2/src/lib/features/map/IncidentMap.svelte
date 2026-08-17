@@ -262,6 +262,16 @@
 			markerRegistry.delete(key);
 			if (popupKey === key) map?.closePopup();
 		}
+
+		//* SVG paints in DOM order, so raise pins oldest to newest: the newest
+		//* incident always ends up on top and stays clickable when incidents
+		//* overlap at the same location
+		for (let i = pageState.filteredIncidents.length - 1; i >= 0; i--) {
+			const entry = markerRegistry.get(pageState.filteredIncidents[i].key);
+			if (!entry) continue;
+			entry.marker.bringToFront();
+			entry.hit?.bringToFront();
+		}
 	});
 
 	//* List selection flies to the marker and opens its popup after the movement settles.

@@ -271,7 +271,15 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 	go controller.broadcastIncidentPoke(incidentId)
 
 	if notify {
-		go controller.sendFireNtfy(callId, priority, incidentType, parsedAddr, transcript, isUpdate)
+		//* Battalion dispatches already notify on the battalion topic; the
+		//* fire topic only carries non-battalion fire traffic
+		battalion := false
+		if parser := activeTranscriptParser.Load(); parser != nil {
+			battalion = hasBattalionUnit(parser, parser.CorrectTranscript(transcript))
+		}
+		if !battalion {
+			go controller.sendFireNtfy(callId, priority, incidentType, parsedAddr, transcript, isUpdate)
+		}
 	}
 }
 

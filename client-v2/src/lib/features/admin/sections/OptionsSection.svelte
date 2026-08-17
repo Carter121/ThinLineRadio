@@ -197,8 +197,8 @@
 	});
 
 	const FIRE_TIER_CHOICES: { value: AdminFireIncidentType['tier']; label: string }[] = [
-		{ value: 'structure', label: 'Structure (priority 5)' },
-		{ value: 'wildland', label: 'Wildland (priority 4)' },
+		{ value: 'structure', label: 'Structure fire' },
+		{ value: 'wildland', label: 'Wildland fire' },
 		{ value: 'none', label: 'Do not notify' }
 	];
 

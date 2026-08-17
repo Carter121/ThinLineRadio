@@ -27,19 +27,19 @@ func TestClassifyFireTier(t *testing.T) {
 		wantPriority int
 		wantNotify   bool
 	}{
-		{"house fire is structure", "HOUSE FIRE", fireTierStructure, 5, true},
-		{"field fire is wildland", "FIELD FIRE", fireTierWildland, 4, true},
-		{"field or grass fire matches by substring", "FIELD OR GRASS FIRE", fireTierWildland, 4, true},
+		{"house fire is structure", "HOUSE FIRE", fireTierStructure, 3, true},
+		{"field fire is wildland", "FIELD FIRE", fireTierWildland, 3, true},
+		{"field or grass fire matches by substring", "FIELD OR GRASS FIRE", fireTierWildland, 3, true},
 		{"dumpster fire never notifies", "DUMPSTER FIRE", fireTierNone, 0, false},
 		{"fire alarm never notifies", "FIRE ALARM", fireTierNone, 0, false},
 		{"gas leak never notifies", "NATURAL GAS LEAK", fireTierNone, 0, false},
 		{"vehicle fire defaults to no notify", "VEHICLE FIRE", fireTierNone, 0, false},
 		{"unmatched variant does not notify", "HOT FIRE", "", 0, false},
 		{"empty incident type", "", "", 0, false},
-		{"case insensitive", "house fire", fireTierStructure, 5, true},
-		{"punctuation insensitive", "HIGH-RISE FIRE", fireTierStructure, 5, true},
-		{"second alarm is structure", "SECOND ALARM", fireTierStructure, 5, true},
-		{"fifth alarm is structure", "FIFTH ALARM", fireTierStructure, 5, true},
+		{"case insensitive", "house fire", fireTierStructure, 3, true},
+		{"punctuation insensitive", "HIGH-RISE FIRE", fireTierStructure, 3, true},
+		{"second alarm is structure", "SECOND ALARM", fireTierStructure, 3, true},
+		{"fifth alarm is structure", "FIFTH ALARM", fireTierStructure, 3, true},
 		//* Parser bug: incidentType swallowed the whole transcript. The none
 		//* row for VEHICLE FIRE must still win by substring.
 		{"swallowed transcript still matches none row", "VEHICLE FIRE, 10700, EAST I-80 WESTBOUND FREEWAY. RESPOND ON DECK, FIRE 2. BATTALION 11", fireTierNone, 0, false},

@@ -67,13 +67,11 @@ func defaultFireIncidentTypes() []FireIncidentType {
 	}
 }
 
-//* fireTierPriority returns the ntfy priority for a notifying tier
+//* fireTierPriority returns the ntfy priority for a notifying tier: normal
+//* priority (3), matching the battalion notifications
 func fireTierPriority(tier string) int {
-	switch tier {
-	case fireTierStructure:
-		return 5
-	case fireTierWildland:
-		return 4
+	if tier == fireTierStructure || tier == fireTierWildland {
+		return 3
 	}
 	return 0
 }
@@ -121,8 +119,8 @@ func classifyFireTier(incidentType string, rows []FireIncidentType) (tier string
 }
 
 //* sendFireNtfy notifies the fire topic about a call on a fire incident.
-//* No-ops when NTFY_FIRE_TOPIC is unset. The battalion path on the default
-//* topic is independent: a house fire with a battalion sends on both.
+//* No-ops when NTFY_FIRE_TOPIC is unset. Calls carrying a battalion unit are
+//* suppressed by the caller: those already notify on the battalion topic.
 func (controller *Controller) sendFireNtfy(callId uint64, priority int, incidentType string, parsedAddr *models.ParsedAddress, transcript string, update bool) {
 	if controller.Options.NtfyFireTopic == "" {
 		return
