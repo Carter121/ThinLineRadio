@@ -208,6 +208,38 @@ against the code if something seems off; add new findings here.
 
 Newest first.
 
+## 2026-08-16: map page overhaul (full-bleed layout, incident list, filters, rich popups)
+
+**Shipped:** Rewrote the map tab around a new `MapPage.svelte` orchestrator in
+`client-v2/src/lib/features/map/`. Full-bleed layout: root layout skips main padding for the map
+tab (`isFullBleed` in `routes/+layout.svelte`), tab layout locks to `h-dvh` flex column when
+`activeTab === 'map'`, no more `calc(100dvh - 10rem)` magic number; map is edge-to-edge on
+mobile, framed (`sm:rounded-lg sm:border`) on larger screens. New files: `MapPageState.svelte.ts`
+(incidents derivation from feed, time-window + incident-type filters, marker/list selection sync,
+composes `AlertFeedCardState` for audio), `age-bands.ts` (extracted AGE_BANDS + labels),
+`MapLegend.svelte`, `MapFilters.svelte`, `MapIncidentList.svelte`, `MapIncidentRow.svelte`,
+`MapPopupContent.svelte`. `IncidentMap.svelte` rewritten: diffing marker registry (markers restyle
+every 15s so age colors stay honest), dark/light CARTO tiles reactive to mode-watcher, Leaflet
+popup/control chrome themed via CSS vars, popups render `MapPopupContent` via Svelte `mount()`
+(play button + `/alert/{callId}` Details link), persisted center/zoom (`tlr-map-view`),
+fit-bounds and geolocate buttons, invisible 16px hit markers on coarse pointers, ResizeObserver
+driven `invalidateSize`. Desktop: right-side incident list panel (lg+). Mobile: floating
+"Incidents (N)" button opens a bottom Sheet with the same list; tapping a row closes it and flies
+the map.
+
+**Decisions:** Keep age-color marker encoding (not incident-type colors), with an on-map legend.
+Desktop keeps a framed map, mobile is edge-to-edge. No new deps: shadcn Sheet instead of adding
+drawer/resizable; no leaflet.markercluster (feed capped at 200, clustering would hide age colors).
+Filters are session-only state; only view center/zoom persists.
+
+**Learned:** Transcript annotations can repeat the same unit (e.g. ENGINE-125 twice), so any
+keyed each over units must dedupe by `apparatus-number` (AlertCard already did; the map state now
+dedupes in the incidents derivation). Reusing `AlertFeedCardState` (consumer id `alert`) per tab
+is safe only because tabs are destroyed on switch; do not lift map state into a layout context.
+Opening a Leaflet popup after `flyTo` must wait for `moveend` or the popup autopan fights the
+animation. The `isolate` class on the map wrapper is required so Leaflet pane z-indexes (400-1000)
+stay under the Sheet and nav.
+
 ## 2026-08-16: calls page audio loading optimized for slow links
 
 **Shipped:** removed the 60-call eager audio prefetch window from

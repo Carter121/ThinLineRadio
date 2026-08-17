@@ -7,8 +7,9 @@
 
 	let { children } = $props();
 
-	//* The admin panel manages its own full-bleed sidebar layout.
+	//* The admin panel and the map tab manage their own full-bleed layouts.
 	const isAdmin = $derived(page.route.id?.startsWith('/admin') ?? false);
+	const isFullBleed = $derived(isAdmin || page.params.tab === 'map');
 </script>
 
 <svelte:head>
@@ -20,6 +21,6 @@
 <ModeWatcher track={true} />
 <Toaster />
 
-<main class={isAdmin ? '' : 'min-h-[90vh] p-2 py-4'}>
+<main class={isFullBleed ? '' : 'min-h-[90vh] p-2 py-4'}>
 	{@render children()}
 </main>

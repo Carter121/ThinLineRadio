@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Dashboard from '$lib/features/dashboard/Dashboard.svelte';
 	import CallHistory from '$lib/features/call-history/CallHistory.svelte';
-	import IncidentMap from '$lib/features/map/IncidentMap.svelte';
+	import MapPage from '$lib/features/map/MapPage.svelte';
 	import AlertHistory from '$lib/features/alert-history/AlertHistory.svelte';
 	import TranscriptSearch from '$lib/features/transcripts/TranscriptSearch.svelte';
 	import UnitsDebug from '$lib/features/units-debug/UnitsDebug.svelte';
@@ -25,18 +25,14 @@
 	{/if}
 {/snippet}
 
-<div>
+<div class={activeTab === 'map' ? 'h-full' : ''}>
 	{@render tab('dashboard', Dashboard)}
 	{@render tab('calls', CallHistory)}
 	{@render tab('alert-log', AlertHistory)}
 	{@render tab('transcripts', TranscriptSearch)}
 
 	{#if activeTab === 'map'}
-		<div class="flex h-full w-full flex-col items-center gap-6 px-2 sm:px-10">
-			<div class="w-full" style="height: calc(100dvh - 10rem);">
-				<IncidentMap />
-			</div>
-		</div>
+		<MapPage />
 	{/if}
 
 	{@render tab('apparatus', ApparatusCard)}
