@@ -114,9 +114,14 @@ against the code if something seems off; add new findings here.
   parsedAddress, labels). 404s when all member calls fail the user's access filter.
 - The alerts feed rows carry `incidentId` when the call is threaded (LEFT JOIN at read time; the
   alerts table itself has no incident column because alert creation races `storeTranscription`),
-  plus `fireTier` ("structure" | "wildland") when the incident notifies. Fire alerts tint amber
-  via the `--fire` theme token (`bg-fire/15`) in the alert log and dashboard feed; the battalion
-  red tint wins when both apply.
+  plus `fireTier` ("structure" | "wildland") when the incident notifies. The tier is NOT stored:
+  it is classified from the incident's `incidentType` at read time with the current
+  `fireIncidentTypes` rules (same principle as read-time unit parsing), so admin tier edits apply
+  immediately and retroactively. Fire alerts tint amber via the `--fire` theme token
+  (`bg-fire/15`) in the alert log and dashboard feed; the battalion red tint wins when both
+  apply. Incident assignment is NOT gated on the `alertingTalkgroup` flag (it is false in prod
+  even for SLC FD1 / VECC 01; transcription is driven by keyword-alert reasons): every
+  transcribed call with a parsed address threads.
 - The `ALT` websocket command also carries `{"type":"incident","incidentId":N}` pokes; treat any
   ALT frame as "refetch the alert feed".
 

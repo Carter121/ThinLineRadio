@@ -38,7 +38,10 @@ const (
 //* calls cannot both open a new incident
 var incidentAssignMutex sync.Mutex
 
-//* incidentRow mirrors one incidents table row during assignment
+//* incidentRow mirrors one incidents table row during assignment. The fire
+//* tier is deliberately NOT stored: it is classified from IncidentType with
+//* the current admin rules at read time (like unit parsing), so tier edits
+//* apply immediately and retroactively.
 type incidentRow struct {
 	Id                uint64
 	FirstSeenAt       int64
@@ -47,7 +50,6 @@ type incidentRow struct {
 	Lon               sql.NullFloat64
 	NormalizedAddress string
 	IncidentType      string
-	FireTier          string
 	CallCount         int
 	TalkgroupRefs     string
 }
@@ -153,14 +155,15 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 		return
 	}
 
-	callTier, _, _ := classifyFireTier(parsedAddr.IncidentType, controller.Options.FireIncidentTypes)
+	tierRows := controller.Options.FireIncidentTypes
+	callTier, _, _ := classifyFireTier(parsedAddr.IncidentType, tierRows)
 
 	incidentAssignMutex.Lock()
 	defer incidentAssignMutex.Unlock()
 
 	rows, err := controller.Database.Sql.Query(`
 		SELECT "incidentId", "firstSeenAt", "lastSeenAt", "lat", "lon", "normalizedAddress",
-			"incidentType", "fireTier", "callCount", "talkgroupRefs"
+			"incidentType", "callCount", "talkgroupRefs"
 		FROM "incidents" WHERE "lastSeenAt" >= $1 ORDER BY "lastSeenAt" DESC`,
 		ts-incidentClusterWindowMs)
 	if err != nil {
@@ -171,7 +174,7 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 	for rows.Next() {
 		inc := &incidentRow{}
 		if err := rows.Scan(&inc.Id, &inc.FirstSeenAt, &inc.LastSeenAt, &inc.Lat, &inc.Lon,
-			&inc.NormalizedAddress, &inc.IncidentType, &inc.FireTier, &inc.CallCount, &inc.TalkgroupRefs); err == nil {
+			&inc.NormalizedAddress, &inc.IncidentType, &inc.CallCount, &inc.TalkgroupRefs); err == nil {
 			open = append(open, inc)
 		}
 	}
@@ -180,14 +183,10 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 	best := matchIncident(open, hasPoint, lat, lon, addr)
 
 	var incidentId uint64
-	fireTier := ""
 	incidentType := parsedAddr.IncidentType
 	isUpdate := false
 
 	if best == nil {
-		if fireTierNotifies(callTier) {
-			fireTier = callTier
-		}
 		refs, _ := json.Marshal([]uint{talkgroupRef})
 		var latVal, lonVal any
 		if hasPoint {
@@ -195,10 +194,10 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 		}
 		if err := controller.Database.Sql.QueryRow(`
 			INSERT INTO "incidents" ("firstSeenAt", "lastSeenAt", "lat", "lon", "normalizedAddress",
-				"displayAddress", "incidentType", "fireTier", "callCount", "talkgroupRefs")
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9) RETURNING "incidentId"`,
+				"displayAddress", "incidentType", "callCount", "talkgroupRefs")
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8) RETURNING "incidentId"`,
 			ts, ts, latVal, lonVal, addr, incidentDisplayAddress(parsedAddr),
-			parsedAddr.IncidentType, fireTier, string(refs)).Scan(&incidentId); err != nil {
+			parsedAddr.IncidentType, string(refs)).Scan(&incidentId); err != nil {
 			controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("incident assign: insert failed: %v", err))
 			return
 		}
@@ -217,9 +216,10 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 			best.Lat = sql.NullFloat64{Float64: lat, Valid: true}
 			best.Lon = sql.NullFloat64{Float64: lon, Valid: true}
 		}
-		//* Fire types upgrade the incident, never downgrade it
-		if fireTierRank(callTier) > fireTierRank(best.FireTier) {
-			best.FireTier = callTier
+		//* Fire types upgrade the incident's type, never downgrade it. Tiers
+		//* are classified on the fly so admin rule edits apply immediately.
+		bestTier, _, _ := classifyFireTier(best.IncidentType, tierRows)
+		if fireTierRank(callTier) > fireTierRank(bestTier) {
 			best.IncidentType = parsedAddr.IncidentType
 		} else if best.IncidentType == "" && parsedAddr.IncidentType != "" {
 			best.IncidentType = parsedAddr.IncidentType
@@ -245,14 +245,13 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 		}
 		if _, err := controller.Database.Sql.Exec(`
 			UPDATE "incidents" SET "firstSeenAt" = $1, "lastSeenAt" = $2, "lat" = $3, "lon" = $4,
-				"incidentType" = $5, "fireTier" = $6, "callCount" = $7, "talkgroupRefs" = $8
-			WHERE "incidentId" = $9`,
+				"incidentType" = $5, "callCount" = $6, "talkgroupRefs" = $7
+			WHERE "incidentId" = $8`,
 			best.FirstSeenAt, best.LastSeenAt, latVal, lonVal, best.IncidentType,
-			best.FireTier, best.CallCount, string(refsJSON), best.Id); err != nil {
+			best.CallCount, string(refsJSON), best.Id); err != nil {
 			controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("incident assign: update %d failed: %v", best.Id, err))
 		}
 
-		fireTier = best.FireTier
 		incidentType = best.IncidentType
 	}
 
@@ -262,14 +261,17 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("incident assign: link call %d failed: %v", callId, err))
 	}
 
-	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("incident %d: call %d threaded (update=%v, tier=%q)", incidentId, callId, isUpdate, fireTier))
+	//* The incident's tier comes from its (possibly upgraded) type under the
+	//* CURRENT rules, so every call threaded into a fire incident notifies
+	finalTier, priority, notify := classifyFireTier(incidentType, tierRows)
+
+	controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("incident %d: call %d threaded (update=%v, tier=%q)", incidentId, callId, isUpdate, finalTier))
 
 	//* Poke clients so the feed refetches and picks up the incident link
 	go controller.broadcastIncidentPoke(incidentId)
 
-	//* Every call threaded into a notifying fire incident hits the fire topic
-	if fireTierNotifies(fireTier) {
-		go controller.sendFireNtfy(callId, fireTierPriority(fireTier), incidentType, parsedAddr, transcript, isUpdate)
+	if notify {
+		go controller.sendFireNtfy(callId, priority, incidentType, parsedAddr, transcript, isUpdate)
 	}
 }
 

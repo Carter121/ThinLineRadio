@@ -27,15 +27,21 @@ import (
 	"rdio-scanner/server/internal/models"
 )
 
-//* incidentToMap serializes one incidents row for the API
-func incidentToMap(inc *incidentRow, nowMs int64) map[string]any {
+//* incidentToMap serializes one incidents row for the API. The fire tier is
+//* classified from the incident type at read time so admin tier edits apply
+//* immediately and retroactively (same principle as read-time unit parsing).
+func incidentToMap(inc *incidentRow, nowMs int64, tierRows []FireIncidentType) map[string]any {
+	fireTier := ""
+	if tier, _, notify := classifyFireTier(inc.IncidentType, tierRows); notify {
+		fireTier = tier
+	}
 	m := map[string]any{
 		"incidentId":   inc.Id,
 		"firstSeenAt":  inc.FirstSeenAt,
 		"lastSeenAt":   inc.LastSeenAt,
 		"address":      inc.NormalizedAddress,
 		"incidentType": inc.IncidentType,
-		"fireTier":     inc.FireTier,
+		"fireTier":     fireTier,
 		"callCount":    inc.CallCount,
 		"open":         nowMs-inc.LastSeenAt < incidentClusterWindowMs,
 	}
@@ -50,14 +56,14 @@ func incidentToMap(inc *incidentRow, nowMs int64) map[string]any {
 	return m
 }
 
-const incidentSelectColumns = `"incidentId", "firstSeenAt", "lastSeenAt", "lat", "lon", "displayAddress", "incidentType", "fireTier", "callCount", "talkgroupRefs"`
+const incidentSelectColumns = `"incidentId", "firstSeenAt", "lastSeenAt", "lat", "lon", "displayAddress", "incidentType", "callCount", "talkgroupRefs"`
 
 func scanIncidentRow(scan func(dest ...any) error) (*incidentRow, error) {
 	inc := &incidentRow{}
 	//* displayAddress is scanned into NormalizedAddress: the API only ever
 	//* exposes the display form
 	err := scan(&inc.Id, &inc.FirstSeenAt, &inc.LastSeenAt, &inc.Lat, &inc.Lon,
-		&inc.NormalizedAddress, &inc.IncidentType, &inc.FireTier, &inc.CallCount, &inc.TalkgroupRefs)
+		&inc.NormalizedAddress, &inc.IncidentType, &inc.CallCount, &inc.TalkgroupRefs)
 	return inc, err
 }
 
@@ -101,13 +107,14 @@ func (api *Api) IncidentsHandler(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	nowMs := time.Now().UnixMilli()
+	tierRows := api.Controller.Options.FireIncidentTypes
 	incidents := []map[string]any{}
 	for rows.Next() {
 		inc, err := scanIncidentRow(rows.Scan)
 		if err != nil {
 			continue
 		}
-		incidents = append(incidents, incidentToMap(inc, nowMs))
+		incidents = append(incidents, incidentToMap(inc, nowMs, tierRows))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -206,7 +213,7 @@ func (api *Api) serveIncidentDetail(w http.ResponseWriter, client *Client, incid
 		return
 	}
 
-	result := incidentToMap(inc, time.Now().UnixMilli())
+	result := incidentToMap(inc, time.Now().UnixMilli(), api.Controller.Options.FireIncidentTypes)
 	result["calls"] = calls
 
 	w.Header().Set("Content-Type", "application/json")

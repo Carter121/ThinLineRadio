@@ -564,11 +564,13 @@ func (queue *TranscriptionQueue) storeTranscription(callId uint64, result *Trans
 		queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to insert transcription record: %v", err))
 	}
 
-	//* Thread alerting-talkgroup calls into incidents; this is the only site
-	//* holding the parsed address (incidentType, geocode) in memory, so fire
-	//* topic notifications hang off it too
+	//* Thread transcribed calls into incidents; this is the only site holding
+	//* the parsed address (incidentType, geocode) in memory, so fire topic
+	//* notifications hang off it too. No alertingTalkgroup gate: transcription
+	//* itself is already limited to dispatch-relevant talkgroups (alerting
+	//* flag, tone alerts, or keyword alerts).
 	if system, ok := queue.controller.Systems.GetSystemById(systemId); ok {
-		if talkgroup, ok := system.Talkgroups.GetTalkgroupById(talkgroupId); ok && talkgroup.AlertingTalkgroup {
+		if talkgroup, ok := system.Talkgroups.GetTalkgroupById(talkgroupId); ok {
 			queue.controller.assignCallToIncident(callId, talkgroup.TalkgroupRef, parsedAddr, transcript)
 		}
 	}

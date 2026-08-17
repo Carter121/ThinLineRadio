@@ -3216,10 +3216,12 @@ func migrateIncidents(db *Database) error {
 			"normalizedAddress" text NOT NULL DEFAULT '',
 			"displayAddress" text NOT NULL DEFAULT '',
 			"incidentType" text NOT NULL DEFAULT '',
-			"fireTier" text NOT NULL DEFAULT '',
 			"callCount" integer NOT NULL DEFAULT 0,
 			"talkgroupRefs" text NOT NULL DEFAULT '[]'
 		)`,
+		//* fireTier briefly existed as a column; the tier is classified from
+		//* incidentType at read time instead so admin rule edits apply
+		`ALTER TABLE "incidents" DROP COLUMN IF EXISTS "fireTier"`,
 		`CREATE INDEX IF NOT EXISTS "incidents_lastSeen_idx" ON "incidents" ("lastSeenAt")`,
 		`CREATE TABLE IF NOT EXISTS "incidentCalls" (
 			"incidentId" bigint NOT NULL REFERENCES "incidents" ("incidentId") ON DELETE CASCADE,
