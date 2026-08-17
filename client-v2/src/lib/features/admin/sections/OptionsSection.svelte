@@ -284,10 +284,10 @@
 				<div>
 					<p class="text-sm font-medium">Backfill Past Addresses</p>
 					<p class="text-xs text-muted-foreground">
-						Geocode addresses in historical transcripts using the Nominatim server above. Can take a while on large call databases.
+						Re-run address extraction and geocoding for historical transcripts using the address points database (Nominatim as fallback). Can take a while on large call databases.
 					</p>
 				</div>
-				<Button variant="outline" size="sm" disabled={backfillingAddresses || !draft['nominatimUrl']} onclick={backfillAddresses}>
+				<Button variant="outline" size="sm" disabled={backfillingAddresses} onclick={backfillAddresses}>
 					{#if backfillingAddresses}
 						<Loader2 data-icon="inline-start" class="animate-spin" />
 					{:else}

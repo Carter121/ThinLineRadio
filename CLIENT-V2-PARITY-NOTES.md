@@ -208,6 +208,36 @@ against the code if something seems off; add new findings here.
 
 Newest first.
 
+## 2026-08-17: UGRC address points geocoder replaces Nominatim as primary
+
+**Shipped:** New Postgres-backed geocoder (`server/internal/address/postgres.go`) querying a
+UGRC Utah address points table (`address_points`, loaded by `scripts/import-address-points.sh`,
+5 counties: Salt Lake, Utah, Davis, Summit, Tooele). Staged matching: exact rooftop, fuzzy
+street name, nearest house number (±150), full-address trigram, street centroid, and
+intersections ("X AND Y"). Cross streets from "ON 1700 WEST" phrasing break city ties.
+Wired into `transcription_queue.go` as primary; Nominatim demoted to fallback (only used when
+address_points misses). Bench tool `server/cmd/geocode-bench` replays prod transcripts:
+88.2% match rate vs Nominatim's 71.5% on 5,022 real parsed addresses.
+UI: `AddressMatch` gained `precision` ("rooftop" | "nearby" | "street" | "intersection",
+empty for legacy Nominatim rows). New `displayAddress()`/`isExactMatch()` helpers in
+`core/format.ts`. AlertCard, alert detail page, and map now show the transcript's own address
+(plus "(approx. location)") when the match is not rooftop-exact; pins and maps links still use
+matched coords.
+Backfill: `/api/admin/backfill-addresses` (admin Options, both clients) now re-parses and
+re-geocodes ALL completed-transcript calls with the UGRC geocoder (Nominatim fallback), upgrades
+legacy Nominatim matches, and never erases an existing match on a miss. The client-v2 button no
+longer requires a Nominatim URL to be enabled.
+**Decisions:** No PostGIS (plain Postgres + pg_trgm; prod image unchanged). Address data lives
+in the app database, public schema. Non-exact matches must never replace the spoken address in
+the UI. Dev server must not point at the prod DB (alert engine and migrations could fire on
+live data); read-only psql pulls from prod are fine.
+**Learned:** UGRC data is EPSG:3857 (CSV export x/y too; needs reprojection, script handles
+it). `pg_trgm` `%` operator uses the GIN index but `similarity() >= x` alone does not.
+Pre-existing test `TestDiscoverLFDAll20FromDB` requires a personal debug DSN and fails
+anywhere else.
+**Next:** Rebuild client-v2 into `server/webapp-v2` and redeploy prod server binary so the new
+geocoder and precision UI go live. Consider removing Nominatim entirely after prod bake-in.
+
 ## 2026-08-16: map page overhaul (full-bleed layout, incident list, filters, rich popups)
 
 **Shipped:** Rewrote the map tab around a new `MapPage.svelte` orchestrator in

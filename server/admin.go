@@ -7150,16 +7150,17 @@ func (admin *Admin) TranscriptParserHandler(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// BackfillAddressesHandler geocodes historical calls that are missing address data.
+// BackfillAddressesHandler re-runs address extraction and geocoding for
+// historical calls with a completed transcript.
 //
 // POST /api/admin/backfill-addresses
 //
-// It performs two passes:
-//  1. Calls where parsedAddress is empty but transcript exists (full parse + geocode).
-//  2. Calls where parsedAddress exists but has no geocoded "match" yet (geocode-only).
-//
-// A 100 ms delay is inserted between Nominatim requests to stay within usage policy.
-// Returns: { "processed": N, "geocoded": M, "skipped": K }
+// Every call is re-parsed and geocoded with the UGRC address points geocoder
+// (Nominatim as fallback when configured). A new match always replaces the
+// stored one (this upgrades legacy Nominatim matches with precision-labeled
+// UGRC ones), but an existing match is never discarded on a miss.
+// A 100 ms delay is inserted between Nominatim requests only; address points
+// lookups are local. Returns: { "processed": N, "geocoded": M, "skipped": K }
 func (admin *Admin) BackfillAddressesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -7172,14 +7173,19 @@ func (admin *Admin) BackfillAddressesHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	nominatimURL := admin.Controller.Options.NominatimURL
-	if nominatimURL == "" {
+	var geocoder *address.PostgresGeocoder
+	if addressPointsTableExists(admin.Controller.Database.Sql) {
+		geocoder = address.NewPostgresGeocoder(admin.Controller.Database.Sql)
+	}
+	var nominatimClient *address.NominatimClient
+	if nominatimURL := admin.Controller.Options.NominatimURL; nominatimURL != "" {
+		nominatimClient = address.NewNominatimClient(nominatimURL)
+	}
+	if geocoder == nil && nominatimClient == nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "nominatim URL is not configured"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "no geocoder available: load the address points table or configure a Nominatim URL"})
 		return
 	}
-
-	nominatimClient := address.NewNominatimClient(nominatimURL)
 
 	type callRow struct {
 		id         uint64
@@ -7187,9 +7193,8 @@ func (admin *Admin) BackfillAddressesHandler(w http.ResponseWriter, r *http.Requ
 		parsed     string // existing parsedAddress JSON, may be empty
 	}
 
-	// Pass 1: rows with no parsed address at all
-	rows1, err := admin.Controller.Database.Sql.Query(
-		`SELECT "callId", "transcript" FROM "calls" WHERE "parsedAddress" = '' AND "transcript" != '' AND "transcriptionStatus" = 'completed'`,
+	rows, err := admin.Controller.Database.Sql.Query(
+		`SELECT "callId", "transcript", "parsedAddress" FROM "calls" WHERE "transcript" != '' AND "transcriptionStatus" = 'completed'`,
 	)
 	if err != nil {
 		admin.Controller.Logs.LogEvent(LogLevelError, fmt.Sprintf("backfill-addresses: query failed: %v", err))
@@ -7197,37 +7202,18 @@ func (admin *Admin) BackfillAddressesHandler(w http.ResponseWriter, r *http.Requ
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	var needsFull []callRow
-	for rows1.Next() {
+	var calls []callRow
+	for rows.Next() {
 		var row callRow
-		if err := rows1.Scan(&row.id, &row.transcript); err == nil {
-			needsFull = append(needsFull, row)
+		if err := rows.Scan(&row.id, &row.transcript, &row.parsed); err == nil {
+			calls = append(calls, row)
 		}
 	}
-	rows1.Close()
-
-	// Pass 2: rows with a parsed address but no geocoded match yet
-	rows2, err := admin.Controller.Database.Sql.Query(
-		`SELECT "callId", "transcript", "parsedAddress" FROM "calls" WHERE "parsedAddress" != '' AND "parsedAddress" NOT LIKE '%"match"%' AND "transcript" != ''`,
-	)
-	if err != nil {
-		admin.Controller.Logs.LogEvent(LogLevelError, fmt.Sprintf("backfill-addresses: query2 failed: %v", err))
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
-	}
-	var needsGeocode []callRow
-	for rows2.Next() {
-		var row callRow
-		if err := rows2.Scan(&row.id, &row.transcript, &row.parsed); err == nil {
-			needsGeocode = append(needsGeocode, row)
-		}
-	}
-	rows2.Close()
+	rows.Close()
 
 	processed, geocoded, skipped := 0, 0, 0
 
-	updateCall := func(id uint64, parsedAddr interface{}) {
+	updateCall := func(id uint64, parsedAddr *models.ParsedAddress) {
 		b, err := json.Marshal(parsedAddr)
 		if err != nil {
 			skipped++
@@ -7242,39 +7228,45 @@ func (admin *Admin) BackfillAddressesHandler(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// Process pass 1: full parse + geocode
-	for _, row := range needsFull {
+	for _, row := range calls {
+		// Stop the sweep if the admin client went away
+		if r.Context().Err() != nil {
+			admin.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("backfill-addresses: aborted by client after %d calls", processed))
+			return
+		}
+
 		processed++
 		parsed := address.ParseAddress(row.transcript)
 		if parsed == nil {
 			skipped++
 			continue
 		}
-		time.Sleep(100 * time.Millisecond)
-		if match, err := nominatimClient.Lookup(parsed); err == nil && match != nil {
-			parsed.Match = match
-			geocoded++
-		}
-		updateCall(row.id, parsed)
-	}
 
-	// Process pass 2: geocode-only
-	for _, row := range needsGeocode {
-		processed++
-		var parsed models.ParsedAddress
-		if err := json.Unmarshal([]byte(row.parsed), &parsed); err != nil {
-			skipped++
-			continue
+		hadMatch := strings.Contains(row.parsed, `"match"`)
+
+		if geocoder != nil {
+			if match, err := geocoder.Lookup(parsed); err == nil {
+				parsed.Match = match
+			} else {
+				admin.Controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("backfill-addresses: address points lookup failed: %v", err))
+			}
 		}
-		time.Sleep(100 * time.Millisecond)
-		match, err := nominatimClient.Lookup(&parsed)
-		if err != nil || match == nil {
-			skipped++
-			continue
+		if parsed.Match == nil && nominatimClient != nil {
+			time.Sleep(100 * time.Millisecond)
+			if match, err := nominatimClient.Lookup(parsed); err == nil {
+				parsed.Match = match
+			}
 		}
-		parsed.Match = match
-		geocoded++
-		updateCall(row.id, &parsed)
+
+		if parsed.Match != nil {
+			geocoded++
+			updateCall(row.id, parsed)
+		} else if row.parsed == "" {
+			// Store the parse-only result, but never erase an existing match
+			updateCall(row.id, parsed)
+		} else if hadMatch {
+			skipped++
+		}
 	}
 
 	admin.Controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("backfill-addresses: processed=%d geocoded=%d skipped=%d", processed, geocoded, skipped))

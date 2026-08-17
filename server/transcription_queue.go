@@ -16,6 +16,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"rdio-scanner/server/internal/address"
@@ -41,14 +42,15 @@ type TranscriptionJob struct {
 
 // TranscriptionQueue manages transcription jobs with a worker pool
 type TranscriptionQueue struct {
-	jobs            chan TranscriptionJob
-	workers         int
-	provider        TranscriptionProvider
-	controller      *Controller
-	nominatimClient *address.NominatimClient
-	mutex           sync.Mutex
-	running         bool
-	processedCount  atomic.Uint64 // total transcriptions completed since startup
+	jobs             chan TranscriptionJob
+	workers          int
+	provider         TranscriptionProvider
+	controller       *Controller
+	nominatimClient  *address.NominatimClient
+	postgresGeocoder *address.PostgresGeocoder
+	mutex            sync.Mutex
+	running          bool
+	processedCount   atomic.Uint64 // total transcriptions completed since startup
 }
 
 // NewTranscriptionQueue creates a new transcription queue with worker pool
@@ -70,10 +72,17 @@ func NewTranscriptionQueue(controller *Controller, config TranscriptionConfig) *
 		running:    true,
 	}
 
-	// Initialize Nominatim client for address geocoding if configured
+	// Primary geocoder: UGRC address points in the app database
+	// (loaded by scripts/import-address-points.sh)
+	if controller.Database != nil && controller.Database.Sql != nil && addressPointsTableExists(controller.Database.Sql) {
+		queue.postgresGeocoder = address.NewPostgresGeocoder(controller.Database.Sql)
+		controller.Logs.LogEvent(LogLevelInfo, "address geocoding enabled via UGRC address points")
+	}
+
+	// Initialize Nominatim client as fallback geocoder if configured
 	if nominatimURL := controller.Options.NominatimURL; nominatimURL != "" {
 		queue.nominatimClient = address.NewNominatimClient(nominatimURL)
-		controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("address geocoding enabled via Nominatim at %s", nominatimURL))
+		controller.Logs.LogEvent(LogLevelInfo, fmt.Sprintf("address geocoding fallback enabled via Nominatim at %s", nominatimURL))
 	}
 
 	// Initialize provider based on config
@@ -563,7 +572,16 @@ func (queue *TranscriptionQueue) parseAddress(transcript string) *models.ParsedA
 		return nil
 	}
 
-	if queue.nominatimClient != nil {
+	// Primary: UGRC address points; fallback: Nominatim
+	if queue.postgresGeocoder != nil {
+		if match, err := queue.postgresGeocoder.Lookup(parsedAddr); err == nil {
+			parsedAddr.Match = match
+		} else {
+			queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("address points lookup failed: %v", err))
+		}
+	}
+
+	if parsedAddr.Match == nil && queue.nominatimClient != nil {
 		if match, err := queue.nominatimClient.Lookup(parsedAddr); err == nil {
 			parsedAddr.Match = match
 		} else {
@@ -572,6 +590,14 @@ func (queue *TranscriptionQueue) parseAddress(transcript string) *models.ParsedA
 	}
 
 	return parsedAddr
+}
+
+// addressPointsTableExists reports whether the UGRC address_points table has
+// been loaded into the database
+func addressPointsTableExists(db *sql.DB) bool {
+	var exists bool
+	err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'address_points')`).Scan(&exists)
+	return err == nil && exists
 }
 
 // processKeywords processes keywords after transcription completes

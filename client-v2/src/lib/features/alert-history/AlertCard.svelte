@@ -8,7 +8,9 @@
 		formatUnitName,
 		formatChannelName,
 		formatMapsUrl,
-		getTranscriptHTML
+		getTranscriptHTML,
+		displayAddress,
+		isExactMatch
 	} from '$lib/core/format.ts';
 	import AlertMiniMap from './AlertMiniMap.svelte';
 	import { Card, CardContent } from '$lib/components/ui/card/index.ts';
@@ -39,7 +41,8 @@
 	]);
 	const hasBattalion = $derived(units.some((u) => u.apparatus === 'BATTALION'));
 	const geocodedMatch = $derived(alert.parsedAddress?.match ?? null);
-	const addressText = $derived(alert.parsedAddress?.match?.fullAddress ?? null);
+	const addressText = $derived(displayAddress(alert.parsedAddress));
+	const isApprox = $derived(!!geocodedMatch && !isExactMatch(geocodedMatch));
 	const mapsUrl = $derived(alert.parsedAddress?.match ? formatMapsUrl(alert.parsedAddress.match) : null);
 	const isActive = $derived(alertFeed.alertPlaybackCallId === alert.callId);
 </script>
@@ -86,9 +89,12 @@
 				{/if}
 
 				<!-- Address line -->
-				<p class="text-xs text-muted-foreground">
+				<p class="text-xs text-muted-foreground" title={isApprox ? `Approximate match: ${geocodedMatch?.fullAddress}` : undefined}>
 					<MapPin class="mr-1 inline size-3" />
 					{addressText ?? 'No location'}
+					{#if isApprox}
+						<span class="opacity-60">(approx. location)</span>
+					{/if}
 				</p>
 
 				<!-- Playback controls + Maps link -->

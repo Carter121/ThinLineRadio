@@ -1,3 +1,5 @@
+import type { AddressMatch, ParsedAddress } from './types.ts';
+
 export function formatRelativeTime(timestamp?: number | null, now: number = Date.now()): string {
 	if (!timestamp) return 'Unknown';
 
@@ -108,4 +110,17 @@ export function formatDateTime(value: string | number | null | undefined): strin
 		second: '2-digit',
 		hour12: false
 	});
+}
+
+//* Exact geocodes are rooftop points (legacy Nominatim matches have no precision)
+export function isExactMatch(match: AddressMatch | null | undefined): boolean {
+	return !!match && (!match.precision || match.precision === 'rooftop');
+}
+
+//* Address text to display: the geocoded address only when it is exact,
+//* otherwise the address as heard in the transcript
+export function displayAddress(parsed: ParsedAddress | null | undefined): string | null {
+	if (!parsed) return null;
+	if (parsed.match && isExactMatch(parsed.match)) return parsed.match.fullAddress;
+	return parsed.originalAddress || parsed.address || parsed.match?.fullAddress || null;
 }

@@ -7,6 +7,8 @@ export interface AddressMatch {
 	city?: string;
 	county?: string;
 	state?: string;
+	//* Empty for legacy Nominatim matches; set by the UGRC geocoder
+	precision?: 'rooftop' | 'nearby' | 'street' | 'intersection';
 }
 
 export type AlertType = 'tone' | 'keyword' | 'tone+keyword';

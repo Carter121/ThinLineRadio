@@ -28,7 +28,7 @@ type ParsedAddress struct {
 	Match           *AddressMatch `json:"match,omitempty"`
 }
 
-// AddressMatch holds the geocoded result from Nominatim
+// AddressMatch holds a geocoded result (UGRC address points or Nominatim)
 type AddressMatch struct {
 	FullAddress string  `json:"fullAddress"`
 	Lat         float64 `json:"lat"`
@@ -38,4 +38,7 @@ type AddressMatch struct {
 	City        string  `json:"city,omitempty"`
 	County      string  `json:"county,omitempty"`
 	State       string  `json:"state,omitempty"`
+	//* Precision: "rooftop" (exact point), "nearby" (closest house number),
+	//* "street" (street centroid), "intersection". Empty for Nominatim results.
+	Precision string `json:"precision,omitempty"`
 }

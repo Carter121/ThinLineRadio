@@ -3,6 +3,7 @@ import type { AudioCoordinator } from '../AudioCoordinator.svelte.ts';
 import type { TlrAlertFeed } from '$lib/core/tlr-alert-feed.svelte.ts';
 import { AlertFeedCardState } from '../dashboard/AlertFeedCardState.svelte.ts';
 import type { Alert, TranscriptAnnotationUnit, TlrSocketEvent } from '$lib/core/types.ts';
+import { displayAddress } from '$lib/core/format.ts';
 
 export type TimeWindow = '1h' | '6h' | '24h' | 'all';
 
@@ -71,7 +72,7 @@ export class MapPageState {
 				alert,
 				lat: match.lat,
 				lon: match.lon,
-				address: match.fullAddress,
+				address: displayAddress(alert.parsedAddress) ?? match.fullAddress,
 				incidentType: alert.parsedAddress?.incidentType ?? null,
 				//* Dedupe by apparatus-number; annotations can repeat a unit and rows key on that pair.
 				units: [
