@@ -80,6 +80,9 @@ func (scheduler *Scheduler) run() {
 	// Prune authMutexes entries for users that no longer exist
 	go scheduler.Controller.pruneAuthMutexes()
 
+	//* Remove incidents whose calls were all pruned (incidentCalls cascades)
+	go scheduler.Controller.cleanupOrphanIncidents()
+
 	// Disable unit alias auto-learn when the rollout timer elapses
 	go scheduler.Controller.expireAutoLearnUnitAliases()
 

@@ -462,6 +462,10 @@ func (db *Database) migrate() error {
 		return formatError(err, "")
 	}
 
+	if err := migrateIncidents(db); err != nil {
+		return formatError(err, "")
+	}
+
 	return nil
 }
 

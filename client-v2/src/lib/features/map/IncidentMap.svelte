@@ -42,14 +42,15 @@
 		hit: L.CircleMarker | null;
 		incident: GeocodedIncident;
 	}
+	//* Keyed by incident group key so a threaded incident keeps one marker
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
-	const markerRegistry = new Map<number, MarkerEntry>();
+	const markerRegistry = new Map<string, MarkerEntry>();
 
 	//* Popups are created per open with Svelte-mounted content; handles tracked for unmount.
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const popupHandles = new Map<L.Popup, object>();
 	let currentPopup: L.Popup | undefined;
-	let popupAlertId: number | null = null;
+	let popupKey: string | null = null;
 
 	let userMarker: L.CircleMarker | undefined;
 	let accuracyCircle: L.Circle | undefined;
@@ -70,14 +71,14 @@
 			.setContent(container);
 		popupHandles.set(popup, handle);
 		currentPopup = popup;
-		popupAlertId = incident.alert.alertId;
+		popupKey = incident.key;
 		popup.openOn(map);
 	}
 
-	function handleMarkerClick(alertId: number) {
-		const entry = markerRegistry.get(alertId);
+	function handleMarkerClick(key: string) {
+		const entry = markerRegistry.get(key);
 		if (!entry) return;
-		pageState.select(alertId, 'map');
+		pageState.select(entry.incident.alert.alertId, 'map');
 		openIncidentPopup(entry.incident);
 	}
 
@@ -174,7 +175,7 @@
 			}
 			if (e.popup === currentPopup) {
 				currentPopup = undefined;
-				popupAlertId = null;
+				popupKey = null;
 			}
 		});
 
@@ -213,48 +214,53 @@
 		const lib = leafletLib;
 		const nowMs = pageState.nowMs;
 		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const seen = new Set<number>();
+		const seen = new Set<string>();
 
 		for (const incident of pageState.filteredIncidents) {
-			const alertId = incident.alert.alertId;
-			seen.add(alertId);
+			const key = incident.key;
+			seen.add(key);
 			const band = ageBand(incident.alert.createdAt, nowMs);
+			//* Uncertain geocodes render as a hollow dashed ring so a low-confidence
+			//* pin never reads like a confirmed location.
 			const style = {
 				radius: band.radius,
 				fillColor: band.color,
-				color: '#ffffff',
-				weight: band.radius >= 7 ? 2 : 1,
-				fillOpacity: band.opacity
+				color: incident.uncertain ? band.color : '#ffffff',
+				weight: incident.uncertain ? 1.5 : band.radius >= 7 ? 2 : 1,
+				fillOpacity: incident.uncertain ? band.opacity * 0.25 : band.opacity,
+				dashArray: incident.uncertain ? '3 3' : ''
 			};
 
-			const existing = markerRegistry.get(alertId);
+			const existing = markerRegistry.get(key);
 			if (existing) {
 				existing.incident = incident;
+				existing.marker.setLatLng([incident.lat, incident.lon]);
 				existing.marker.setStyle(style);
 				existing.marker.setRadius(band.radius);
+				if (existing.hit) existing.hit.setLatLng([incident.lat, incident.lon]);
 				continue;
 			}
 
-			const marker = lib.circleMarker([incident.lat, incident.lon], style).on('click', () => handleMarkerClick(alertId));
+			const marker = lib.circleMarker([incident.lat, incident.lon], style).on('click', () => handleMarkerClick(key));
 			incidentLayer.addLayer(marker);
 
 			let hit: L.CircleMarker | null = null;
 			if (coarsePointer) {
 				hit = lib
 					.circleMarker([incident.lat, incident.lon], { radius: 16, stroke: false, fillOpacity: 0, fill: true })
-					.on('click', () => handleMarkerClick(alertId));
+					.on('click', () => handleMarkerClick(key));
 				incidentLayer.addLayer(hit);
 			}
 
-			markerRegistry.set(alertId, { marker, hit, incident });
+			markerRegistry.set(key, { marker, hit, incident });
 		}
 
-		for (const [alertId, entry] of markerRegistry) {
-			if (seen.has(alertId)) continue;
+		for (const [key, entry] of markerRegistry) {
+			if (seen.has(key)) continue;
 			incidentLayer.removeLayer(entry.marker);
 			if (entry.hit) incidentLayer.removeLayer(entry.hit);
-			markerRegistry.delete(alertId);
-			if (popupAlertId === alertId) map?.closePopup();
+			markerRegistry.delete(key);
+			if (popupKey === key) map?.closePopup();
 		}
 	});
 
@@ -263,7 +269,8 @@
 		if (!mapReady) return;
 		const alertId = pageState.selectedAlertId;
 		if (alertId == null || pageState.selectionSource !== 'list') return;
-		const entry = markerRegistry.get(alertId);
+		//* Registry is keyed by group key; find the entry whose newest alert matches
+		const entry = [...markerRegistry.values()].find((e) => e.incident.alert.alertId === alertId);
 		if (!entry || !map || !leafletLib) return;
 
 		const target = leafletLib.latLng(entry.incident.lat, entry.incident.lon);

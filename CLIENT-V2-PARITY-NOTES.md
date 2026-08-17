@@ -105,6 +105,21 @@ against the code if something seems off; add new findings here.
   client's stored format uses `systemId`/`talkgroupId` **ref strings**; keep that shape for
   round-trip compatibility.
 
+## Incidents (2026-08-17)
+
+- `GET /api/incidents?limit=N` returns `{incidents: [...]}` newest-last-seen first; each row has
+  `incidentId, firstSeenAt, lastSeenAt, lat?, lon?, address, incidentType, fireTier, callCount,
+  talkgroupRefs, open` (`open` = lastSeenAt within the 30-minute window).
+- `GET /api/incidents/{id}` adds `calls` (chronological member calls with annotated transcripts,
+  parsedAddress, labels). 404s when all member calls fail the user's access filter.
+- The alerts feed rows carry `incidentId` when the call is threaded (LEFT JOIN at read time; the
+  alerts table itself has no incident column because alert creation races `storeTranscription`),
+  plus `fireTier` ("structure" | "wildland") when the incident notifies. Fire alerts tint amber
+  via the `--fire` theme token (`bg-fire/15`) in the alert log and dashboard feed; the battalion
+  red tint wins when both apply.
+- The `ALT` websocket command also carries `{"type":"incident","incidentId":N}` pokes; treat any
+  ALT frame as "refetch the alert feed".
+
 ## Websocket protocol
 
 - Commands: `PIN`, `PNS`, `CFG`, `LFM`, `CAL`, `LCL`, `ALT`, `LSC`, `VER`, `XPR`, `MAX`, `ERR`.
@@ -208,6 +223,53 @@ against the code if something seems off; add new findings here.
 
 Newest first.
 
+## 2026-08-17: geocode hard county filter + fire ntfy tiers + incident threading
+
+**Shipped:** Three features from FEATURE-PROPOSALS.md.
+1. Geocode confidence: the county hint is now a HARD FILTER in every `PostgresGeocoder.Lookup`
+   stage (WHERE predicate, not a score), including `resolveStreetName`, street centroid (no more
+   statewide fallback when hinted), and intersections. New precision value `uncertain`: when the
+   spoken address has both grid directions and every candidate disagrees on one, the best guess
+   falls through all stages and only returns demoted. Nominatim results are rejected unless their
+   county matches the hint. The `gridAddress` regex now keeps the first direction in
+   `GeocodeQuery`. Backfill gained `?force=1` (erases stale matches; second "Force re-geocode"
+   button in the admin backfill card). Client: `'uncertain'` in the precision union, hollow
+   dashed map pins + legend row, "(unconfirmed location)" wording on alert cards and the alert
+   page. Bench: out-of-county and direction-mismatch counters. Verified against prod data:
+   out-of-county 225 -> 0, confident direction mismatches 290 -> 1 (66 now honest `uncertain`).
+2. Fire ntfy notifications: `server/fire_notify.go` with `classifyFireTier` (substring match,
+   first row wins) over the new array option `fireIncidentTypes` (`{pattern, tier}`, tiers
+   structure/wildland/none, defaults seeded in code). Sends to env-var topic `NTFY_FIRE_TOPIC`
+   at priority 5 (structure) / 4 (wildland) with the same `/alert/<id>` deep link. Battalion
+   path untouched (double-send on both topics is intended). Admin UI: "Fire Notification Tiers"
+   card in Options > Alerts.
+3. Incident threading: new `incidents` + `incidentCalls` tables (`migrateIncidents`).
+   `assignCallToIncident` runs inside `storeTranscription` for alerting talkgroups (the only
+   site holding parsed incidentType/geocode in memory; the alert engine and battalion goroutines
+   race with it): clusters cross-talkgroup within 100 m / 30 min on rooftop/nearby coords, falls
+   back to normalized address equality; fire tier upgrades never downgrade; EVERY call threaded
+   into a notifying fire incident hits the fire topic ("UPDATE:" prefix after the first). Alerts
+   feed LEFT JOINs `incidentCalls` and emits `incidentId`; a `{"type":"incident"}` WS poke rides
+   the ALT command so clients refetch. New `GET /api/incidents` and `GET /api/incidents/{id}`.
+   Client: `core/incident-grouping.ts` groups alerts by incidentId (singletons stay as-is); the
+   alert log paginates grouped `IncidentGroupCard`s (newest call + collapsible earlier calls),
+   the dashboard feed shows one row per incident with an "N calls" badge and Incident link, map
+   pins are one per incident keyed by group key, and `/incident/[id]` is a standalone detail
+   page (header, mini map, accumulated units, chronological call timeline with per-call audio).
+**Decisions:** SLC FD1 and VECC 01 must only ever match Salt Lake County (Payson-style 60-mile
+misses drove this); mutual-aid dispatches now get honest misses and thread by address only.
+VEHICLE/TRUCK FIRE and all gas/hazmat default to "do not notify" (battalion covers big hazmat).
+Every alert of a fire incident notifies, not just the first. Fire topic is env-var
+(`NTFY_FIRE_TOPIC`), matching existing ntfy config; tier rows are admin-editable.
+Cross-talkgroup threading. Backfill everything with force after deploy.
+**Learned:** `address_points` holds only 5 counties (Salt Lake, Utah, Davis, Summit, Tooele).
+Statewide there is no `500 <dir> 700 <dir>` point in Salt Lake County, which is how a zero-score
+Payson row won at rooftop. `storeTranscription` races the alert engine, so alerts cannot carry
+an `incidentId` column; the feed joins at read time and self-heals via the WS poke. The
+FEATURE-PROPOSALS retention item is stale: per-talkgroup retention already works (`call.go:912`).
+**Next:** Deploy, set `NTFY_FIRE_TOPIC`, run "Force re-geocode" from the admin backfill card,
+and watch the first real fire dispatch thread + notify.
+
 ## 2026-08-17: county priority for geocoding (talkgroup-based)
 
 **Shipped:** New admin option `addressCountyHints` (array of `{systemRef, talkgroupRef, county}`,
@@ -222,6 +284,7 @@ add/delete rows, saves via the normal options PATCH since arrays replace wholesa
 `geocode-bench` gained `-hints file.json` and reads optional systemRef/talkgroupRef CSV columns.
 **Decisions:** Hint source is the talkgroup only (not the spoken channel in the transcript).
 Prefer-but-allow: out-of-county matches still return when nothing fits in the hinted county.
+(REVERSED later on 2026-08-17: the hint is now a hard filter; see the newer entry above.)
 **Learned:** Admin config systems payload already exposes `systemRef` and per-talkgroup
 `talkgroupRef`/`label` (server MarshalJSON), so the UI selects need no new API. `Options.ApplyPartial`
 deep-merges maps (deletes impossible) but replaces arrays wholesale, so array-shaped options are

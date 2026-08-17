@@ -40,14 +40,17 @@
 		).values()
 	]);
 	const hasBattalion = $derived(units.some((u) => u.apparatus === 'BATTALION'));
+	const isFire = $derived(alert.fireTier === 'structure' || alert.fireTier === 'wildland');
 	const geocodedMatch = $derived(alert.parsedAddress?.match ?? null);
 	const addressText = $derived(displayAddress(alert.parsedAddress));
 	const isApprox = $derived(!!geocodedMatch && !isExactMatch(geocodedMatch));
+	const isUncertain = $derived(geocodedMatch?.precision === 'uncertain');
 	const mapsUrl = $derived(alert.parsedAddress?.match ? formatMapsUrl(alert.parsedAddress.match) : null);
 	const isActive = $derived(alertFeed.alertPlaybackCallId === alert.callId);
 </script>
 
-<Card class={['h-56 gap-0 overflow-hidden border-border/60 py-0', hasBattalion && 'bg-destructive/15']}>
+<!--* Battalion tint wins over the fire tint when both apply -->
+<Card class={['h-56 gap-0 overflow-hidden border-border/60 py-0', hasBattalion ? 'bg-destructive/15' : isFire && 'bg-fire/15']}>
 	<CardContent class="flex h-full gap-0 p-0">
 		<!-- Left side: content -->
 		<div class="flex flex-1 flex-col p-4">
@@ -89,10 +92,19 @@
 				{/if}
 
 				<!-- Address line -->
-				<p class="text-xs text-muted-foreground" title={isApprox ? `Approximate match: ${geocodedMatch?.fullAddress}` : undefined}>
+				<p
+					class="text-xs text-muted-foreground"
+					title={isUncertain
+						? `Unconfirmed match: ${geocodedMatch?.fullAddress}`
+						: isApprox
+							? `Approximate match: ${geocodedMatch?.fullAddress}`
+							: undefined}
+				>
 					<MapPin class="mr-1 inline size-3" />
 					{addressText ?? 'No location'}
-					{#if isApprox}
+					{#if isUncertain}
+						<span class="opacity-60">(unconfirmed location)</span>
+					{:else if isApprox}
 						<span class="opacity-60">(approx. location)</span>
 					{/if}
 				</p>

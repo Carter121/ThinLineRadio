@@ -3,6 +3,7 @@ import type { AudioCoordinator } from '../AudioCoordinator.svelte.ts';
 import type { TlrAlertFeed } from '$lib/core/tlr-alert-feed.svelte.ts';
 import { AlertFeedCardState } from '../dashboard/AlertFeedCardState.svelte.ts';
 import type { Alert, TranscriptAnnotationUnit, TlrSocketEvent } from '$lib/core/types.ts';
+import { groupAlertsByIncident } from '$lib/core/incident-grouping.ts';
 import { displayAddress } from '$lib/core/format.ts';
 
 export type TimeWindow = '1h' | '6h' | '24h' | 'all';
@@ -17,11 +18,20 @@ export const TIME_WINDOWS: { value: TimeWindow; label: string; ms: number }[] = 
 export const UNKNOWN_TYPE = 'Unknown';
 
 export interface GeocodedIncident {
+	//* Stable marker identity: the server incidentId when threaded, else the alert id
+	key: string;
+	incidentId: number | null;
+	//* Newest member alert; drives age band, selection, and playback
 	alert: Alert;
+	//* All member alerts, newest first
+	alerts: Alert[];
+	callCount: number;
 	lat: number;
 	lon: number;
 	address: string;
 	incidentType: string | null;
+	//* True for low-confidence geocodes; the map renders these pins hollow
+	uncertain: boolean;
 	units: TranscriptAnnotationUnit[];
 }
 
@@ -62,27 +72,27 @@ export class MapPageState {
 		this.alertFeed.destroy();
 	}
 
-	//* feed.alerts is $state.raw and replaced wholesale, so a full re-derive is correct.
+	//* feed.alerts is $state.raw and replaced wholesale, so a full re-derive is
+	//* correct. One entry per incident group: threaded calls share a pin.
 	get incidents(): GeocodedIncident[] {
 		const result: GeocodedIncident[] = [];
-		for (const alert of this.feed.alerts) {
-			const match = alert.parsedAddress?.match;
-			if (!match) continue;
+		for (const group of groupAlertsByIncident(this.feed.alerts)) {
+			//* Pin on the newest member that geocoded
+			const located = group.alerts.find((a) => a.parsedAddress?.match);
+			const match = located?.parsedAddress?.match;
+			if (!located || !match) continue;
 			result.push({
-				alert,
+				key: group.key,
+				incidentId: group.incidentId,
+				alert: group.newest,
+				alerts: group.alerts,
+				callCount: group.alerts.length,
 				lat: match.lat,
 				lon: match.lon,
-				address: displayAddress(alert.parsedAddress) ?? match.fullAddress,
-				incidentType: alert.parsedAddress?.incidentType ?? null,
-				//* Dedupe by apparatus-number; annotations can repeat a unit and rows key on that pair.
-				units: [
-					// eslint-disable-next-line svelte/prefer-svelte-reactivity
-					...new Map(
-						(alert.transcriptAnnotations ?? [])
-							.filter((a): a is TranscriptAnnotationUnit => a.type === 'unit')
-							.map((a) => [`${a.apparatus}-${a.number}`, a])
-					).values()
-				]
+				address: displayAddress(located.parsedAddress) ?? match.fullAddress,
+				incidentType: group.incidentType,
+				uncertain: match.precision === 'uncertain',
+				units: group.units
 			});
 		}
 		return result.sort((a, b) => b.alert.createdAt - a.alert.createdAt);

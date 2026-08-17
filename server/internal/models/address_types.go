@@ -42,6 +42,7 @@ type AddressMatch struct {
 	County      string  `json:"county,omitempty"`
 	State       string  `json:"state,omitempty"`
 	//* Precision: "rooftop" (exact point), "nearby" (closest house number),
-	//* "street" (street centroid), "intersection". Empty for Nominatim results.
+	//* "street" (street centroid), "intersection", "uncertain" (best guess
+	//* whose directions disagree with what was spoken). Empty for Nominatim.
 	Precision string `json:"precision,omitempty"`
 }

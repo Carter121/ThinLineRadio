@@ -23,7 +23,7 @@
 	</div>
 
 	<div class="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
-		{#each pageState.filteredIncidents as incident (incident.alert.alertId)}
+		{#each pageState.filteredIncidents as incident (incident.key)}
 			<div
 				bind:this={
 					() => rowElements.get(incident.alert.alertId),

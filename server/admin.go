@@ -7158,7 +7158,9 @@ func (admin *Admin) TranscriptParserHandler(w http.ResponseWriter, r *http.Reque
 // Every call is re-parsed and geocoded with the UGRC address points geocoder
 // (Nominatim as fallback when configured). A new match always replaces the
 // stored one (this upgrades legacy Nominatim matches with precision-labeled
-// UGRC ones), but an existing match is never discarded on a miss.
+// UGRC ones), but an existing match is never discarded on a miss unless
+// ?force=1 is passed: force mode rewrites every parsed call, erasing stale
+// matches so a stricter geocoder can clear previously wrong pins.
 // A 100 ms delay is inserted between Nominatim requests only; address points
 // lookups are local. Returns: { "processed": N, "geocoded": M, "skipped": K }
 func (admin *Admin) BackfillAddressesHandler(w http.ResponseWriter, r *http.Request) {
@@ -7166,6 +7168,7 @@ func (admin *Admin) BackfillAddressesHandler(w http.ResponseWriter, r *http.Requ
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	force := r.URL.Query().Get("force") == "1"
 
 	t := admin.GetAuthorization(r)
 	if !admin.ValidateToken(t) {
@@ -7270,8 +7273,10 @@ func (admin *Admin) BackfillAddressesHandler(w http.ResponseWriter, r *http.Requ
 		if parsed.Match != nil {
 			geocoded++
 			updateCall(row.id, parsed)
-		} else if row.parsed == "" {
-			// Store the parse-only result, but never erase an existing match
+		} else if force || row.parsed == "" {
+			//* Without force, store the parse-only result but never erase an
+			//* existing match; with force, the fresh (possibly matchless)
+			//* result always wins
 			updateCall(row.id, parsed)
 		} else if hadMatch {
 			skipped++

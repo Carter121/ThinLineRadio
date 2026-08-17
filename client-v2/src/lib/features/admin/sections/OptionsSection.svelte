@@ -13,7 +13,7 @@
 	import Trash2 from '@lucide/svelte/icons/trash-2';
 	import { Select, SelectContent, SelectItem, SelectTrigger } from '$lib/components/ui/select';
 	import type { AdminSessionState } from '$lib/core/admin-session.svelte.ts';
-	import type { AdminCountyHint } from '$lib/core/admin-types.ts';
+	import type { AdminCountyHint, AdminFireIncidentType } from '$lib/core/admin-types.ts';
 	import { UTAH_COUNTIES, countyName } from '../utah-counties.ts';
 	import BrandingImages from './BrandingImages.svelte';
 	import OptionField from './OptionField.svelte';
@@ -178,6 +178,52 @@
 		)
 	);
 
+	//* Fire notification tier rows, managed outside the spec-driven draft (array option).
+	let fireTiers = $state<AdminFireIncidentType[]>([]);
+	let fireTiersBaseline = '[]';
+	let savingFireTiers = $state(false);
+	const fireTiersDirty = $derived(JSON.stringify(fireTiers) !== fireTiersBaseline);
+
+	$effect(() => {
+		const options = session.options;
+		if (!options) return;
+		untrack(() => {
+			const incoming = JSON.stringify(options.fireIncidentTypes ?? []);
+			if (JSON.stringify(fireTiers) === fireTiersBaseline) {
+				fireTiers = (options.fireIncidentTypes ?? []).map((r) => ({ ...r }));
+			}
+			fireTiersBaseline = incoming;
+		});
+	});
+
+	const FIRE_TIER_CHOICES: { value: AdminFireIncidentType['tier']; label: string }[] = [
+		{ value: 'structure', label: 'Structure (priority 5)' },
+		{ value: 'wildland', label: 'Wildland (priority 4)' },
+		{ value: 'none', label: 'Do not notify' }
+	];
+
+	function addFireTier() {
+		fireTiers = [...fireTiers, { pattern: '', tier: 'none' }];
+	}
+
+	function removeFireTier(index: number) {
+		fireTiers = fireTiers.filter((_, i) => i !== index);
+	}
+
+	async function saveFireTiers() {
+		savingFireTiers = true;
+		try {
+			const rows = fireTiers.filter((r) => r.pattern.trim() !== '');
+			await session.saveOptions({ fireIncidentTypes: rows });
+			fireTiers = rows.map((r) => ({ ...r }));
+			toast.success('Fire notification tiers saved');
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Failed to save fire notification tiers');
+		} finally {
+			savingFireTiers = false;
+		}
+	}
+
 	function addCountyHint() {
 		countyHints = [...countyHints, { systemRef: 0, talkgroupRef: 0, county: '' }];
 	}
@@ -200,13 +246,15 @@
 		}
 	}
 
-	//* Geocodes historical calls that are missing address data via Nominatim.
-	async function backfillAddresses() {
+	//* Re-parses and geocodes historical calls. Force mode also erases stale
+	//* matches so a stricter geocoder can clear previously wrong pins.
+	async function backfillAddresses(force = false) {
 		backfillingAddresses = true;
 		try {
-			const result = await session.client.request<{ processed?: number; geocoded?: number; skipped?: number }>('/api/admin/backfill-addresses', {
-				method: 'POST'
-			});
+			const result = await session.client.request<{ processed?: number; geocoded?: number; skipped?: number }>(
+				`/api/admin/backfill-addresses${force ? '?force=1' : ''}`,
+				{ method: 'POST' }
+			);
 			toast.success(`Backfill complete: ${result?.processed ?? 0} processed, ${result?.geocoded ?? 0} geocoded, ${result?.skipped ?? 0} skipped`);
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : 'Address backfill failed');
@@ -345,14 +393,19 @@
 						Re-run address extraction and geocoding for historical transcripts using the address points database (Nominatim as fallback). Can take a while on large call databases.
 					</p>
 				</div>
-				<Button variant="outline" size="sm" disabled={backfillingAddresses} onclick={backfillAddresses}>
-					{#if backfillingAddresses}
-						<Loader2 data-icon="inline-start" class="animate-spin" />
-					{:else}
-						<MapPin data-icon="inline-start" />
-					{/if}
-					Backfill
-				</Button>
+				<div class="flex items-center gap-2">
+					<Button variant="outline" size="sm" disabled={backfillingAddresses} onclick={() => backfillAddresses()}>
+						{#if backfillingAddresses}
+							<Loader2 data-icon="inline-start" class="animate-spin" />
+						{:else}
+							<MapPin data-icon="inline-start" />
+						{/if}
+						Backfill
+					</Button>
+					<Button variant="outline" size="sm" disabled={backfillingAddresses} onclick={() => backfillAddresses(true)}>
+						Force re-geocode
+					</Button>
+				</div>
 			</CardContent>
 		</Card>
 
@@ -362,7 +415,7 @@
 					<div>
 						<p class="text-sm font-medium">County Priority</p>
 						<p class="text-xs text-muted-foreground">
-							Prefer addresses in a county when geocoding calls from a talkgroup. Other counties still match when nothing fits nearby.
+							Restrict geocoding to a county for calls from a talkgroup. Addresses outside the county never match; unmatched calls keep their spoken address.
 						</p>
 					</div>
 					<div class="flex items-center gap-2">
@@ -419,6 +472,61 @@
 									</SelectContent>
 								</Select>
 								<Button variant="ghost" size="sm" class="size-8 p-0" onclick={() => removeCountyHint(countyHints.indexOf(hint))}>
+									<Trash2 class="size-3.5" />
+								</Button>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</CardContent>
+		</Card>
+	{/if}
+
+	{#if panel.id === 'alerts'}
+		<Card class="py-0">
+			<CardContent class="space-y-3 px-5 py-4">
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<div>
+						<p class="text-sm font-medium">Fire Notification Tiers</p>
+						<p class="text-xs text-muted-foreground">
+							Send ntfy notifications for fire incidents by matched incident type. Patterns match as substrings and earlier rows win, so keep "do not notify" rows first. Requires the NTFY_FIRE_TOPIC environment variable.
+						</p>
+					</div>
+					<div class="flex items-center gap-2">
+						{#if fireTiersDirty}
+							<Button size="sm" disabled={savingFireTiers} onclick={saveFireTiers}>
+								{#if savingFireTiers}
+									<Loader2 data-icon="inline-start" class="animate-spin" />
+								{:else}
+									<Save data-icon="inline-start" />
+								{/if}
+								Save
+							</Button>
+						{/if}
+						<Button variant="outline" size="sm" onclick={addFireTier}>
+							<Plus data-icon="inline-start" />
+							Add
+						</Button>
+					</div>
+				</div>
+				{#if fireTiers.length === 0}
+					<p class="text-xs text-muted-foreground">No tiers configured. Built-in defaults apply until rows are saved here.</p>
+				{:else}
+					<div class="space-y-2">
+						{#each fireTiers as row (row)}
+							<div class="flex flex-wrap items-center gap-2">
+								<Input class="h-8 w-64 text-xs" placeholder="Incident type contains..." bind:value={row.pattern} />
+								<Select type="single" value={row.tier} onValueChange={(v) => (row.tier = v as AdminFireIncidentType['tier'])}>
+									<SelectTrigger class="h-8 w-44 text-xs">
+										{FIRE_TIER_CHOICES.find((c) => c.value === row.tier)?.label ?? 'Select tier...'}
+									</SelectTrigger>
+									<SelectContent>
+										{#each FIRE_TIER_CHOICES as choice (choice.value)}
+											<SelectItem value={choice.value}>{choice.label}</SelectItem>
+										{/each}
+									</SelectContent>
+								</Select>
+								<Button variant="ghost" size="sm" class="size-8 p-0" onclick={() => removeFireTier(fireTiers.indexOf(row))}>
 									<Trash2 class="size-3.5" />
 								</Button>
 							</div>

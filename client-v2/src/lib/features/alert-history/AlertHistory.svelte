@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { AlertHistoryState } from './AlertHistoryState.svelte.ts';
-	import AlertCard from './AlertCard.svelte';
+	import IncidentGroupCard from './IncidentGroupCard.svelte';
 	import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card/index.ts';
 	import { Button } from '$lib/components/ui/button/index.ts';
 	import { Badge } from '$lib/components/ui/badge/index.ts';
@@ -69,7 +69,7 @@
 				<div class="flex items-center gap-2">
 					<ClipboardList class="size-3.5" />
 					Alert Log
-					<Badge variant="secondary" class="ml-1 text-[11px]">{state.filteredAlerts.length}</Badge>
+					<Badge variant="secondary" class="ml-1 text-[11px]">{state.filteredGroups.length}</Badge>
 				</div>
 				{#if state.pageCount > 1}
 					{@render pagination()}
@@ -121,10 +121,10 @@
 
 	<!-- Alert cards list -->
 	<div>
-		{#if state.pagedAlerts.length > 0}
+		{#if state.pagedGroups.length > 0}
 			<div class="space-y-3">
-				{#each state.pagedAlerts as alert (alert.alertId)}
-					<AlertCard {alert} alertFeed={state.alertFeed} nowMs={state.nowMs} query={state.searchQuery} />
+				{#each state.pagedGroups as group (group.key)}
+					<IncidentGroupCard {group} alertFeed={state.alertFeed} nowMs={state.nowMs} query={state.searchQuery} />
 				{/each}
 			</div>
 		{:else}

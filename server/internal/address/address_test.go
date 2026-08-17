@@ -86,10 +86,10 @@ func TestBuildGeocodeQuery(t *testing.T) {
 		input string
 		want  string
 	}{
-		// Utah grid: "805 SOUTH 300 WEST" -> "805 300 WEST"
-		{"805 SOUTH 300 WEST", "805 300 WEST"},
-		// Grid with comma: "235 WEST, 400 NORTH" -> "235 400 NORTH"
-		{"235 WEST, 400 NORTH", "235 400 NORTH"},
+		// Utah grid keeps its first direction
+		{"805 SOUTH 300 WEST", "805 SOUTH 300 WEST"},
+		// Grid with comma: comma dropped, direction kept
+		{"235 WEST, 400 NORTH", "235 WEST 400 NORTH"},
 		// Errant comma: "1990, WEST NORTH TEMPLE" -> "1990 WEST NORTH TEMPLE"
 		{"1990, WEST NORTH TEMPLE", "1990 WEST NORTH TEMPLE"},
 		// Cross street suffix: "2664 WEST HILL, 11400 SOUTH" -> "2664 WEST HILL"
@@ -255,8 +255,50 @@ func TestParseAddressGeocodeQuery(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	// Utah grid normalization: "805 SOUTH 300 WEST" -> "805 300 WEST"
-	if result.GeocodeQuery != "805 300 WEST" {
-		t.Errorf("GeocodeQuery = %q, want %q", result.GeocodeQuery, "805 300 WEST")
+	// Utah grid normalization keeps the first direction
+	if result.GeocodeQuery != "805 SOUTH 300 WEST" {
+		t.Errorf("GeocodeQuery = %q, want %q", result.GeocodeQuery, "805 SOUTH 300 WEST")
+	}
+}
+
+func TestSplitAddressGridDirections(t *testing.T) {
+	parts := splitAddress("1300 SOUTH 900 WEST")
+	if parts == nil {
+		t.Fatal("expected non-nil parts")
+	}
+	if parts.AddNum != "1300" || parts.PrefixDir != "S" || parts.StreetName != "900" || parts.SuffixDir != "W" {
+		t.Errorf("splitAddress() = %+v, want AddNum=1300 PrefixDir=S StreetName=900 SuffixDir=W", parts)
+	}
+}
+
+func TestDirsConsistent(t *testing.T) {
+	grid := splitAddress("1300 SOUTH 900 WEST")
+	if grid == nil {
+		t.Fatal("expected non-nil parts")
+	}
+	tests := []struct {
+		name string
+		cand candidate
+		want bool
+	}{
+		{"exact agreement", candidate{PrefixDir: "S", SuffixDir: "W"}, true},
+		{"transposed directions", candidate{PrefixDir: "W", SuffixDir: "S"}, false},
+		{"prefix flip only", candidate{PrefixDir: "N", SuffixDir: "W"}, false},
+		{"suffix flip only", candidate{PrefixDir: "S", SuffixDir: "E"}, false},
+		{"empty row dirs are consistent", candidate{}, true},
+	}
+	for _, tt := range tests {
+		if got := dirsConsistent(&tt.cand, grid); got != tt.want {
+			t.Errorf("%s: dirsConsistent() = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+
+	//* Single spoken direction: enforcement is off
+	named := splitAddress("805 SOUTH CHEYENNE STREET")
+	if named == nil {
+		t.Fatal("expected non-nil parts")
+	}
+	if !dirsConsistent(&candidate{PrefixDir: "N"}, named) {
+		t.Error("dirsConsistent() with single spoken direction should be true")
 	}
 }

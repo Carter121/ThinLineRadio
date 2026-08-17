@@ -7,8 +7,9 @@ export interface AddressMatch {
 	city?: string;
 	county?: string;
 	state?: string;
-	//* Empty for legacy Nominatim matches; set by the UGRC geocoder
-	precision?: 'rooftop' | 'nearby' | 'street' | 'intersection';
+	//* Empty for legacy Nominatim matches; set by the UGRC geocoder.
+	//* "uncertain" marks a best guess whose directions disagree with dispatch.
+	precision?: 'rooftop' | 'nearby' | 'street' | 'intersection' | 'uncertain';
 }
 
 export type AlertType = 'tone' | 'keyword' | 'tone+keyword';
@@ -95,6 +96,43 @@ export interface Alert {
 	talkgroupName?: string;
 	matchedToneSetName?: string;
 	matchedToneSetNames?: string[];
+	//* Set when the call has been threaded into an incident server-side
+	incidentId?: number;
+	//* The incident's fire tier ("structure" | "wildland") when it notifies
+	fireTier?: string;
+}
+
+//* One row from GET /api/incidents
+export interface Incident {
+	incidentId: number;
+	firstSeenAt: number;
+	lastSeenAt: number;
+	lat?: number;
+	lon?: number;
+	address: string;
+	incidentType: string;
+	fireTier: string;
+	callCount: number;
+	talkgroupRefs?: number[];
+	open: boolean;
+}
+
+//* One member call from GET /api/incidents/{id}
+export interface IncidentCall {
+	callId: number;
+	timestamp: number;
+	systemId: number;
+	talkgroupId: number;
+	systemLabel?: string;
+	talkgroupLabel?: string;
+	transcript?: string;
+	transcriptAnnotations?: TranscriptAnnotation[];
+	alertSummary?: string;
+	parsedAddress?: ParsedAddress;
+}
+
+export interface IncidentDetail extends Incident {
+	calls: IncidentCall[];
 }
 
 //* Single-call metadata from GET /api/calls/{id}/meta (the /alert/[callId] page)
@@ -383,10 +421,13 @@ export interface SocketCall {
 	transcriptionStatus?: string;
 }
 
+//* "alert" pokes carry callId/alertType; "incident" pokes carry incidentId.
+//* Both just prompt the feed to refetch.
 export interface SocketAlertNotification {
-	type: 'alert';
-	callId: number;
-	alertType: AlertType;
+	type: 'alert' | 'incident';
+	callId?: number;
+	alertType?: AlertType;
+	incidentId?: number;
 }
 
 export type WebsocketCommand = 'ALT' | 'CAL' | 'CFG' | 'ERR' | 'XPR' | 'LCL' | 'LSC' | 'LFM' | 'MAX' | 'PIN' | 'PNS' | 'VER';

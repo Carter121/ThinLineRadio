@@ -2906,7 +2906,7 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Query all alerts (no userId filter) with system, talkgroup labels, call transcripts, and tone sequence
-		query := fmt.Sprintf(`SELECT a."alertId", a."callId", a."systemId", a."talkgroupId", a."alertType", a."toneDetected", a."toneSetId", a."keywordsMatched", a."transcriptSnippet", a."createdAt", s."label" as "systemLabel", s."systemRef" as "systemRef", t."label" as "talkgroupLabel", t."name" as "talkgroupName", c."transcript" as "callTranscript", c."transcriptionStatus" as "callTranscriptionStatus", c."toneSequence" as "callToneSequence", c."timestamp" as "callTimestamp", c."alertSummary" as "callAlertSummary", c."parsedAddress" as "callParsedAddress" FROM "alerts" a LEFT JOIN "systems" s ON s."systemId" = a."systemId" LEFT JOIN "talkgroups" t ON t."talkgroupId" = a."talkgroupId" LEFT JOIN "calls" c ON c."callId" = a."callId" %s ORDER BY a."createdAt" DESC LIMIT %d`, whereClause, maxAlerts)
+		query := fmt.Sprintf(`SELECT a."alertId", a."callId", a."systemId", a."talkgroupId", a."alertType", a."toneDetected", a."toneSetId", a."keywordsMatched", a."transcriptSnippet", a."createdAt", s."label" as "systemLabel", s."systemRef" as "systemRef", t."label" as "talkgroupLabel", t."name" as "talkgroupName", c."transcript" as "callTranscript", c."transcriptionStatus" as "callTranscriptionStatus", c."toneSequence" as "callToneSequence", c."timestamp" as "callTimestamp", c."alertSummary" as "callAlertSummary", c."parsedAddress" as "callParsedAddress", ic."incidentId" as "incidentId", i."fireTier" as "fireTier" FROM "alerts" a LEFT JOIN "systems" s ON s."systemId" = a."systemId" LEFT JOIN "talkgroups" t ON t."talkgroupId" = a."talkgroupId" LEFT JOIN "calls" c ON c."callId" = a."callId" LEFT JOIN "incidentCalls" ic ON ic."callId" = a."callId" LEFT JOIN "incidents" i ON i."incidentId" = ic."incidentId" %s ORDER BY a."createdAt" DESC LIMIT %d`, whereClause, maxAlerts)
 		rows, err := api.Controller.Database.Sql.Query(query)
 		if err != nil {
 			api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to query alerts: %v", err))
@@ -2938,9 +2938,11 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				callTimestamp           sql.NullInt64
 				callAlertSummary        sql.NullString
 				callParsedAddress       sql.NullString
+				incidentId              sql.NullInt64
+				incidentFireTier        sql.NullString
 			)
 
-			if err := rows.Scan(&alertId, &callId, &systemId, &talkgroupId, &alertType, &toneDetected, &toneSetId, &keywordsMatched, &transcriptSnippet, &createdAt, &systemLabel, &systemRef, &talkgroupLabel, &talkgroupName, &callTranscript, &callTranscriptionStatus, &callToneSequence, &callTimestamp, &callAlertSummary, &callParsedAddress); err != nil {
+			if err := rows.Scan(&alertId, &callId, &systemId, &talkgroupId, &alertType, &toneDetected, &toneSetId, &keywordsMatched, &transcriptSnippet, &createdAt, &systemLabel, &systemRef, &talkgroupLabel, &talkgroupName, &callTranscript, &callTranscriptionStatus, &callToneSequence, &callTimestamp, &callAlertSummary, &callParsedAddress, &incidentId, &incidentFireTier); err != nil {
 				continue
 			}
 
@@ -3044,6 +3046,12 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			if callTimestamp.Valid {
 				alertMap["callTimestamp"] = callTimestamp.Int64
+			}
+			if incidentId.Valid {
+				alertMap["incidentId"] = incidentId.Int64
+			}
+			if incidentFireTier.Valid && incidentFireTier.String != "" {
+				alertMap["fireTier"] = incidentFireTier.String
 			}
 
 			if systemLabel.Valid {

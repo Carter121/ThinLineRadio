@@ -18,7 +18,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -72,6 +74,7 @@ func main() {
 	}
 
 	var total, parsed, pgMatched, nomMatched, both, pgOnly, nomOnly, neither, hinted int
+	var outOfCounty, dirMismatch int
 	precisions := map[string]int{}
 	for {
 		rec, err := reader.Read()
@@ -124,6 +127,18 @@ func main() {
 			if *verbose && match.Precision != "rooftop" {
 				fmt.Printf("%-12s call=%s addr=%q -> %q\n", match.Precision, rec[0], parsedAddr.Address, match.FullAddress)
 			}
+			//* Hard county filter regression check: must stay at 0
+			if wanted := address.CountyName(parsedAddr.CountyHint); wanted != "" && match.County != wanted {
+				outOfCounty++
+				fmt.Printf("OUT-OF-COUNTY call=%s addr=%q -> %q (%s)\n", rec[0], parsedAddr.Address, match.FullAddress, match.County)
+			}
+			//* Grid transposition check: spoken vs matched directions
+			if match.Precision != "uncertain" && gridDirsMismatch(parsedAddr.Address, match.FullAddress) {
+				dirMismatch++
+				if *verbose {
+					fmt.Printf("DIR-MISMATCH call=%s addr=%q -> %q\n", rec[0], parsedAddr.Address, match.FullAddress)
+				}
+			}
 		}
 		if nomHit {
 			nomMatched++
@@ -151,6 +166,7 @@ func main() {
 	fmt.Printf("nominatim matched: %d (%.1f%% of parsed)\n", nomMatched, pct(nomMatched, parsed))
 	fmt.Printf("both=%d pg-only=%d nominatim-only=%d neither=%d\n", both, pgOnly, nomOnly, neither)
 	fmt.Printf("precision: %v\n", precisions)
+	fmt.Printf("out-of-hinted-county: %d, direction-mismatched (non-uncertain): %d\n", outOfCounty, dirMismatch)
 	if len(hints) > 0 {
 		fmt.Printf("county hint applied to %d of %d parsed\n", hinted, parsed)
 	}
@@ -161,4 +177,18 @@ func pct(n, d int) float64 {
 		return 0
 	}
 	return float64(n) * 100 / float64(d)
+}
+
+var spokenGrid = regexp.MustCompile(`(?i)^(\d+)\s+(NORTH|SOUTH|EAST|WEST|N|S|E|W)\s+(\d+)\s+(NORTH|SOUTH|EAST|WEST|N|S|E|W)\b`)
+var matchedGrid = regexp.MustCompile(`^(\d+)\s+([NSEW])\s+(\d+)\s+([NSEW])\b`)
+
+//* gridDirsMismatch reports whether both addresses are grid style and their
+//* direction pair disagrees (the transposition signature)
+func gridDirsMismatch(spoken, matched string) bool {
+	s := spokenGrid.FindStringSubmatch(strings.ToUpper(spoken))
+	m := matchedGrid.FindStringSubmatch(strings.ToUpper(matched))
+	if s == nil || m == nil {
+		return false
+	}
+	return s[2][:1] != m[2] || s[4][:1] != m[4]
 }

@@ -83,6 +83,15 @@ var utahCountyNames = map[string]string{
 	"49057": "Weber",
 }
 
+//* CountyName returns the display name ("Salt Lake County") for a Utah FIPS
+//* code, or "" when unknown
+func CountyName(fips string) string {
+	if name := utahCountyNames[fips]; name != "" {
+		return name + " County"
+	}
+	return ""
+}
+
 var nonAddressChars = regexp.MustCompile(`[^A-Z0-9\- ]`)
 var houseNumberPattern = regexp.MustCompile(`^\d+$`)
 
@@ -169,25 +178,65 @@ func splitAddress(addr string) *queryParts {
 
 //* candidate is one address_points row plus its match ranking values
 type candidate struct {
-	FullAdd  string
-	AddNum   string
-	Street   string
-	City     string
-	ZipCode  sql.NullString
-	CountyID sql.NullString
-	Lat      float64
-	Lon      float64
-	Score    int
-	Sim      float64
-	NumDist  int
+	FullAdd   string
+	AddNum    string
+	Street    string
+	City      string
+	ZipCode   sql.NullString
+	CountyID  sql.NullString
+	PrefixDir string
+	SuffixDir string
+	Lat       float64
+	Lon       float64
+	Score     int
+	Sim       float64
+	NumDist   int
 }
 
-const candidateColumns = `coalesce(full_add,''), coalesce(add_num,''), coalesce(street_name,''), coalesce(city,''), zip_code, county_id, lat, lon`
+const candidateColumns = `coalesce(full_add,''), coalesce(add_num,''), coalesce(street_name,''), coalesce(city,''), zip_code, county_id, coalesce(prefix_dir,''), coalesce(suffix_dir,''), lat, lon`
+
+//* countyFilter is the hard county restriction: when a county hint exists,
+//* candidates outside it are excluded entirely, never just outscored. A
+//* confident match 60 miles away is worse than an honest miss.
+func countyFilter(hintPlaceholder string) string {
+	return fmt.Sprintf(`(%s = '' OR coalesce(county_id,'') = %s)`, hintPlaceholder, hintPlaceholder)
+}
+
+//* dirsConsistent reports whether a candidate row agrees with the spoken
+//* directions. Only enforced when the spoken address carries BOTH a prefix
+//* and a suffix direction (the grid-address signature, e.g. "1300 S 900 W"),
+//* since that is where transpositions land a pin across the valley.
+//* Empty row values are treated as consistent.
+func dirsConsistent(c *candidate, parts *queryParts) bool {
+	if parts.PrefixDir == "" || parts.SuffixDir == "" {
+		return true
+	}
+	if c.PrefixDir != "" && c.PrefixDir != parts.PrefixDir {
+		return false
+	}
+	if c.SuffixDir != "" && c.SuffixDir != parts.SuffixDir {
+		return false
+	}
+	return true
+}
+
+//* splitByDirs partitions candidates into direction-consistent rows and the
+//* rest, preserving each stage's ranking order
+func splitByDirs(rows []*candidate, parts *queryParts) (consistent, mismatched []*candidate) {
+	for _, c := range rows {
+		if dirsConsistent(c, parts) {
+			consistent = append(consistent, c)
+		} else {
+			mismatched = append(mismatched, c)
+		}
+	}
+	return
+}
 
 //* scoreExpr ranks candidates by how many optional components agree.
 //* Placeholder order: prefix_dir, suffix_dir, street_type, city, county hint.
-//* County weight (10) exceeds the sum of all other components (8) so an
-//* in-county candidate always outranks an out-of-county one.
+//* The county term only matters for unhinted lookups now that a hint is a
+//* hard WHERE filter; it stays for callers with no hint configured.
 func scoreExpr(p1, p2, p3, p4, p5 string) string {
 	return fmt.Sprintf(`(coalesce(prefix_dir,'') = %s AND %s <> '')::int * 2
 		+ (coalesce(suffix_dir,'') = %s AND %s <> '')::int * 2
@@ -217,7 +266,7 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 	if parsed.Near != "" {
 		cleaned := nonAddressChars.ReplaceAllString(strings.ToUpper(parsed.Near), " ")
 		if _, name, _, _ := streetDescriptor(strings.Fields(cleaned)); name != "" {
-			resolved, _, err := g.resolveStreetName(name)
+			resolved, _, err := g.resolveStreetName(name, hint)
 			if err != nil {
 				return nil, err
 			}
@@ -225,39 +274,52 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 		}
 	}
 
+	//* Best direction-mismatched candidate seen so far. Returned as an honest
+	//* "uncertain" match only when every stage misses; earlier stages stash
+	//* first so the highest-quality guess wins.
+	var stash *candidate
+	keep := func(c *candidate) {
+		if stash == nil && c != nil {
+			stash = c
+		}
+	}
+
 	//* Stage 1: exact house number + exact street name, best component score wins
 	rows, err := g.queryCandidates(`
 		SELECT `+candidateColumns+`, `+scoreExpr("$3", "$4", "$5", "$6", "$7")+` AS score, 1.0 AS sim, 0 AS numdist
 		FROM address_points
-		WHERE add_num = $1 AND street_name = $2
+		WHERE add_num = $1 AND street_name = $2 AND `+countyFilter("$7")+`
 		ORDER BY score DESC LIMIT 5`,
 		parts.AddNum, parts.StreetName, parts.PrefixDir, parts.SuffixDir, parts.StreetType, city, hint)
 	if err != nil {
 		return nil, err
 	}
-	if row := g.pickBest(rows, nearStreet); row != nil {
+	consistent, mismatched := splitByDirs(rows, parts)
+	if row := g.pickBest(consistent, nearStreet); row != nil {
 		return toMatch(row, "rooftop"), nil
 	}
+	keep(g.pickBest(mismatched, nearStreet))
 
-	//* Stage 2: exact house number + fuzzy street name (Whisper misspellings).
-	//* With a county hint, out-of-county candidates need a stronger similarity.
+	//* Stage 2: exact house number + fuzzy street name (Whisper misspellings)
 	row, err := g.queryOne(`
 		SELECT `+candidateColumns+`, `+scoreExpr("$3", "$4", "$5", "$6", "$7")+` AS score,
 			similarity(street_name, $2) AS sim, 0 AS numdist
 		FROM address_points
-		WHERE add_num = $1 AND similarity(street_name, $2) >=
-			CASE WHEN $7 = '' OR coalesce(county_id,'') = $7 THEN 0.4 ELSE 0.6 END
+		WHERE add_num = $1 AND similarity(street_name, $2) >= 0.4 AND `+countyFilter("$7")+`
 		ORDER BY sim DESC, score DESC LIMIT 1`,
 		parts.AddNum, parts.StreetName, parts.PrefixDir, parts.SuffixDir, parts.StreetType, city, hint)
 	if err != nil {
 		return nil, err
 	}
 	if row != nil {
-		return toMatch(row, "rooftop"), nil
+		if dirsConsistent(row, parts) {
+			return toMatch(row, "rooftop"), nil
+		}
+		keep(row)
 	}
 
 	//* Resolve the street name the dataset actually uses (exact, else fuzzy)
-	street, streetSim, err := g.resolveStreetName(parts.StreetName)
+	street, streetSim, err := g.resolveStreetName(parts.StreetName, hint)
 	if err != nil {
 		return nil, err
 	}
@@ -270,14 +332,17 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 				abs(add_num_int - $1) AS numdist
 			FROM address_points
 			WHERE street_name = $2 AND add_num_int IS NOT NULL AND abs(add_num_int - $1) <= `+strconv.Itoa(maxHouseNumberDistance)+`
-			ORDER BY (coalesce(county_id,'') = $7 AND $7 <> '')::int DESC, numdist ASC, score DESC LIMIT 5`,
+				AND `+countyFilter("$7")+`
+			ORDER BY numdist ASC, score DESC LIMIT 5`,
 			parts.AddNumInt, street, parts.PrefixDir, parts.SuffixDir, parts.StreetType, city, hint)
 		if err != nil {
 			return nil, err
 		}
-		if row := g.pickBest(rows, nearStreet); row != nil {
+		consistent, mismatched = splitByDirs(rows, parts)
+		if row := g.pickBest(consistent, nearStreet); row != nil {
 			return toMatch(row, "nearby"), nil
 		}
+		keep(g.pickBest(mismatched, nearStreet))
 	}
 
 	//* Stage 4: trigram match on the full normalized address line
@@ -294,29 +359,30 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 	}
 	row, err = g.queryOne(`
 		SELECT `+candidateColumns+`,
-			(coalesce(city,'') = $2 AND $2 <> '')::int
-			+ (coalesce(county_id,'') = $3 AND $3 <> '')::int * 10 AS score,
+			(coalesce(city,'') = $2 AND $2 <> '')::int AS score,
 			similarity(full_add, $1) AS sim, 0 AS numdist
 		FROM address_points
-		WHERE full_add % $1 AND similarity(full_add, $1) >=
-			CASE WHEN $3 = '' OR coalesce(county_id,'') = $3 THEN 0.55 ELSE 0.7 END
+		WHERE full_add % $1 AND similarity(full_add, $1) >= 0.55 AND `+countyFilter("$3")+`
 		ORDER BY sim DESC, score DESC LIMIT 1`,
 		normalized, city, hint)
 	if err != nil {
 		return nil, err
 	}
 	if row != nil {
-		return toMatch(row, "rooftop"), nil
+		if dirsConsistent(row, parts) {
+			return toMatch(row, "rooftop"), nil
+		}
+		keep(row)
 	}
 
 	//* Stage 5: street-level fallback, the point nearest the street centroid.
 	//* Only for confident street names with an unambiguously small extent.
-	//* With a county hint, try the county-restricted street first: a street
-	//* ambiguous statewide (e.g. MAIN) may be unambiguous within one county.
+	//* With a county hint, only the county-restricted street is considered:
+	//* never fall back to a statewide centroid for a hinted call.
 	if street != "" && streetSim >= 0.65 && !highwayName.MatchString(street) && !highwayName.MatchString(parts.StreetName) {
 		counties := []string{""}
 		if hint != "" {
-			counties = []string{hint, ""}
+			counties = []string{hint}
 		}
 		for _, county := range counties {
 			row, err = g.queryOne(`
@@ -342,6 +408,12 @@ func (g *PostgresGeocoder) Lookup(parsed *models.ParsedAddress) (*models.Address
 		}
 	}
 
+	//* Nothing matched cleanly. A stashed direction-mismatched row is returned
+	//* as an honest guess rather than a confident wrong pin.
+	if stash != nil {
+		return toMatch(stash, "uncertain"), nil
+	}
+
 	return nil, nil
 }
 
@@ -360,11 +432,11 @@ func (g *PostgresGeocoder) lookupIntersection(addr, city, hint string) (*models.
 		return nil, nil
 	}
 
-	streetA, _, err := g.resolveStreetName(nameA)
+	streetA, _, err := g.resolveStreetName(nameA, hint)
 	if err != nil {
 		return nil, err
 	}
-	streetB, _, err := g.resolveStreetName(nameB)
+	streetB, _, err := g.resolveStreetName(nameB, hint)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +444,8 @@ func (g *PostgresGeocoder) lookupIntersection(addr, city, hint string) (*models.
 		return nil, nil
 	}
 
-	//* Closest pair within ~1km of each other; midpoint is the intersection
+	//* Closest pair within ~1km of each other; midpoint is the intersection.
+	//* A county hint hard-restricts both sides.
 	var lat, lon float64
 	var matchCity, countyID sql.NullString
 	err = g.db.QueryRow(`
@@ -380,9 +453,9 @@ func (g *PostgresGeocoder) lookupIntersection(addr, city, hint string) (*models.
 		FROM address_points a
 		JOIN address_points b ON b.street_name = $2
 			AND abs(a.lat - b.lat) < 0.01 AND abs(a.lon - b.lon) < 0.013
-		WHERE a.street_name = $1
-		ORDER BY (coalesce(a.county_id,'') = $4 AND $4 <> '')::int DESC,
-			(a.lat - b.lat)^2 + ((a.lon - b.lon) * 0.75)^2 ASC,
+			AND ($4 = '' OR coalesce(b.county_id,'') = $4)
+		WHERE a.street_name = $1 AND ($4 = '' OR coalesce(a.county_id,'') = $4)
+		ORDER BY (a.lat - b.lat)^2 + ((a.lon - b.lon) * 0.75)^2 ASC,
 			(coalesce(a.city,'') = $3 AND $3 <> '')::int DESC
 		LIMIT 1`,
 		streetA, streetB, city, hint).Scan(&lat, &lon, &matchCity, &countyID)
@@ -419,8 +492,9 @@ func (g *PostgresGeocoder) lookupIntersection(addr, city, hint string) (*models.
 
 //* resolveStreetName returns the dataset's spelling of a street name and its
 //* similarity: the name itself when it exists (1.0), else the most similar
-//* name above 0.45.
-func (g *PostgresGeocoder) resolveStreetName(name string) (string, float64, error) {
+//* name above 0.45. A county hint restricts resolution to that county, so a
+//* spelling that only exists elsewhere cannot hijack the later stages.
+func (g *PostgresGeocoder) resolveStreetName(name, countyHint string) (string, float64, error) {
 	if name == "" {
 		return "", 0, nil
 	}
@@ -429,9 +503,10 @@ func (g *PostgresGeocoder) resolveStreetName(name string) (string, float64, erro
 	err := g.db.QueryRow(`
 		SELECT street_name, similarity(street_name, $1) FROM address_points
 		WHERE street_name % $1 AND similarity(street_name, $1) >= 0.45
+			AND ($2 = '' OR coalesce(county_id,'') = $2)
 		GROUP BY street_name
 		ORDER BY (street_name = $1)::int DESC, similarity(street_name, $1) DESC, count(*) DESC
-		LIMIT 1`, name).Scan(&resolved, &sim)
+		LIMIT 1`, name, countyHint).Scan(&resolved, &sim)
 	if err == sql.ErrNoRows {
 		return "", 0, nil
 	}
@@ -456,7 +531,7 @@ func (g *PostgresGeocoder) queryCandidates(query string, args ...any) ([]*candid
 	for rows.Next() {
 		c := &candidate{}
 		if err := rows.Scan(&c.FullAdd, &c.AddNum, &c.Street, &c.City,
-			&c.ZipCode, &c.CountyID, &c.Lat, &c.Lon, &c.Score, &c.Sim, &c.NumDist); err != nil {
+			&c.ZipCode, &c.CountyID, &c.PrefixDir, &c.SuffixDir, &c.Lat, &c.Lon, &c.Score, &c.Sim, &c.NumDist); err != nil {
 			return nil, fmt.Errorf("address lookup scan failed: %w", err)
 		}
 		out = append(out, c)
@@ -496,7 +571,7 @@ func (g *PostgresGeocoder) pickBest(rows []*candidate, nearStreet string) *candi
 func (g *PostgresGeocoder) queryOne(query string, args ...any) (*candidate, error) {
 	c := &candidate{}
 	err := g.db.QueryRow(query, args...).Scan(&c.FullAdd, &c.AddNum, &c.Street, &c.City,
-		&c.ZipCode, &c.CountyID, &c.Lat, &c.Lon, &c.Score, &c.Sim, &c.NumDist)
+		&c.ZipCode, &c.CountyID, &c.PrefixDir, &c.SuffixDir, &c.Lat, &c.Lon, &c.Score, &c.Sim, &c.NumDist)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

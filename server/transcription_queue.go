@@ -563,6 +563,15 @@ func (queue *TranscriptionQueue) storeTranscription(callId uint64, result *Trans
 	if _, err := queue.controller.Database.Sql.Exec(insertQuery, callId, transcript, result.Confidence, result.Language, parsedAddressJSON, time.Now().UnixMilli()); err != nil {
 		queue.controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("failed to insert transcription record: %v", err))
 	}
+
+	//* Thread alerting-talkgroup calls into incidents; this is the only site
+	//* holding the parsed address (incidentType, geocode) in memory, so fire
+	//* topic notifications hang off it too
+	if system, ok := queue.controller.Systems.GetSystemById(systemId); ok {
+		if talkgroup, ok := system.Talkgroups.GetTalkgroupById(talkgroupId); ok && talkgroup.AlertingTalkgroup {
+			queue.controller.assignCallToIncident(callId, talkgroup.TalkgroupRef, parsedAddr, transcript)
+		}
+	}
 }
 
 // parseAddress extracts and optionally geocodes an address from a transcript
@@ -588,6 +597,8 @@ func (queue *TranscriptionQueue) parseAddress(transcript string, systemId uint64
 		}
 	}
 
+	//* An "uncertain" UGRC match is non-nil, so it intentionally suppresses
+	//* the Nominatim fallback: the honest guess beats an unconstrained one
 	if parsedAddr.Match == nil && queue.nominatimClient != nil {
 		if match, err := queue.nominatimClient.Lookup(parsedAddr); err == nil {
 			parsedAddr.Match = match

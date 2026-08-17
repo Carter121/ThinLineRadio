@@ -25,6 +25,10 @@
 							{band.label}
 						</li>
 					{/each}
+					<li class="flex items-center gap-2 text-xs text-muted-foreground">
+						<span class="size-2.5 shrink-0 rounded-full border border-dashed" style:border-color={AGE_BANDS[0].color}></span>
+						Approximate location
+					</li>
 				</ul>
 				<p class="border-t border-border px-2.5 py-1 text-[10px] text-muted-foreground/70">Tiles: CARTO, OpenStreetMap</p>
 			</CollapsibleContent>

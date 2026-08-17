@@ -72,6 +72,7 @@
 	const geocodedMatch = $derived(meta?.parsedAddress?.match ?? null);
 	const addressText = $derived(displayAddress(meta?.parsedAddress));
 	const isApprox = $derived(!!geocodedMatch && !isExactMatch(geocodedMatch));
+	const isUncertain = $derived(geocodedMatch?.precision === 'uncertain');
 	const mapsUrl = $derived(geocodedMatch ? formatMapsUrl(geocodedMatch) : null);
 
 	async function load() {
@@ -197,10 +198,19 @@
 					<AlertMiniMap lat={geocodedMatch.lat} lon={geocodedMatch.lon} />
 				</div>
 				<CardContent class="flex items-center gap-2 p-3">
-					<p class="min-w-0 flex-1 text-xs text-muted-foreground" title={isApprox ? `Approximate match: ${geocodedMatch.fullAddress}` : undefined}>
+					<p
+						class="min-w-0 flex-1 text-xs text-muted-foreground"
+						title={isUncertain
+							? `Unconfirmed match: ${geocodedMatch.fullAddress}`
+							: isApprox
+								? `Approximate match: ${geocodedMatch.fullAddress}`
+								: undefined}
+					>
 						<MapPin class="mr-1 inline size-3" />
 						{addressText ?? geocodedMatch.fullAddress}
-						{#if isApprox}
+						{#if isUncertain}
+							<span class="opacity-60">(unconfirmed location)</span>
+						{:else if isApprox}
 							<span class="opacity-60">(approx. location)</span>
 						{/if}
 					</p>

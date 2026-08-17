@@ -34,6 +34,14 @@ type AddressCountyHint struct {
 	County       string `json:"county"` //* Utah county FIPS code, e.g. "49035"
 }
 
+//* FireIncidentType maps an extracted incidentType substring to a fire
+//* notification tier. Rows are evaluated in order; the first substring match
+//* wins, so "do not notify" rows should come before broader patterns.
+type FireIncidentType struct {
+	Pattern string `json:"pattern"` //* matched case-insensitively with strings.Contains
+	Tier    string `json:"tier"`    //* "structure" | "wildland" | "none"
+}
+
 type Options struct {
 	AudioConversion             uint   `json:"audioConversion"`
 	AutoPopulate                bool   `json:"autoPopulate"`
@@ -103,6 +111,7 @@ type Options struct {
 	TranscriptParserConfig        TranscriptConfig       `json:"transcriptParserConfig"`
 	NominatimURL                  string                 `json:"nominatimUrl"`
 	AddressCountyHints            []AddressCountyHint    `json:"addressCountyHints"`
+	FireIncidentTypes             []FireIncidentType     `json:"fireIncidentTypes"`
 	ToneDetectionIssueThreshold   uint                   `json:"toneDetectionIssueThreshold"`
 	AlertRetentionDays            uint                   `json:"alertRetentionDays"`
 	NoAudioThresholdMinutes       uint                   `json:"noAudioThresholdMinutes"`
@@ -179,6 +188,7 @@ type Options struct {
 	NtfyServer              string `json:"-"`
 	NtfyTopic               string `json:"-"`
 	NtfySystemTopic         string `json:"-"` //* separate topic for system alerts (no audio, health, etc.)
+	NtfyFireTopic           string `json:"-"` //* separate topic for fire incident notifications
 	NtfyToken               string `json:"-"`
 	adminPassword           string
 	adminPasswordNeedChange bool
@@ -926,6 +936,16 @@ func (options *Options) FromMap(m map[string]any) *Options {
 		}
 	}
 
+	if v, ok := m["fireIncidentTypes"]; ok {
+		//* Round-trip through JSON to coerce []any of maps into the typed slice
+		if b, err := json.Marshal(v); err == nil {
+			var rows []FireIncidentType
+			if err := json.Unmarshal(b, &rows); err == nil {
+				options.FireIncidentTypes = rows
+			}
+		}
+	}
+
 	// Transcription: allow flat toggle and nested config from admin UI
 	if v, ok := m["transcriptionEnabled"].(bool); ok {
 		options.TranscriptionConfig.Enabled = v
@@ -1115,6 +1135,7 @@ func (options *Options) Read(db *Database) error {
 	options.ShowListenersCount = defaults.options.showListenersCount
 	options.SortTalkgroups = defaults.options.sortTalkgroups
 	options.Time12hFormat = defaults.options.time12hFormat
+	options.FireIncidentTypes = defaultFireIncidentTypes()
 	options.AlertRetentionDays = defaults.options.alertRetentionDays
 	options.TranscriptionFailureThreshold = defaults.options.transcriptionFailureThreshold
 	options.ToneDetectionIssueThreshold = defaults.options.toneDetectionIssueThreshold
@@ -1626,6 +1647,11 @@ func (options *Options) Read(db *Database) error {
 			if err := json.Unmarshal([]byte(value.String), &hints); err == nil {
 				options.AddressCountyHints = hints
 			}
+		case "fireIncidentTypes":
+			var fireRows []FireIncidentType
+			if err := json.Unmarshal([]byte(value.String), &fireRows); err == nil {
+				options.FireIncidentTypes = fireRows
+			}
 		case "transcriptionEnhancement":
 			if err = json.Unmarshal([]byte(value.String), &f); err == nil {
 				switch v := f.(type) {
@@ -2051,6 +2077,7 @@ func (options *Options) Write(db *Database) error {
 	set("transcriptParserConfig", options.TranscriptParserConfig)
 	set("nominatimUrl", options.NominatimURL)
 	set("addressCountyHints", options.AddressCountyHints)
+	set("fireIncidentTypes", options.FireIncidentTypes)
 
 	if setErr != nil {
 		tx.Rollback()

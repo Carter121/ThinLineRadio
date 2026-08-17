@@ -108,6 +108,21 @@ func (n *NominatimClient) Lookup(parsed *models.ParsedAddress) (*models.AddressM
 		return nil, nil
 	}
 
+	//* Nominatim treats the county param as a soft preference; enforce the
+	//* hint here so a hinted call never resolves outside its county
+	if parsed.CountyHint != "" {
+		if name := utahCountyNames[parsed.CountyHint]; name != "" {
+			wanted := name + " County"
+			for i := range results {
+				addr := results[i].Address
+				if addr != nil && addr.County == wanted && addr.State == "Utah" {
+					return toAddressMatch(&results[i], parsed.GeocodeQuery), nil
+				}
+			}
+			return nil, nil
+		}
+	}
+
 	return toAddressMatch(&results[0], parsed.GeocodeQuery), nil
 }
 

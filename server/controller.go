@@ -3526,6 +3526,7 @@ func (controller *Controller) readAllData() error {
 	controller.Options.NtfyServer = os.Getenv("NTFY_SERVER")
 	controller.Options.NtfyTopic = os.Getenv("NTFY_TOPIC")
 	controller.Options.NtfySystemTopic = os.Getenv("NTFY_SYSTEM_TOPIC")
+	controller.Options.NtfyFireTopic = os.Getenv("NTFY_FIRE_TOPIC")
 	controller.Options.NtfyToken = os.Getenv("NTFY_TOKEN")
 
 	// Update reconnection manager settings from options

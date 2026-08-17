@@ -26,6 +26,10 @@
 
 	<p class="text-muted-foreground">{incident.address}</p>
 
+	{#if incident.callCount > 1}
+		<Badge variant="secondary" class="text-[10px]">{incident.callCount} calls</Badge>
+	{/if}
+
 	{#if incident.units.length > 0}
 		<div class="flex flex-wrap gap-1">
 			{#each incident.units as unit (`${unit.apparatus}-${unit.number}`)}
@@ -72,7 +76,7 @@
 			</Button>
 		{/if}
 		<a
-			href={`/alert/${incident.alert.callId}`}
+			href={incident.incidentId != null && incident.callCount > 1 ? `/incident/${incident.incidentId}` : `/alert/${incident.alert.callId}`}
 			target="_blank"
 			rel="noopener noreferrer"
 			class="ml-auto flex items-center gap-1 text-[11px] text-primary hover:underline"

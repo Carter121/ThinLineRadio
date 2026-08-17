@@ -42,7 +42,12 @@
 		<span class="mt-1 size-2.5 shrink-0 rounded-full" style:background-color={band.color} style:opacity={band.opacity}></span>
 		<div class="min-w-0 flex-1">
 			<div class="flex items-baseline justify-between gap-2">
-				<span class="truncate text-sm font-medium text-foreground">{incident.incidentType ?? 'Unknown incident'}</span>
+				<span class="flex min-w-0 items-baseline gap-1.5">
+					<span class="truncate text-sm font-medium text-foreground">{incident.incidentType ?? 'Unknown incident'}</span>
+					{#if incident.callCount > 1}
+						<Badge variant="secondary" class="shrink-0 text-[10px]">{incident.callCount} calls</Badge>
+					{/if}
+				</span>
 				<span class="shrink-0 text-[11px] text-muted-foreground" title={formatAbsoluteTime(incident.alert.createdAt)}>
 					{formatRelativeTime(incident.alert.createdAt, pageState.nowMs)}
 				</span>

@@ -11,8 +11,13 @@
 	import type { AlertFeedCardState } from './AlertFeedCardState.svelte.ts';
 	import { appSettings } from '$lib/core/app-settings.svelte.ts';
 	import type { Alert, TranscriptAnnotationChannel } from '$lib/core/types.ts';
+	import { groupAlertsByIncident } from '$lib/core/incident-grouping.ts';
 	import MapPin from '@lucide/svelte/icons/map-pin';
+	import Layers from '@lucide/svelte/icons/layers';
 	let { state: cardState }: { state: AlertFeedCardState } = $props();
+
+	//* One row per incident group; a threaded incident shows its newest call
+	const groups = $derived(groupAlertsByIncident(cardState.alerts));
 
 	function alertSubtitle(alert: Alert): string {
 		return [alert.systemLabel, alert.talkgroupLabel ?? alert.talkgroupName].filter(Boolean).join(' / ');
@@ -74,19 +79,29 @@
 		{:else}
 			<div class="max-h-150 overflow-y-auto px-3.5 pb-3">
 				<div class="space-y-1.5">
-					{#each cardState.alerts as alert (alert.alertId)}
+					{#each groups as group (group.key)}
+						{@const alert = group.newest}
 						{@const mapsUrl = getMapsUrl(alert)}
 						<AlertBox
 							class={[
 								'px-3 py-2',
 								cardState.newAlertIds.has(alert.alertId) && 'animate-flash',
-								alert.transcriptAnnotations?.some((a) => a.type === 'unit' && a.apparatus === 'BATTALION') && 'bg-destructive/15'
+								//* Battalion tint wins over the fire tint when both apply
+								alert.transcriptAnnotations?.some((a) => a.type === 'unit' && a.apparatus === 'BATTALION')
+									? 'bg-destructive/15'
+									: (alert.fireTier === 'structure' || alert.fireTier === 'wildland') && 'bg-fire/15'
 							]}
 						>
 							{@const channels = getUniqueChannels(alert)}
 							<AlertTitle class="flex items-center justify-between gap-2 text-muted-foreground">
 								<span class="flex items-center gap-1.5 truncate">
 									<span class="truncate">{alertSubtitle(alert) || 'Unknown'}</span>
+									{#if group.alerts.length > 1}
+										<Badge variant="outline" class="h-full shrink-0 gap-1 text-[11px] leading-none text-muted-foreground">
+											<Layers class="size-2.5" />
+											{group.alerts.length} calls
+										</Badge>
+									{/if}
 									{#each channels as channel (`${channel.dispatch}-${channel.channel}`)}
 										<Badge variant="secondary" class="h-full shrink-0 text-[11px] leading-none text-muted-foreground"
 											>{formatChannelName(channel)}</Badge
@@ -157,8 +172,22 @@
 										Play
 									</Button>
 								{/if}
+								{#if group.incidentId != null && group.alerts.length > 1}
+									<a href={`/incident/${group.incidentId}`} class="ml-auto" onclick={(e: MouseEvent) => e.stopPropagation()}>
+										<Button variant="ghost" size="sm" class="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground">
+											<Layers class="size-3" />
+											Incident
+										</Button>
+									</a>
+								{/if}
 								{#if mapsUrl}
-									<a href={mapsUrl} target="_blank" rel="noopener noreferrer" class="ml-auto" onclick={(e: MouseEvent) => e.stopPropagation()}>
+									<a
+										href={mapsUrl}
+										target="_blank"
+										rel="noopener noreferrer"
+										class={group.incidentId != null && group.alerts.length > 1 ? '' : 'ml-auto'}
+										onclick={(e: MouseEvent) => e.stopPropagation()}
+									>
 										<Button variant="ghost" size="sm" class="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground">
 											<MapPin class="size-3" />
 											Map

@@ -3202,3 +3202,37 @@ func migrateSystemDuplicateDetection(db *Database) error {
 	}
 	return nil
 }
+
+// migrateIncidents creates the incident threading tables: incidents group
+// related calls by geocoded proximity and time window across talkgroups.
+func migrateIncidents(db *Database) error {
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS "incidents" (
+			"incidentId" bigserial NOT NULL PRIMARY KEY,
+			"firstSeenAt" bigint NOT NULL,
+			"lastSeenAt" bigint NOT NULL,
+			"lat" double precision,
+			"lon" double precision,
+			"normalizedAddress" text NOT NULL DEFAULT '',
+			"displayAddress" text NOT NULL DEFAULT '',
+			"incidentType" text NOT NULL DEFAULT '',
+			"fireTier" text NOT NULL DEFAULT '',
+			"callCount" integer NOT NULL DEFAULT 0,
+			"talkgroupRefs" text NOT NULL DEFAULT '[]'
+		)`,
+		`CREATE INDEX IF NOT EXISTS "incidents_lastSeen_idx" ON "incidents" ("lastSeenAt")`,
+		`CREATE TABLE IF NOT EXISTS "incidentCalls" (
+			"incidentId" bigint NOT NULL REFERENCES "incidents" ("incidentId") ON DELETE CASCADE,
+			"callId" bigint NOT NULL REFERENCES "calls" ("callId") ON DELETE CASCADE ON UPDATE CASCADE,
+			"addedAt" bigint NOT NULL,
+			PRIMARY KEY ("incidentId", "callId")
+		)`,
+		`CREATE INDEX IF NOT EXISTS "incidentCalls_call_idx" ON "incidentCalls" ("callId")`,
+	}
+	for _, query := range queries {
+		if _, err := db.Sql.Exec(query); err != nil {
+			log.Printf("migration note (incidents): %v", err)
+		}
+	}
+	return nil
+}

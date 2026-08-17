@@ -112,7 +112,9 @@ export function formatDateTime(value: string | number | null | undefined): strin
 	});
 }
 
-//* Exact geocodes are rooftop points (legacy Nominatim matches have no precision)
+//* Exact geocodes are rooftop points (legacy Nominatim matches have no
+//* precision). "nearby", "street", "intersection", and "uncertain" are all
+//* non-exact and fall back to the spoken address for display.
 export function isExactMatch(match: AddressMatch | null | undefined): boolean {
 	return !!match && (!match.precision || match.precision === 'rooftop');
 }

@@ -51,8 +51,8 @@ var (
 	apartmentPattern = regexp.MustCompile(`(?i)[,.]?\s*(?:APARTMENT|APT|UNIT|SUITE|STE|#)\s*\S*\s*$`)
 
 	// Geocode normalization for Utah grid addresses
-	gridAddress      = regexp.MustCompile(`(?i)^(\d+)\s+(?:NORTH|SOUTH|EAST|WEST|N|S|E|W)\s+(\d+.*)$`)
-	gridAddressComma = regexp.MustCompile(`(?i)^(\d+)\s+(?:NORTH|SOUTH|EAST|WEST|N|S|E|W)\s*,\s*(\d+.*)$`)
+	gridAddress      = regexp.MustCompile(`(?i)^(\d+)\s+(NORTH|SOUTH|EAST|WEST|N|S|E|W)\s+(\d+.*)$`)
+	gridAddressComma = regexp.MustCompile(`(?i)^(\d+)\s+(NORTH|SOUTH|EAST|WEST|N|S|E|W)\s*,\s*(\d+.*)$`)
 	commaAfterNumber = regexp.MustCompile(`(?i)^(\d+)\s*,\s+(\D.*)$`)
 	geocodeCross     = regexp.MustCompile(`(?i)^(.+?)\s*,\s*\d+\s+(?:NORTH|SOUTH|EAST|WEST|N|S|E|W)\s*$`)
 
@@ -134,11 +134,13 @@ func splitOnCross(address string) (string, string) {
 // buildGeocodeQuery normalizes an address for Nominatim geocoding
 // Handles Utah grid address conventions
 func buildGeocodeQuery(address string) string {
+	//* Keep the first grid direction: dropping it turns "805 SOUTH 300 WEST"
+	//* into the ambiguous "805 300 WEST"
 	if m := gridAddress.FindStringSubmatch(address); m != nil {
-		return m[1] + " " + m[2]
+		return m[1] + " " + m[2] + " " + m[3]
 	}
 	if m := gridAddressComma.FindStringSubmatch(address); m != nil {
-		return m[1] + " " + m[2]
+		return m[1] + " " + m[2] + " " + m[3]
 	}
 
 	if m := geocodeCross.FindStringSubmatch(address); m != nil {

@@ -2,6 +2,8 @@ import type {
 	Alert,
 	AlertPreference,
 	CallMeta,
+	Incident,
+	IncidentDetail,
 	KeywordList,
 	LclFilters,
 	LclResponse,
@@ -229,6 +231,15 @@ export class TlrClient {
 
 	async getAlerts(options: { since?: number; limit?: number } = {}): Promise<Alert[]> {
 		return this.request<Alert[]>(`/alerts${toQueryString({ since: options.since, limit: options.limit })}`);
+	}
+
+	async getIncidents(options: { limit?: number } = {}): Promise<Incident[]> {
+		const result = await this.request<{ incidents: Incident[] }>(`/incidents${toQueryString({ limit: options.limit })}`);
+		return result.incidents ?? [];
+	}
+
+	async getIncident(incidentId: number | string): Promise<IncidentDetail> {
+		return this.request<IncidentDetail>(`/incidents/${incidentId}`);
 	}
 
 	async getCallMeta(callId: number | string): Promise<CallMeta> {

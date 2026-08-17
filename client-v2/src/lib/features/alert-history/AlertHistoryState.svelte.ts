@@ -4,6 +4,7 @@ import type { AudioCoordinator } from '../AudioCoordinator.svelte.ts';
 import type { TlrAlertFeed } from '$lib/core/tlr-alert-feed.svelte.ts';
 import { AlertFeedCardState } from '../dashboard/AlertFeedCardState.svelte.ts';
 import type { Alert, TlrSocketEvent } from '$lib/core/types.ts';
+import { groupAlertsByIncident, type IncidentGroup } from '$lib/core/incident-grouping.ts';
 import { getTranscriptText } from '$lib/core/format.ts';
 
 const PAGE_SIZE = 20;
@@ -112,13 +113,19 @@ export class AlertHistoryState {
 		return result;
 	}
 
-	get pageCount(): number {
-		return Math.max(1, Math.ceil(this.filteredAlerts.length / this.pageSize));
+	//* Incident groups over the filtered alerts; pagination counts groups so a
+	//* busy incident stops flooding the page with near-identical rows
+	get filteredGroups(): IncidentGroup[] {
+		return groupAlertsByIncident(this.filteredAlerts);
 	}
 
-	get pagedAlerts(): Alert[] {
+	get pageCount(): number {
+		return Math.max(1, Math.ceil(this.filteredGroups.length / this.pageSize));
+	}
+
+	get pagedGroups(): IncidentGroup[] {
 		const start = (this.currentPage - 1) * this.pageSize;
-		return this.filteredAlerts.slice(start, start + this.pageSize);
+		return this.filteredGroups.slice(start, start + this.pageSize);
 	}
 
 	setPage(page: number) {

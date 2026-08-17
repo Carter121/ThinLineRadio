@@ -134,6 +134,8 @@ export interface AdminOptions {
 	transcriptionConfig?: AdminTranscriptionConfig;
 	nominatimUrl?: string;
 	addressCountyHints?: AdminCountyHint[];
+	//* Alerts
+	fireIncidentTypes?: AdminFireIncidentType[];
 	//* Registration
 	userRegistrationEnabled?: boolean;
 	publicRegistrationEnabled?: boolean;
@@ -161,6 +163,13 @@ export interface AdminCountyHint {
 	systemRef: number;
 	talkgroupRef: number;
 	county: string;
+}
+
+//* Maps an extracted incidentType substring to a fire notification tier.
+//* Rows are evaluated in order; the first substring match wins.
+export interface AdminFireIncidentType {
+	pattern: string;
+	tier: 'structure' | 'wildland' | 'none';
 }
 
 export interface AdminTalkgroupSummary {
