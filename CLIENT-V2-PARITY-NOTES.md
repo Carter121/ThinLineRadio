@@ -136,7 +136,14 @@ against the code if something seems off; add new findings here.
   ALARM are default structure-tier rows. `TestParseAddressProdShapes` locks in the real prod
   transcript shapes. Browser notification filter (Settings > Alert Feed) is now All / Only
   Selected Types / None with per-type toggles (battalion, structure fire, wildland fire); the
-  old stored 'battalion-only' value migrates to 'selected' with only battalion on. The feed
+  old stored 'battalion-only' value migrates to 'selected' with only battalion on. Unit badges
+  sort in roster order via `sortUnits` in `format.ts` (Chief, Battalion, then companies by
+  number; Engine before Truck/Ladder/Tower/Quint before Squad before Ambulance within a number;
+  prefixes ignored). `ParseUnits` expands elided AND-terminated lists ("ENGINE 10, 2, AND 4" is
+  three engines, prefix inherited); expanded numbers carry byte spans (ParsedUnit.Spans) since
+  their raw text is a bare number, and canonical substitution rewrites them to full unit names
+  in the displayed transcript. Being read-time parsing, both apply to existing transcripts
+  immediately. The feed
   re-freshes an alert whose fireTier arrives on a later refetch (incident assignment races the
   first fetch) and tracks notified ids so nothing double-notifies. Fire ntfy notifications send
   at normal priority 3 (same as battalion), and calls carrying a battalion unit skip the fire

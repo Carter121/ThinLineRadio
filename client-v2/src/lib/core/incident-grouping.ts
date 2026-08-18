@@ -1,4 +1,5 @@
 import type { Alert, TranscriptAnnotationUnit } from './types.ts';
+import { sortUnits } from './format.ts';
 
 //* A group of alerts belonging to one incident. Alerts without a server-side
 //* incidentId become singleton groups so nothing disappears from the feed.
@@ -34,10 +35,10 @@ export function groupAlertsByIncident(alerts: Alert[]): IncidentGroup[] {
 		const newest = list[0];
 		//* Newest-first scan: a fire-type upgrade arrives on a later call
 		const incidentType = list.map((a) => a.parsedAddress?.incidentType).find(Boolean) ?? null;
-		const units = [
+		const units = sortUnits([
 			// eslint-disable-next-line svelte/prefer-svelte-reactivity
 			...new Map(list.flatMap(unitAnnotations).map((u) => [`${u.apparatus}-${u.number}`, u])).values()
-		];
+		]);
 		result.push({ key, incidentId: newest.incidentId ?? null, alerts: list, newest, units, incidentType });
 	}
 	return result.sort((a, b) => b.newest.createdAt - a.newest.createdAt);

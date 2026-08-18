@@ -40,6 +40,46 @@ function titleCase(s: string): string {
 	return s.charAt(0) + s.slice(1).toLowerCase();
 }
 
+//* Apparatus order within one company number: engine, truck family, squad,
+//* ambulance, then everything else alphabetically
+const APPARATUS_RANK: Record<string, number> = {
+	ENGINE: 0,
+	TRUCK: 1,
+	LADDER: 1,
+	TOWER: 1,
+	QUINT: 1,
+	SQUAD: 2,
+	AMBULANCE: 3
+};
+
+//* Leading placement: chief first, battalion second, companies after
+function unitLeadRank(apparatus: string): number {
+	if (apparatus.includes('CHIEF')) return 0;
+	if (apparatus === 'BATTALION') return 1;
+	return 2;
+}
+
+function unitNumber(unit: { number: string }): number {
+	const n = parseInt(unit.number, 10);
+	return Number.isNaN(n) ? Number.MAX_SAFE_INTEGER : n;
+}
+
+//* Sorts accumulated unit badges into a stable roster order regardless of the
+//* order units appeared in transcripts: Chief, Battalion, then companies
+//* grouped by number (Engine 1, Truck 1, Engine 2, Truck 2, ...). Prefixes
+//* like "Medic" or "Heavy" never affect ordering.
+export function sortUnits<T extends { apparatus: string; number: string }>(units: T[]): T[] {
+	return [...units].sort((a, b) => {
+		const lead = unitLeadRank(a.apparatus) - unitLeadRank(b.apparatus);
+		if (lead !== 0) return lead;
+		const num = unitNumber(a) - unitNumber(b);
+		if (num !== 0) return num;
+		const rank = (APPARATUS_RANK[a.apparatus] ?? 4) - (APPARATUS_RANK[b.apparatus] ?? 4);
+		if (rank !== 0) return rank;
+		return a.apparatus.localeCompare(b.apparatus);
+	});
+}
+
 export function formatUnitName(unit: { prefix?: string; apparatus: string; number: string }): string {
 	return unit.prefix ? `${titleCase(unit.prefix)} ${titleCase(unit.apparatus)} ${unit.number}` : `${titleCase(unit.apparatus)} ${unit.number}`;
 }

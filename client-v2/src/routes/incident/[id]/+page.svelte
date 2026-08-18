@@ -18,7 +18,7 @@
 	import { TlrClient, TlrApiError } from '$lib/core/tlr-client.ts';
 	import { tlrOrigin } from '$lib/tlr-config.ts';
 	import type { IncidentDetail, IncidentCall, TranscriptAnnotationUnit, TranscriptAnnotationChannel } from '$lib/core/types.ts';
-	import { formatDateTime, formatDuration, formatUnitName, formatChannelName, getTranscriptHTML } from '$lib/core/format.ts';
+	import { formatDateTime, formatDuration, formatUnitName, formatChannelName, getTranscriptHTML, sortUnits } from '$lib/core/format.ts';
 
 	//* Standalone route (no [tab] layout), so it builds its own client like /alert
 	const client = new TlrClient(tlrOrigin() + '/api/', tlrOrigin());
@@ -47,14 +47,16 @@
 
 	const title = $derived(incident?.incidentType || 'Incident');
 	//* Units accumulated across all member calls, deduped by apparatus-number
-	const units = $derived([
-		...new Map(
-			(incident?.calls ?? [])
-				.flatMap((c) => c.transcriptAnnotations ?? [])
-				.filter((a): a is TranscriptAnnotationUnit => a.type === 'unit')
-				.map((a) => [`${a.apparatus}-${a.number}`, a])
-		).values()
-	]);
+	const units = $derived(
+		sortUnits([
+			...new Map(
+				(incident?.calls ?? [])
+					.flatMap((c) => c.transcriptAnnotations ?? [])
+					.filter((a): a is TranscriptAnnotationUnit => a.type === 'unit')
+					.map((a) => [`${a.apparatus}-${a.number}`, a])
+			).values()
+		])
+	);
 
 	function callChannels(call: IncidentCall): TranscriptAnnotationChannel[] {
 		return [

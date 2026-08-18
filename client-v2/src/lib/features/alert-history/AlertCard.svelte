@@ -10,7 +10,8 @@
 		formatMapsUrl,
 		getTranscriptHTML,
 		displayAddress,
-		isExactMatch
+		isExactMatch,
+		sortUnits
 	} from '$lib/core/format.ts';
 	import AlertMiniMap from './AlertMiniMap.svelte';
 	import { Card, CardContent } from '$lib/components/ui/card/index.ts';
@@ -25,13 +26,15 @@
 	let { alert, alertFeed, nowMs, query }: { alert: Alert; alertFeed: AlertFeedCardState; nowMs: number; query: string } = $props();
 
 	const subtitle = $derived([alert.systemLabel, alert.talkgroupLabel ?? alert.talkgroupName].filter(Boolean).join(' / ') || 'Unknown');
-	const units = $derived([
-		...new Map(
-			(alert.transcriptAnnotations ?? [])
-				.filter((a): a is TranscriptAnnotationUnit => a.type === 'unit')
-				.map((a) => [`${a.apparatus}-${a.number}`, a])
-		).values()
-	]);
+	const units = $derived(
+		sortUnits([
+			...new Map(
+				(alert.transcriptAnnotations ?? [])
+					.filter((a): a is TranscriptAnnotationUnit => a.type === 'unit')
+					.map((a) => [`${a.apparatus}-${a.number}`, a])
+			).values()
+		])
+	);
 	const channels = $derived([
 		...new Map(
 			(alert.transcriptAnnotations ?? [])

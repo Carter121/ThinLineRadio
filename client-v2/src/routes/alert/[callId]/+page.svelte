@@ -24,6 +24,7 @@
 		formatMapsUrl,
 		displayAddress,
 		isExactMatch,
+		sortUnits,
 		getTranscriptHTML
 	} from '$lib/core/format.ts';
 
@@ -55,13 +56,15 @@
 	const subtitle = $derived(
 		meta ? [meta.systemLabel, meta.talkgroupLabel ?? meta.talkgroupName].filter(Boolean).join(' / ') || 'Unknown' : ''
 	);
-	const units = $derived([
-		...new Map(
-			(meta?.transcriptAnnotations ?? [])
-				.filter((a): a is TranscriptAnnotationUnit => a.type === 'unit')
-				.map((a) => [`${a.apparatus}-${a.number}`, a])
-		).values()
-	]);
+	const units = $derived(
+		sortUnits([
+			...new Map(
+				(meta?.transcriptAnnotations ?? [])
+					.filter((a): a is TranscriptAnnotationUnit => a.type === 'unit')
+					.map((a) => [`${a.apparatus}-${a.number}`, a])
+			).values()
+		])
+	);
 	const channels = $derived([
 		...new Map(
 			(meta?.transcriptAnnotations ?? [])

@@ -1113,3 +1113,108 @@ func TestAnnotateTranscriptNoMatches(t *testing.T) {
 		t.Errorf("expected nil annotations when nothing recognized, got %v", annotations)
 	}
 }
+
+// --- Elided unit lists ---
+
+func TestParseUnitsElidedList(t *testing.T) {
+	//* Real prod transcript: audio says "ENGINES 10, 2, AND 4"; corrections
+	//* rewrite ENGINES to ENGINE
+	transcript := "BATTALION 2, ENGINE 10, 2, AND 4, TRUCK 1, TRUCK 2, AND MEDIC ENGINE 1. COMMERCIAL FIRE, 255 SOUTH CENTRAL CAMPUS DRIVE ON 1600 EAST AT BUILDING U49 LANGUAGE AND COMMUNICATION BUILDING."
+	units := testParser.ParseUnits(transcript)
+
+	want := map[string]bool{
+		"BATTALION 2":    true,
+		"ENGINE 10":      true,
+		"ENGINE 2":       true,
+		"ENGINE 4":       true,
+		"TRUCK 1":        true,
+		"TRUCK 2":        true,
+		"MEDIC ENGINE 1": true,
+	}
+	got := map[string]bool{}
+	for _, u := range units {
+		key := u.Apparatus + " " + u.Number
+		if u.Prefix != "" {
+			key = u.Prefix + " " + key
+		}
+		got[key] = true
+	}
+	for key := range want {
+		if !got[key] {
+			t.Errorf("missing unit %q in %v", key, got)
+		}
+	}
+	for key := range got {
+		if !want[key] {
+			t.Errorf("unexpected unit %q", key)
+		}
+	}
+}
+
+func TestParseUnitsElidedListPrefix(t *testing.T) {
+	//* Expanded numbers inherit the base unit's prefix
+	units := testParser.ParseUnits("MEDIC ENGINE 1, 5, AND 7, AND MEDIC 6 RESPONDING")
+	found := map[string]bool{}
+	for _, u := range units {
+		found[u.Prefix+"|"+u.Apparatus+"|"+u.Number] = true
+	}
+	for _, key := range []string{"MEDIC|ENGINE|1", "MEDIC|ENGINE|5", "MEDIC|ENGINE|7", "|MEDIC|6"} {
+		if !found[key] {
+			t.Errorf("missing %q in %v", key, found)
+		}
+	}
+}
+
+func TestParseUnitsElidedListTwoUnits(t *testing.T) {
+	units := testParser.ParseUnits("ENGINE 3 AND 5, HOUSE FIRE, 120 SOUTH MAIN STREET.")
+	found := map[string]bool{}
+	for _, u := range units {
+		found[u.Apparatus+" "+u.Number] = true
+	}
+	if !found["ENGINE 3"] || !found["ENGINE 5"] {
+		t.Errorf("expected ENGINE 3 and ENGINE 5, got %v", found)
+	}
+}
+
+func TestParseUnitsElidedListRejectsAddresses(t *testing.T) {
+	//* "AND <num> <direction>" is a cross street, not a unit list
+	units := testParser.ParseUnits("ENGINE 5, HOUSE FIRE, 120 SOUTH MAIN STREET AND 200 EAST.")
+	for _, u := range units {
+		if u.Apparatus == "ENGINE" && u.Number == "200" {
+			t.Errorf("address number 200 misread as a unit: %v", units)
+		}
+	}
+	//* Four digit numbers never expand
+	units = testParser.ParseUnits("ENGINE 5 AND 1300 RESPONDING")
+	for _, u := range units {
+		if u.Number == "1300" {
+			t.Errorf("four digit number misread as a unit: %v", units)
+		}
+	}
+}
+
+func TestAnnotateTranscriptElidedListSpans(t *testing.T) {
+	corrected, annotations := testParser.AnnotateTranscript("BATTALION 2, ENGINE 10, 2, AND 4, TRUCK 1.")
+	//* Canonical substitution rewrites the expanded bare numbers into full
+	//* unit names in the displayed transcript
+	if !strings.Contains(corrected, "ENGINE 10, ENGINE 2, AND ENGINE 4") {
+		t.Errorf("corrected = %q, want elided list expanded in place", corrected)
+	}
+	//* The ENGINE 2 annotation must span the rewritten text inside the list,
+	//* not the "2" in BATTALION 2
+	found := false
+	for _, a := range annotations {
+		if a.Type == "unit" && a.Apparatus == "ENGINE" && a.Number == "2" {
+			found = true
+			if corrected[a.Start:a.End] != "ENGINE 2" {
+				t.Errorf("span text = %q, want \"ENGINE 2\"", corrected[a.Start:a.End])
+			}
+			if a.Start <= strings.Index(corrected, "ENGINE 10") {
+				t.Errorf("ENGINE 2 span at %d points before the list", a.Start)
+			}
+		}
+	}
+	if !found {
+		t.Error("no annotation for expanded ENGINE 2")
+	}
+}

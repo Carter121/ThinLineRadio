@@ -66,6 +66,10 @@ type ParsedUnit struct {
 	Number    string   `json:"number"`
 	Raw       []string `json:"raw"`
 	Fuzzy     bool     `json:"fuzzy"`
+	//* Exact byte spans for units expanded from elided lists ("ENGINE 10, 2,
+	//* AND 4"): their raw text is a bare number, so annotation placement must
+	//* not rely on substring search
+	Spans [][2]int `json:"-"`
 }
 
 // ParsedChannel is the result of recognizing a dispatch channel in a transcript.
@@ -512,6 +516,27 @@ func (p *TranscriptParser) CorrectTranscript(transcript string) string {
 	return result
 }
 
+//* Elided unit lists: "ENGINE 10, 2, AND 4" dispatches engines 10, 2, and 4.
+//* Only AND-terminated lists of 1-3 digit numbers count, so address numbers
+//* ("... ON 985 SOUTH", "1300 WEST") never match.
+var unitListContinuation = regexp.MustCompile(`^(?:\s*,\s*\d{1,3}\b)*\s*,?\s+AND\s+\d{1,3}\b`)
+var unitListNumber = regexp.MustCompile(`\d+`)
+
+//* followedByDirection reports whether the next word after pos is a compass
+//* direction, which marks an address rather than a unit list
+func followedByDirection(text string, pos int) bool {
+	rest := strings.TrimLeft(text[pos:], " ,.")
+	word := rest
+	if i := strings.IndexFunc(rest, func(r rune) bool { return r == ' ' || r == ',' || r == '.' }); i >= 0 {
+		word = rest[:i]
+	}
+	switch word {
+	case "NORTH", "SOUTH", "EAST", "WEST":
+		return true
+	}
+	return false
+}
+
 // ParseUnits extracts apparatus units (e.g. "ENGINE 5", "MEDIC LADDER 12") from
 // transcript using the configured unit types and prefixes.
 func (p *TranscriptParser) ParseUnits(transcript string) []ParsedUnit {
@@ -573,6 +598,32 @@ func (p *TranscriptParser) ParseUnits(transcript string) []ParsedUnit {
 			})
 		}
 		consumed = append(consumed, [2]int{m[0], m[1]})
+
+		//* Expand an elided list right after this unit's number: "ENGINE 10,
+		//* 2, AND 4" adds ENGINE 2 and ENGINE 4 with the same prefix
+		if lm := unitListContinuation.FindStringIndex(normalized[m[1]:]); lm != nil {
+			listStart, listEnd := m[1]+lm[0], m[1]+lm[1]
+			if !followedByDirection(normalized, listEnd) {
+				for _, nm := range unitListNumber.FindAllStringIndex(normalized[listStart:listEnd], -1) {
+					numStart, numEnd := listStart+nm[0], listStart+nm[1]
+					listNumber := normalized[numStart:numEnd]
+					listKey := strings.TrimSpace(prefix + " " + apparatus + " " + listNumber)
+					if idx, ok := seen[listKey]; ok {
+						results[idx].Spans = append(results[idx].Spans, [2]int{numStart, numEnd})
+					} else {
+						seen[listKey] = len(results)
+						results = append(results, ParsedUnit{
+							Prefix:    prefix,
+							Apparatus: apparatus,
+							Number:    listNumber,
+							Fuzzy:     false,
+							Spans:     [][2]int{{numStart, numEnd}},
+						})
+					}
+					consumed = append(consumed, [2]int{numStart, numEnd})
+				}
+			}
+		}
 	}
 
 	// --- Pass 2: fuzzy label + assemble ---
@@ -694,7 +745,7 @@ func (p *TranscriptParser) ParseUnits(transcript string) []ParsedUnit {
 	// --- Pass 3: prefix upgrade for exact matches with no prefix ---
 	for ri := range results {
 		result := &results[ri]
-		if result.Prefix != "" || result.Fuzzy {
+		if result.Prefix != "" || result.Fuzzy || len(result.Raw) == 0 {
 			continue
 		}
 
@@ -812,6 +863,23 @@ func (p *TranscriptParser) AnnotateTranscript(transcript string) (string, []Tran
 				})
 				offset = end
 			}
+		}
+		//* Elided-list numbers carry exact byte spans; their raw text is a
+		//* bare number that substring search would place wrongly
+		for _, span := range unit.Spans {
+			if span[0] < 0 || span[1] > len(corrected) || span[0] >= span[1] {
+				continue
+			}
+			annotations = append(annotations, TranscriptAnnotation{
+				Type:      "unit",
+				Text:      corrected[span[0]:span[1]],
+				Start:     span[0],
+				End:       span[1],
+				Prefix:    unit.Prefix,
+				Apparatus: unit.Apparatus,
+				Number:    unit.Number,
+				Fuzzy:     unit.Fuzzy,
+			})
 		}
 	}
 
