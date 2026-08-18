@@ -1218,3 +1218,29 @@ func TestAnnotateTranscriptElidedListSpans(t *testing.T) {
 		t.Error("no annotation for expanded ENGINE 2")
 	}
 }
+
+func TestParseUnitsElidedListFuzzy(t *testing.T) {
+	//* The real prod transcript stores the plural: "ENGINES 10" only matches
+	//* via the fuzzy pass, and the elided list must still expand there
+	transcript := "BATTALION 2, ENGINES 10, 2, AND 4, TRUCK 1, TRUCK 2, AND MEDIC ENGINE 1. COMMERCIAL FIRE, 255 SOUTH CENTRAL CAMPUS DRIVE ON 1600 EAST."
+	units := testParser.ParseUnits(transcript)
+	found := map[string]bool{}
+	for _, u := range units {
+		key := u.Apparatus + " " + u.Number
+		if u.Prefix != "" {
+			key = u.Prefix + " " + key
+		}
+		found[key] = true
+	}
+	for _, key := range []string{"BATTALION 2", "ENGINE 10", "ENGINE 2", "ENGINE 4", "TRUCK 1", "TRUCK 2", "MEDIC ENGINE 1"} {
+		if !found[key] {
+			t.Errorf("missing unit %q in %v", key, found)
+		}
+	}
+
+	//* And the displayed transcript rewrites the list canonically
+	corrected, _ := testParser.AnnotateTranscript(transcript)
+	if !strings.Contains(corrected, "ENGINE 10, ENGINE 2, AND ENGINE 4") {
+		t.Errorf("corrected = %q, want expanded canonical list", corrected)
+	}
+}

@@ -522,6 +522,40 @@ func (p *TranscriptParser) CorrectTranscript(transcript string) string {
 var unitListContinuation = regexp.MustCompile(`^(?:\s*,\s*\d{1,3}\b)*\s*,?\s+AND\s+\d{1,3}\b`)
 var unitListNumber = regexp.MustCompile(`\d+`)
 
+//* expandElidedList adds units for an AND-terminated number list starting at
+//* pos, inheriting prefix and apparatus from the unit just matched. Returns
+//* the consumed byte spans of the expanded numbers.
+func expandElidedList(normalized string, pos int, prefix, apparatus string, fuzzy bool, seen map[string]int, results *[]ParsedUnit) [][2]int {
+	lm := unitListContinuation.FindStringIndex(normalized[pos:])
+	if lm == nil {
+		return nil
+	}
+	listStart, listEnd := pos+lm[0], pos+lm[1]
+	if followedByDirection(normalized, listEnd) {
+		return nil
+	}
+	var spans [][2]int
+	for _, nm := range unitListNumber.FindAllStringIndex(normalized[listStart:listEnd], -1) {
+		numStart, numEnd := listStart+nm[0], listStart+nm[1]
+		listNumber := normalized[numStart:numEnd]
+		listKey := strings.TrimSpace(prefix + " " + apparatus + " " + listNumber)
+		if idx, ok := seen[listKey]; ok {
+			(*results)[idx].Spans = append((*results)[idx].Spans, [2]int{numStart, numEnd})
+		} else {
+			seen[listKey] = len(*results)
+			*results = append(*results, ParsedUnit{
+				Prefix:    prefix,
+				Apparatus: apparatus,
+				Number:    listNumber,
+				Fuzzy:     fuzzy,
+				Spans:     [][2]int{{numStart, numEnd}},
+			})
+		}
+		spans = append(spans, [2]int{numStart, numEnd})
+	}
+	return spans
+}
+
 //* followedByDirection reports whether the next word after pos is a compass
 //* direction, which marks an address rather than a unit list
 func followedByDirection(text string, pos int) bool {
@@ -601,29 +635,7 @@ func (p *TranscriptParser) ParseUnits(transcript string) []ParsedUnit {
 
 		//* Expand an elided list right after this unit's number: "ENGINE 10,
 		//* 2, AND 4" adds ENGINE 2 and ENGINE 4 with the same prefix
-		if lm := unitListContinuation.FindStringIndex(normalized[m[1]:]); lm != nil {
-			listStart, listEnd := m[1]+lm[0], m[1]+lm[1]
-			if !followedByDirection(normalized, listEnd) {
-				for _, nm := range unitListNumber.FindAllStringIndex(normalized[listStart:listEnd], -1) {
-					numStart, numEnd := listStart+nm[0], listStart+nm[1]
-					listNumber := normalized[numStart:numEnd]
-					listKey := strings.TrimSpace(prefix + " " + apparatus + " " + listNumber)
-					if idx, ok := seen[listKey]; ok {
-						results[idx].Spans = append(results[idx].Spans, [2]int{numStart, numEnd})
-					} else {
-						seen[listKey] = len(results)
-						results = append(results, ParsedUnit{
-							Prefix:    prefix,
-							Apparatus: apparatus,
-							Number:    listNumber,
-							Fuzzy:     false,
-							Spans:     [][2]int{{numStart, numEnd}},
-						})
-					}
-					consumed = append(consumed, [2]int{numStart, numEnd})
-				}
-			}
-		}
+		consumed = append(consumed, expandElidedList(normalized, m[1], prefix, apparatus, false, seen, &results)...)
 	}
 
 	// --- Pass 2: fuzzy label + assemble ---
@@ -740,6 +752,17 @@ func (p *TranscriptParser) ParseUnits(transcript string) []ParsedUnit {
 			assemblyConsumed[idx] = true
 		}
 		assemblyConsumed[numIdx] = true
+
+		//* Fuzzy matches get elided-list expansion too ("ENGINES 10, 2, AND 4"
+		//* reaches this pass because the plural is a distance-1 match)
+		listPos := numToken.index + len(numToken.text)
+		for _, span := range expandElidedList(normalized, listPos, prefix, apparatus, true, seen, &results) {
+			for ti, tk := range tokens {
+				if tk.index >= span[0] && tk.index < span[1] {
+					assemblyConsumed[ti] = true
+				}
+			}
+		}
 	}
 
 	// --- Pass 3: prefix upgrade for exact matches with no prefix ---
