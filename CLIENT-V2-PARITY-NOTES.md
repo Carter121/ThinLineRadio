@@ -359,9 +359,15 @@ plain element). Class-field `$derived(this.x)` trips TS "used before initializat
 **Not ported (still old-admin only):** Radio Reference import (by decision), tone set import
 (twotone/CSV) and tone history analysis / TonesToActive sync buttons inside the talkgroup form,
 CSV import of talkgroups/units (old Tools), Stripe sync, AI assistant.
-**Next:** act on the Sonnet browser-test report (Systems perf with 761 talkgroups / 2272 units
-was the user's explicit acceptance test), then rebuild client-v2 into `server/webapp-v2` and
-redeploy.
+**Browser QA (Sonnet agents, Playwright):** Systems at 761 talkgroups / 2272 units: search
+19-71 ms, page change 75-96 ms, sort 131 ms, row alerts toggle ~60 ms with zero long tasks during
+the websocket config push, edit dialog 182 ms; every other section smoke-passed. Fixes landed in
+`82906a72`: hash deep links / hashchange, site delete confirmation + row click, stale-assignment
+warnings, scrollable tab bar on mobile; all re-verified. bits-ui keeps inactive `TabsContent`
+mounted, so the system editor mounts only the active tab (`0f04ab0f`). Remaining console noise:
+a few `derived_inert` warnings when closing the talkgroup dialog (harmless).
+**Next:** rebuild client-v2 into `server/webapp-v2` and redeploy; decide whether to port the tone
+import / analyze / sync buttons and CSV talkgroup/unit import.
 
 ## 2026-08-22: shared AudioCoordinator consumer ids evicted each other
 
