@@ -54,6 +54,14 @@ otherwise. Date each item when adding it.
   fields, Stripe Sync tool), per the existing no-Stripe rule.
 - **Layout does not need to mirror the old admin.** Feature/API parity matters; visual layout
   and grouping should be whatever is best for the new panel. (2026-07-17)
+- **No Radio Reference import in the new admin.** The user does not use it; it stays in the old
+  admin only. (2026-08-22)
+- **Porting never removes or changes old behavior.** The old Angular admin at `/old-site/admin`
+  and every existing server endpoint must keep working exactly as before; new server routes are
+  additive only. (2026-08-22)
+- **Large systems must not lag.** Prod has 761 talkgroups and 2272 units on one system; every
+  list is paged/filtered client-side and every edit goes through the targeted per-row endpoints
+  (see Server API Reference) instead of the whole-tree `systems/save`. (2026-08-22)
 
 ## Scope: what the new UI should NOT include
 
@@ -79,6 +87,18 @@ otherwise. Date each item when adding it.
   are vendored in `docs/runed/`. (2026-07)
 - Follow CLAUDE.md conventions: `//*` comments, no em/en dashes, theme tokens only, reuse
   shadcn-svelte components, Luxon for dates, pnpm, run `pnpm check` after UI changes.
+- **Browser testing runs in Sonnet sub-agents** (Playwright MCP), not in the main model, to save
+  tokens; builders verify with `pnpm check` + curl. (2026-08-22)
+- **Commit when reasonable, never push.** (2026-08-22)
+- **Local dev backend:** docker container `tlr-dev-postgres` (postgres:16, :5432, db
+  thinline_radio / thinline_user / devpass) + `server/thinline-radio.ini` (gitignored) pointing
+  at it; admin password `devadmin` (set with `-admin_password`); `client-v2/.env` has
+  `PUBLIC_TLR_URL="http://localhost:3000"`. Prod data is copied read-only with the script in the
+  scratchpad (`copy-prod.sh`: options, systems, talkgroups, units, tags, groups, users, groups,
+  apikeys, downstreams, keyword lists, alert prefs, last 1500 calls, last 5000 logs; outbound
+  options such as email, health alerts, transcription, relay, central management are scrubbed
+  and the downstream is disabled). Never point the dev server at the prod DB. Admin tokens live
+  in memory (max 5), so a server restart logs every admin client out. (2026-08-22)
 
 ## Roadmap
 
@@ -204,6 +224,65 @@ against the code if something seems off; add new findings here.
   and email logo are separate multipart endpoints (`POST /api/admin/favicon`, `/email-logo`),
   not Options keys.
 
+## Targeted systems endpoints (2026-08-22, `server/admin_systems.go`)
+
+- The legacy `PUT/POST /api/admin/systems/save` (whole system incl. talkgroups/units) and
+  `DELETE /api/admin/systems/delete/{id}` still exist for the old admin; `systems/save` rewrites
+  every talkgroup and unit row (about 3 s for 761 + 2272 rows) and is only used by client-v2 to
+  create a system. The per-row upsert bodies were extracted into `writeSystemRowTx`,
+  `writeTalkgroupTx`, `writeUnitTx` (same SQL, shared by both paths); the legacy save was
+  verified byte-identical on the DB after the refactor.
+- New routes (all behind `requireLocalhost`, dispatched by `SystemsRouter` at
+  `/api/admin/systems/`; ~30-50 ms each):
+  `PATCH /api/admin/systems/{sid}` (partial system fields; `sites` array replaces the list;
+  tag-based rollouts re-applied and only changed talkgroups rewritten; returns `{system}` without
+  talkgroups/units), `POST .../talkgroups` (create), `PATCH .../talkgroups` (bulk:
+  `{ids, set?, addGroupIds?, removeGroupIds?}`), `PUT .../talkgroups/order` (`{ids}` -> order =
+  position), `POST .../talkgroups/delete` (`{ids}`), `PATCH|DELETE .../talkgroups/{tid}`,
+  `POST .../units`, `POST .../units/delete`, `PATCH|DELETE .../units/{uid}`. Responses carry the
+  affected entity (`{talkgroup}`, `{unit}`, `{updated}`, `{deleted}`); validation gives 400/409
+  with `{error}` (duplicate talkgroupRef/unitRef within the system, missing label).
+- Patch semantics: the existing entity is JSON round-tripped, overlaid with the patch keys, and
+  rebuilt via `FromMap`, so sending a key with a zero value clears it. Every write reloads the
+  in-memory systems list + ID lookups cache and broadcasts the full config (~550 KB) over the
+  admin websocket and the client `CFG`; `alertsEnabled=false` runs the same user-alert-preference
+  cleanup as the legacy path. Deleting talkgroups cascades to their calls (FK).
+- Client: `sections/systems/` (`SystemsPageState` patches `session.config` optimistically, the
+  websocket push reconciles).
+
+## Other admin contracts learned while porting (2026-08-22)
+
+- Tags / talkgroup groups: `GET/PUT /api/admin/tags` and `/api/admin/talkgroup-groups` take the
+  WHOLE list (`{tags}` / `{groups}`; rows `{id?, label, order?, color?}`); rows missing from the
+  PUT are deleted, BUT if any row lacks an id no deletions happen at all (hence the two-phase
+  save in `LabelListEditor`). `talkgroups.tagId` is ON DELETE CASCADE (and calls/alerts cascade
+  from talkgroups), so the UI blocks deleting a tag in use; `talkgroupGroups` rows just cascade.
+  Renaming to an existing label merges into that row.
+- Keyword lists: `GET /api/keyword-lists` (bare array), `POST` (201 `{id}`),
+  `PUT/DELETE /api/keyword-lists/{id}`; admin token accepted; no config push afterwards.
+- Users: `GET /api/admin/users` (array with `fcmTokens`, preformatted dates), `POST /users/create`,
+  `PUT /users/{id}` (full payload; stripe fields must be echoed or they are blanked), `DELETE`,
+  `POST /users/{id}/reset-password`, `/test-push`, `DELETE /users/{id}/device-tokens/{tokenId}`,
+  `POST /users/transfer`, `POST /invitations`. Access shape everywhere: `'*'` or
+  `[{id: systemRef, talkgroups: '*' | [talkgroupRef]}]` (keyed by refs, never DB ids); delay maps
+  keyed by `systemRef` / `"systemRef:talkgroupRef"`. `accountExpiresAt` has no update field.
+- User groups: `/api/admin/groups` (+ `/create`, `/update`, `/delete/{id}`, `/admins`,
+  `/assign-admin`, `/remove-admin`, `/{id}/codes`, `/{id}/codes/generate`, `/{id}/codes/{codeId}`);
+  errors are plain text; `''` means all systems.
+- API keys / downstreams / dirwatch: whole-list `GET/PUT` (`{apikeys}`, `{downstreams}`,
+  `{dirwatch}`); dirwatch `systemId`/`talkgroupId` are DB ids.
+- Logs: `POST /api/admin/logs` `{limit, offset, sort: -1|1, level?, search?, categories?, date?
+  (RFC3339)}` -> `{count, hasMore, logs}`; `count` is not a total, paginate on `hasMore`; no date +
+  DESC = 24 h lookback. `GET /logs/categories`. System alerts: `GET/PUT /api/admin/systemhealth`
+  (`/api/admin/alerts` is the alert-sound map). Transcription failures:
+  `GET/POST /api/admin/transcription-failures`.
+- Config import: `PUT /api/admin/config` replaces every entity list present regardless of the
+  `X-Full-Import` header; the header only gates user/userGroup deletion and keywordLists /
+  userAlertPreferences / deviceTokens. `POST /api/admin/purge` supports only `calls` / `logs`
+  (all or by ids). `POST /api/admin/password` `{currentPassword, newPassword}` (417 = wrong
+  current). `GET /update/check`, `POST /update/apply` (restarts, kills tokens). `PATCH
+  /api/admin/options` rejects `{}`; there is no config-sync trigger endpoint.
+
 ## Alert preferences
 
 - `GET/PUT /api/alerts/preferences`. PUT upserts only the rows sent and resolves rows by
@@ -254,6 +333,35 @@ against the code if something seems off; add new findings here.
 # Session Log
 
 Newest first.
+
+## 2026-08-22: admin panel port completed (all sections except Radio Reference)
+
+**Shipped:** (commits `2eb267f4`, `13d24323` on `svelte-ui`) Server: `server/admin_systems.go`
+with targeted PATCH/POST/DELETE routes for one system / talkgroup / unit plus bulk talkgroup
+patch, reorder, and bulk delete; per-row writers extracted from the bulk write loops (legacy
+`systems/save` unchanged). Client: Systems section rebuilt in `sections/systems/` (system list +
+editor tabs Talkgroups / Units / Sites / Settings; paged, filtered, sortable tables with
+checkbox selection and bulk tag/group/alerts/tone actions; row-level alerts switch; full
+talkgroup dialog incl. tone sets editor, linked voice, TonesToActive forwarding; unit and site
+dialogs; settings form with diff-only PATCH and tag-based rollout selectors). Four builder
+sub-agents ported Tags, Talkgroup Groups, Keyword Lists (`sections/radio/`), Users, User Groups,
+API Keys, Downstreams (`sections/access/`, shared `SystemAccessPicker`), Dirwatch, Logs, System
+Health (`sections/monitoring/`), Import & Export, Purge, Admin Password, Maintenance
+(`sections/tools/`). Local dev backend set up (see How to build).
+**Decisions:** no Radio Reference import in the new admin; porting is additive only (old admin
+and server behavior untouched); per-row endpoints instead of whole-tree saves; browser testing
+delegated to Sonnet sub-agents; commit as you go, never push.
+**Learned:** see the new Server API Reference sections. A whole-system save takes ~3 s on the dev
+DB vs 30-50 ms for the targeted routes. Svelte gotcha: a `{#snippet}` declared directly inside a
+component tag becomes a prop of that component (declare snippets at the top level or under a
+plain element). Class-field `$derived(this.x)` trips TS "used before initialization"; use
+`$derived.by`.
+**Not ported (still old-admin only):** Radio Reference import (by decision), tone set import
+(twotone/CSV) and tone history analysis / TonesToActive sync buttons inside the talkgroup form,
+CSV import of talkgroups/units (old Tools), Stripe sync, AI assistant.
+**Next:** act on the Sonnet browser-test report (Systems perf with 761 talkgroups / 2272 units
+was the user's explicit acceptance test), then rebuild client-v2 into `server/webapp-v2` and
+redeploy.
 
 ## 2026-08-22: shared AudioCoordinator consumer ids evicted each other
 
