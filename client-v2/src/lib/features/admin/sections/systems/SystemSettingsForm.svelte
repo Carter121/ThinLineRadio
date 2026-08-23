@@ -114,7 +114,8 @@
 	async function save() {
 		if (!form.label.trim()) return toast.error('Label is required');
 		if (!Number.isInteger(form.systemRef) || form.systemRef < 1) return toast.error('System ID must be a positive integer');
-		if (page.systems.some((s) => s.id !== system.id && s.systemRef === form.systemRef)) return toast.error(`System ID ${form.systemRef} is already used`);
+		if (page.systems.some((s) => s.id !== system.id && s.systemRef === form.systemRef))
+			return toast.error(`System ID ${form.systemRef} is already used`);
 		if (!blacklistsValid) return toast.error('Blacklists must be a comma-separated list of talkgroup IDs');
 
 		//* Only send what changed; the server merges the patch into the stored system.
@@ -202,7 +203,12 @@
 				</div>
 				<div class="grid gap-1.5 sm:col-span-2">
 					<Label for="sys-blacklists">Blacklists</Label>
-					<Input id="sys-blacklists" bind:value={form.blacklists} placeholder="Comma-separated talkgroup IDs to ignore" aria-invalid={!blacklistsValid} />
+					<Input
+						id="sys-blacklists"
+						bind:value={form.blacklists}
+						placeholder="Comma-separated talkgroup IDs to ignore"
+						aria-invalid={!blacklistsValid}
+					/>
 					{#if !blacklistsValid}
 						<p class="text-xs text-destructive">Comma-separated list of talkgroup IDs.</p>
 					{/if}
@@ -220,13 +226,38 @@
 				<CardTitle class="text-sm">Behavior</CardTitle>
 			</CardHeader>
 			<CardContent class="grid gap-3 px-4 pt-0 pb-4">
-				{@render toggle('Alerts enabled', 'Allow alerts and transcription for this system. Disabling deletes user alert preferences on save.', form.alertsEnabled, (v) => (form.alertsEnabled = v))}
-				{@render toggle('Duplicate detection', 'Suppress duplicate calls on this system when global duplicate detection is on.', form.duplicateDetectionEnabled, (v) => (form.duplicateDetectionEnabled = v))}
-				{@render toggle('Auto-populate talkgroups', 'Create unconfigured talkgroups automatically when audio arrives.', form.autoPopulate, (v) => (form.autoPopulate = v))}
+				{@render toggle(
+					'Alerts enabled',
+					'Allow alerts and transcription for this system. Disabling deletes user alert preferences on save.',
+					form.alertsEnabled,
+					(v) => (form.alertsEnabled = v)
+				)}
+				{@render toggle(
+					'Duplicate detection',
+					'Suppress duplicate calls on this system when global duplicate detection is on.',
+					form.duplicateDetectionEnabled,
+					(v) => (form.duplicateDetectionEnabled = v)
+				)}
+				{@render toggle(
+					'Auto-populate talkgroups',
+					'Create unconfigured talkgroups automatically when audio arrives.',
+					form.autoPopulate,
+					(v) => (form.autoPopulate = v)
+				)}
 				{#if form.autoPopulate}
-					{@render toggle('Auto-populated talkgroups start with alerts on', 'New talkgroups get alerts enabled; change each later as needed.', form.autoPopulateAlertsEnabled, (v) => (form.autoPopulateAlertsEnabled = v))}
+					{@render toggle(
+						'Auto-populated talkgroups start with alerts on',
+						'New talkgroups get alerts enabled; change each later as needed.',
+						form.autoPopulateAlertsEnabled,
+						(v) => (form.autoPopulateAlertsEnabled = v)
+					)}
 				{/if}
-				{@render toggle('Auto-populate units', 'Add heard unit IDs and labels to this system\'s unit list.', form.autoPopulateUnits, (v) => (form.autoPopulateUnits = v))}
+				{@render toggle(
+					'Auto-populate units',
+					"Add heard unit IDs and labels to this system's unit list.",
+					form.autoPopulateUnits,
+					(v) => (form.autoPopulateUnits = v)
+				)}
 			</CardContent>
 		</Card>
 
@@ -241,11 +272,26 @@
 						<Switch checked={form.autoLearnToneSets} onCheckedChange={(v) => (form.autoLearnToneSets = v)} />
 					</div>
 					{#if form.autoLearnToneSets}
-						<MultiSelect items={usedTags} placeholder="Select tags" value={form.autoLearnToneSetsTagIds} onchange={(ids) => (form.autoLearnToneSetsTagIds = ids)} />
+						<MultiSelect
+							items={usedTags}
+							placeholder="Select tags"
+							value={form.autoLearnToneSetsTagIds}
+							onchange={(ids) => {
+								form.autoLearnToneSetsTagIds = ids;
+							}}
+						/>
 						<p class="text-xs text-muted-foreground">{talkgroupsUsingTags(form.autoLearnToneSetsTagIds)} talkgroups affected</p>
 						<div class="grid gap-1.5">
 							<Label for="sys-tone-off">Auto-off after (days)</Label>
-							<Input id="sys-tone-off" type="number" min="0" step="1" value={form.autoLearnToneSetsAutoOffDays} oninput={(e) => num(e, 'autoLearnToneSetsAutoOffDays')} placeholder="0 = never" />
+							<Input
+								id="sys-tone-off"
+								type="number"
+								min="0"
+								step="1"
+								value={form.autoLearnToneSetsAutoOffDays}
+								oninput={(e) => num(e, 'autoLearnToneSetsAutoOffDays')}
+								placeholder="0 = never"
+							/>
 						</div>
 						{#if system.autoLearnToneSetsExpiresAt}
 							<p class="text-xs text-muted-foreground">{expiresLabel(system.autoLearnToneSetsExpiresAt)}</p>
@@ -258,11 +304,26 @@
 						<Switch checked={form.autoLearnUnitAliases} onCheckedChange={(v) => (form.autoLearnUnitAliases = v)} />
 					</div>
 					{#if form.autoLearnUnitAliases}
-						<MultiSelect items={usedTags} placeholder="Select tags" value={form.autoLearnUnitAliasesTagIds} onchange={(ids) => (form.autoLearnUnitAliasesTagIds = ids)} />
+						<MultiSelect
+							items={usedTags}
+							placeholder="Select tags"
+							value={form.autoLearnUnitAliasesTagIds}
+							onchange={(ids) => {
+								form.autoLearnUnitAliasesTagIds = ids;
+							}}
+						/>
 						<p class="text-xs text-muted-foreground">{talkgroupsUsingTags(form.autoLearnUnitAliasesTagIds)} talkgroups affected</p>
 						<div class="grid gap-1.5">
 							<Label for="sys-alias-off">Auto-off after (days)</Label>
-							<Input id="sys-alias-off" type="number" min="0" step="1" value={form.autoLearnUnitAliasesAutoOffDays} oninput={(e) => num(e, 'autoLearnUnitAliasesAutoOffDays')} placeholder="0 = never" />
+							<Input
+								id="sys-alias-off"
+								type="number"
+								min="0"
+								step="1"
+								value={form.autoLearnUnitAliasesAutoOffDays}
+								oninput={(e) => num(e, 'autoLearnUnitAliasesAutoOffDays')}
+								placeholder="0 = never"
+							/>
 						</div>
 						{#if system.autoLearnUnitAliasesExpiresAt}
 							<p class="text-xs text-muted-foreground">{expiresLabel(system.autoLearnUnitAliasesExpiresAt)}</p>
@@ -275,11 +336,22 @@
 						<Switch checked={form.bulkToneDetectionEnabled} onCheckedChange={(v) => (form.bulkToneDetectionEnabled = v)} />
 					</div>
 					{#if form.bulkToneDetectionEnabled}
-						<MultiSelect items={usedTags} placeholder="Select tags" value={form.bulkToneDetectionTagIds} onchange={(ids) => (form.bulkToneDetectionTagIds = ids)} />
-						<p class="text-xs text-muted-foreground">Enables tone detection on {talkgroupsUsingTags(form.bulkToneDetectionTagIds)} talkgroups when saved.</p>
+						<MultiSelect
+							items={usedTags}
+							placeholder="Select tags"
+							value={form.bulkToneDetectionTagIds}
+							onchange={(ids) => {
+								form.bulkToneDetectionTagIds = ids;
+							}}
+						/>
+						<p class="text-xs text-muted-foreground">
+							Enables tone detection on {talkgroupsUsingTags(form.bulkToneDetectionTagIds)} talkgroups when saved.
+						</p>
 					{/if}
 				</div>
-				<p class="text-xs text-muted-foreground lg:col-span-3">Rollouts apply to talkgroups with the selected tags when you save. Only tags used by this system are offered.</p>
+				<p class="text-xs text-muted-foreground lg:col-span-3">
+					Rollouts apply to talkgroups with the selected tags when you save. Only tags used by this system are offered.
+				</p>
 			</CardContent>
 		</Card>
 	</div>

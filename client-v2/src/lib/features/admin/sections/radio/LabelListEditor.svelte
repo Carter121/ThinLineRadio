@@ -395,14 +395,16 @@
 											<Select type="single" value={row.color} onValueChange={(value) => (row.color = value)}>
 												<SelectTrigger size="sm" class="w-32">
 													<span class="flex items-center gap-2">
-														<span class="size-3 shrink-0 rounded-full border border-border" style:background-color={row.color || 'transparent'}></span>
+														<span class="size-3 shrink-0 rounded-full border border-border" style:background-color={row.color || 'transparent'}
+														></span>
 														{colorLabel(row.color)}
 													</span>
 												</SelectTrigger>
 												<SelectContent>
 													{#each TAG_COLOR_OPTIONS as option (option.value)}
 														<SelectItem value={option.value} label={option.label}>
-															<span class="size-3 shrink-0 rounded-full border border-border" style:background-color={option.value || 'transparent'}></span>
+															<span class="size-3 shrink-0 rounded-full border border-border" style:background-color={option.value || 'transparent'}
+															></span>
 															{option.label}
 														</SelectItem>
 													{/each}

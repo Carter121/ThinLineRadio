@@ -69,7 +69,7 @@
 	</div>
 
 	<Tabs bind:value={tab}>
-		<TabsList>
+		<TabsList class="max-w-full overflow-x-auto">
 			<TabsTrigger value="talkgroups">Talkgroups <span class="text-muted-foreground">({system.talkgroups.length})</span></TabsTrigger>
 			<TabsTrigger value="units">Units <span class="text-muted-foreground">({system.units.length})</span></TabsTrigger>
 			<TabsTrigger value="sites">Sites <span class="text-muted-foreground">({system.sites?.length ?? 0})</span></TabsTrigger>
@@ -96,8 +96,8 @@
 		<AlertDialogHeader>
 			<AlertDialogTitle>Delete {system.label}?</AlertDialogTitle>
 			<AlertDialogDescription>
-				This removes the system with its {system.talkgroups.length} talkgroups and {system.units.length} units, and permanently deletes every call recorded on
-				them. This cannot be undone.
+				This removes the system with its {system.talkgroups.length} talkgroups and {system.units.length} units, and permanently deletes every call recorded
+				on them. This cannot be undone.
 			</AlertDialogDescription>
 		</AlertDialogHeader>
 		<AlertDialogFooter>

@@ -151,7 +151,9 @@
 				<CloudDownload class="size-4" />
 				Server version and updates
 			</CardTitle>
-			<CardDescription>Checks GitHub Releases for a newer server build. Applying an update downloads the release and restarts the server.</CardDescription>
+			<CardDescription
+				>Checks GitHub Releases for a newer server build. Applying an update downloads the release and restarts the server.</CardDescription
+			>
 		</CardHeader>
 		<CardContent class="flex flex-col gap-3 px-4 pt-0 pb-4">
 			<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
@@ -176,7 +178,9 @@
 				<Alert>
 					<TriangleAlert />
 					<AlertTitle>Auto-update is not available</AlertTitle>
-					<AlertDescription>The updater is not initialised on this server build (for example Docker or a source build). Update it the way it was installed.</AlertDescription>
+					<AlertDescription
+						>The updater is not initialised on this server build (for example Docker or a source build). Update it the way it was installed.</AlertDescription
+					>
 				</Alert>
 			{:else if updateError}
 				<Alert variant="destructive">
@@ -259,8 +263,8 @@
 				Config sync to file
 			</CardTitle>
 			<CardDescription>
-				When enabled, the server writes the full config (same content as an export) to {CONFIG_SYNC_FILENAME} inside the sync folder after every
-				configuration change. Enable it and set the folder under Server &gt; General.
+				When enabled, the server writes the full config (same content as an export) to {CONFIG_SYNC_FILENAME} inside the sync folder after every configuration
+				change. Enable it and set the folder under Server &gt; General.
 			</CardDescription>
 		</CardHeader>
 		<CardContent class="flex flex-col gap-3 px-4 pt-0 pb-4">

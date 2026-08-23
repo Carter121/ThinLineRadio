@@ -52,7 +52,10 @@ export class SystemsApi {
 	}
 
 	async createTalkgroup(systemId: number, talkgroup: TalkgroupPatch): Promise<AdminTalkgroup> {
-		const response = await this.client.request<{ talkgroup: AdminTalkgroup }>(`/api/admin/systems/${systemId}/talkgroups`, this.json('POST', '', talkgroup));
+		const response = await this.client.request<{ talkgroup: AdminTalkgroup }>(
+			`/api/admin/systems/${systemId}/talkgroups`,
+			this.json('POST', '', talkgroup)
+		);
 		return response.talkgroup;
 	}
 
@@ -75,7 +78,10 @@ export class SystemsApi {
 	}
 
 	async deleteTalkgroups(systemId: number, ids: number[]): Promise<number> {
-		const response = await this.client.request<{ deleted: number }>(`/api/admin/systems/${systemId}/talkgroups/delete`, this.json('POST', '', { ids }));
+		const response = await this.client.request<{ deleted: number }>(
+			`/api/admin/systems/${systemId}/talkgroups/delete`,
+			this.json('POST', '', { ids })
+		);
 		return response.deleted;
 	}
 

@@ -44,11 +44,20 @@
 		}
 	});
 
-	onMount(() => {
+	//* Follows the hash on load and on later hash changes (back/forward, pasted links).
+	function syncFromHash() {
 		const fromHash = window.location.hash.slice(1);
 		if (AdminSections.some((section) => section.id === fromHash)) activeSectionId = fromHash;
+	}
+
+	onMount(() => {
+		syncFromHash();
+		window.addEventListener('hashchange', syncFromHash);
 		void session.start();
-		return () => session.destroy();
+		return () => {
+			window.removeEventListener('hashchange', syncFromHash);
+			session.destroy();
+		};
 	});
 </script>
 

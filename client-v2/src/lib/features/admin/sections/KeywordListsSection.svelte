@@ -218,8 +218,8 @@
 		<div>
 			<h2 class="text-lg font-semibold">Keyword Lists</h2>
 			<p class="text-sm text-muted-foreground">
-				Reusable keyword sets that users can attach to alert preferences; a call alerts when its transcript contains a keyword (whole word, any
-				case). Each list saves on its own.
+				Reusable keyword sets that users can attach to alert preferences; a call alerts when its transcript contains a keyword (whole word, any case).
+				Each list saves on its own.
 			</p>
 		</div>
 		<div class="flex items-center gap-2">
@@ -362,8 +362,8 @@
 		<AlertDialog.Header>
 			<AlertDialog.Title>Delete "{deleteTarget?.label}"?</AlertDialog.Title>
 			<AlertDialog.Description>
-				The list and its {deleteTarget?.keywords.length ?? 0} keywords are removed permanently, and it is detached from every user's alert
-				preferences that reference it.
+				The list and its {deleteTarget?.keywords.length ?? 0} keywords are removed permanently, and it is detached from every user's alert preferences that
+				reference it.
 			</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>

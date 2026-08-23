@@ -256,7 +256,9 @@
 	<div class="flex flex-wrap items-center gap-2">
 		<Input placeholder="Search ID, label, name, tag, group" bind:value={search} class="h-8 w-full sm:w-64" />
 		<Select type="single" value={tagFilter} onValueChange={(v) => (tagFilter = v)}>
-			<SelectTrigger size="sm" class="w-36">{tagFilter === 'all' ? 'All tags' : tagFilter === '0' ? 'No tag' : tagLabel(Number(tagFilter))}</SelectTrigger>
+			<SelectTrigger size="sm" class="w-36"
+				>{tagFilter === 'all' ? 'All tags' : tagFilter === '0' ? 'No tag' : tagLabel(Number(tagFilter))}</SelectTrigger
+			>
 			<SelectContent>
 				<SelectItem value="all" label="All tags" />
 				<SelectItem value="0" label="No tag" />
@@ -266,7 +268,9 @@
 			</SelectContent>
 		</Select>
 		<Select type="single" value={groupFilter} onValueChange={(v) => (groupFilter = v)}>
-			<SelectTrigger size="sm" class="w-40">{groupFilter === 'all' ? 'All groups' : groupFilter === '0' ? 'No group' : groupLabel(Number(groupFilter))}</SelectTrigger>
+			<SelectTrigger size="sm" class="w-40"
+				>{groupFilter === 'all' ? 'All groups' : groupFilter === '0' ? 'No group' : groupLabel(Number(groupFilter))}</SelectTrigger
+			>
 			<SelectContent>
 				<SelectItem value="all" label="All groups" />
 				<SelectItem value="0" label="No group" />
@@ -330,7 +334,15 @@
 				<Button variant="outline" size="sm" onclick={bulkAssignTag} disabled={!bulkTag || busy}>Assign tag</Button>
 			</div>
 			<div class="flex items-center gap-1">
-				<MultiSelect items={page.groups} value={bulkGroups} onchange={(ids) => (bulkGroups = ids)} placeholder="Groups" class="w-48" />
+				<MultiSelect
+					items={page.groups}
+					value={bulkGroups}
+					onchange={(ids) => {
+						bulkGroups = ids;
+					}}
+					placeholder="Groups"
+					class="w-48"
+				/>
 				<Button variant="outline" size="sm" onclick={bulkAddGroups} disabled={bulkGroups.length === 0 || busy}>Add</Button>
 				<Button variant="outline" size="sm" onclick={bulkRemoveGroups} disabled={bulkGroups.length === 0 || busy}>Remove</Button>
 			</div>
@@ -356,13 +368,16 @@
 	{/if}
 
 	{#if system.talkgroups.length === 0}
-		<p class="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No talkgroups yet. Add one, or enable auto-populate in Settings.</p>
+		<p class="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+			No talkgroups yet. Add one, or enable auto-populate in Settings.
+		</p>
 	{:else}
 		<div class="overflow-x-auto rounded-md border border-border">
 			<Table>
 				<TableHeader>
 					<TableRow>
-						<TableHead class="w-8"><Checkbox checked={allPageSelected} onCheckedChange={(v) => togglePage(!!v)} aria-label="Select page" /></TableHead>
+						<TableHead class="w-8"><Checkbox checked={allPageSelected} onCheckedChange={(v) => togglePage(!!v)} aria-label="Select page" /></TableHead
+						>
 						<TableHead class="w-24">ID</TableHead>
 						<TableHead>Label</TableHead>
 						<TableHead class="hidden md:table-cell">Name</TableHead>
@@ -376,7 +391,11 @@
 					{#each pageRows as tg (tg.id)}
 						<TableRow class="cursor-pointer" onclick={() => openEdit(tg)}>
 							<TableCell onclick={(e: MouseEvent) => e.stopPropagation()}>
-								<Checkbox checked={selected.has(tg.id)} onCheckedChange={(v) => (v ? selected.add(tg.id) : selected.delete(tg.id))} aria-label="Select {tg.label}" />
+								<Checkbox
+									checked={selected.has(tg.id)}
+									onCheckedChange={(v) => (v ? selected.add(tg.id) : selected.delete(tg.id))}
+									aria-label="Select {tg.label}"
+								/>
 							</TableCell>
 							<TableCell class="font-mono text-xs">{tg.talkgroupRef}</TableCell>
 							<TableCell>
@@ -434,11 +453,23 @@
 						{/each}
 					</SelectContent>
 				</Select>
-				<Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={clampedPage === 0} onclick={() => (pageIndex = clampedPage - 1)}>
+				<Button
+					variant="outline"
+					size="icon-sm"
+					aria-label="Previous page"
+					disabled={clampedPage === 0}
+					onclick={() => (pageIndex = clampedPage - 1)}
+				>
 					<ChevronLeft />
 				</Button>
 				<span class="tabular-nums">Page {clampedPage + 1} of {pageCount}</span>
-				<Button variant="outline" size="icon-sm" aria-label="Next page" disabled={clampedPage >= pageCount - 1} onclick={() => (pageIndex = clampedPage + 1)}>
+				<Button
+					variant="outline"
+					size="icon-sm"
+					aria-label="Next page"
+					disabled={clampedPage >= pageCount - 1}
+					onclick={() => (pageIndex = clampedPage + 1)}
+				>
 					<ChevronRight />
 				</Button>
 			</div>

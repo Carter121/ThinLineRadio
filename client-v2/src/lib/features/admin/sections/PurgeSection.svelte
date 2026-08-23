@@ -71,7 +71,9 @@
 <div class="flex flex-col gap-4">
 	<div>
 		<h2 class="text-lg font-semibold">Purge Data</h2>
-		<p class="text-sm text-muted-foreground">Remove calls or log entries from the database. Every action here is permanent; export a config backup first if in doubt.</p>
+		<p class="text-sm text-muted-foreground">
+			Remove calls or log entries from the database. Every action here is permanent; export a config backup first if in doubt.
+		</p>
 	</div>
 
 	<div class="grid gap-4 md:grid-cols-2">
@@ -135,7 +137,9 @@
 			<AlertDialog.Description>{pendingSpec.consequences} This cannot be undone.</AlertDialog.Description>
 		</AlertDialog.Header>
 		<label class="flex flex-col gap-1.5 text-sm">
-			<span class="text-muted-foreground">Type <span class="font-mono font-semibold text-foreground">{pendingSpec.confirmText}</span> to confirm.</span>
+			<span class="text-muted-foreground"
+				>Type <span class="font-mono font-semibold text-foreground">{pendingSpec.confirmText}</span> to confirm.</span
+			>
 			<Input bind:value={confirmInput} placeholder={pendingSpec.confirmText} autocomplete="off" />
 		</label>
 		<AlertDialog.Footer>

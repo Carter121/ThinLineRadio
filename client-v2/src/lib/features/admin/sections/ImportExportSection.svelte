@@ -277,9 +277,9 @@
 						>
 							<span class="text-sm font-medium">Standard import</span>
 							<span class="text-xs text-muted-foreground">
-								Options are overwritten. Systems, talkgroups, tags, groups, API keys, dirwatch and downstreams in the file replace the server's
-								lists of those types (rows missing from the file are removed). Users and user groups are added or updated but never deleted.
-								Keyword lists, alert preferences and device tokens are skipped.
+								Options are overwritten. Systems, talkgroups, tags, groups, API keys, dirwatch and downstreams in the file replace the server's lists
+								of those types (rows missing from the file are removed). Users and user groups are added or updated but never deleted. Keyword lists,
+								alert preferences and device tokens are skipped.
 							</span>
 						</button>
 						<button
@@ -296,8 +296,8 @@
 								Full restore (destructive)
 							</span>
 							<span class="text-xs text-muted-foreground">
-								Everything the standard import does, plus: users and user groups missing from the file are deleted, and keyword lists, user
-								alert preferences and device tokens are wiped and replaced with the file's contents. Use this to restore a backup.
+								Everything the standard import does, plus: users and user groups missing from the file are deleted, and keyword lists, user alert
+								preferences and device tokens are wiped and replaced with the file's contents. Use this to restore a backup.
 							</span>
 						</button>
 					</div>
@@ -333,11 +333,11 @@
 			<AlertDialog.Title>{mode === 'full' ? 'Restore configuration from file?' : 'Import configuration?'}</AlertDialog.Title>
 			<AlertDialog.Description>
 				{#if mode === 'full'}
-					This replaces the server configuration with the file. Users, user groups, keyword lists, alert preferences and device tokens not in the
-					file will be deleted. This cannot be undone; export the current config first if you have not already.
+					This replaces the server configuration with the file. Users, user groups, keyword lists, alert preferences and device tokens not in the file
+					will be deleted. This cannot be undone; export the current config first if you have not already.
 				{:else}
-					Sections in the file replace the matching server data (rows missing from the file are removed for systems, tags, groups, API keys,
-					dirwatch and downstreams). Users and user groups are only added or updated.
+					Sections in the file replace the matching server data (rows missing from the file are removed for systems, tags, groups, API keys, dirwatch
+					and downstreams). Users and user groups are only added or updated.
 				{/if}
 			</AlertDialog.Description>
 		</AlertDialog.Header>

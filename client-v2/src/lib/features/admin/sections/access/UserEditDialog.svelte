@@ -301,10 +301,4 @@
 	</Dialog.Content>
 </Dialog.Root>
 
-<SystemAccessDialog
-	{session}
-	bind:open={accessOpen}
-	value={access}
-	title={`Access for ${user.email}`}
-	onsave={(value) => (access = value)}
-/>
+<SystemAccessDialog {session} bind:open={accessOpen} value={access} title={`Access for ${user.email}`} onsave={(value) => (access = value)} />

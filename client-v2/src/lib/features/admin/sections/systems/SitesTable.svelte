@@ -2,6 +2,16 @@
 	//* Sites (P25 preferred-site duplicate detection). The list is small, so the whole
 	//* array is saved through the system PATCH on every change.
 	import { toast } from 'svelte-sonner';
+	import {
+		AlertDialog,
+		AlertDialogAction,
+		AlertDialogCancel,
+		AlertDialogContent,
+		AlertDialogDescription,
+		AlertDialogFooter,
+		AlertDialogHeader,
+		AlertDialogTitle
+	} from '$lib/components/ui/alert-dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
@@ -29,6 +39,7 @@
 	let rfss = $state('');
 	let frequencies = $state('');
 	let saving = $state(false);
+	let deleteIndex = $state<number | null>(null);
 
 	function openDialog(index: number | null) {
 		editIndex = index;
@@ -74,12 +85,15 @@
 		void persist(next, editIndex === null ? `Added site ${site.label}` : `Saved ${site.label}`);
 	}
 
-	function remove(index: number) {
+	async function confirmRemove() {
+		if (deleteIndex === null) return;
+		const index = deleteIndex;
 		const site = sites[index];
-		void persist(
+		await persist(
 			sites.filter((_, i) => i !== index),
 			`Removed site ${site.label}`
 		);
+		deleteIndex = null;
 	}
 </script>
 
@@ -108,15 +122,17 @@
 				</TableHeader>
 				<TableBody>
 					{#each sites as site, index (site.id ?? `${site.siteRef}-${index}`)}
-						<TableRow>
+						<TableRow class="cursor-pointer" onclick={() => openDialog(index)}>
 							<TableCell class="font-mono text-xs">{site.siteRef}</TableCell>
 							<TableCell class="text-sm">{site.rfss ?? 0}</TableCell>
 							<TableCell class="font-medium">{site.label}</TableCell>
 							<TableCell class="hidden text-sm text-muted-foreground md:table-cell">{(site.frequencies ?? []).join(', ') || '-'}</TableCell>
-							<TableCell>
+							<TableCell onclick={(e: MouseEvent) => e.stopPropagation()}>
 								<div class="flex justify-end gap-1">
 									<Button variant="ghost" size="icon-sm" aria-label="Edit {site.label}" onclick={() => openDialog(index)}><Pencil /></Button>
-									<Button variant="ghost" size="icon-sm" aria-label="Delete {site.label}" disabled={saving} onclick={() => remove(index)}><Trash2 /></Button>
+									<Button variant="ghost" size="icon-sm" aria-label="Delete {site.label}" disabled={saving} onclick={() => (deleteIndex = index)}
+										><Trash2 /></Button
+									>
 								</div>
 							</TableCell>
 						</TableRow>
@@ -159,3 +175,21 @@
 		</DialogFooter>
 	</DialogContent>
 </Dialog>
+
+<AlertDialog
+	open={deleteIndex !== null}
+	onOpenChange={(v) => {
+		if (!v) deleteIndex = null;
+	}}
+>
+	<AlertDialogContent>
+		<AlertDialogHeader>
+			<AlertDialogTitle>Delete site {deleteIndex !== null ? sites[deleteIndex]?.label : ''}?</AlertDialogTitle>
+			<AlertDialogDescription>Calls keep their recorded site reference; only this site definition is removed.</AlertDialogDescription>
+		</AlertDialogHeader>
+		<AlertDialogFooter>
+			<AlertDialogCancel>Cancel</AlertDialogCancel>
+			<AlertDialogAction onclick={confirmRemove} disabled={saving}>Delete</AlertDialogAction>
+		</AlertDialogFooter>
+	</AlertDialogContent>
+</AlertDialog>

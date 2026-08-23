@@ -94,7 +94,8 @@
 	function validate(): string | null {
 		if (!Number.isInteger(form.talkgroupRef) || form.talkgroupRef < 1) return 'Talkgroup ID must be a positive integer';
 		if (!form.label.trim()) return 'Label is required';
-		if (system.talkgroups.some((tg) => tg.id !== talkgroup?.id && tg.talkgroupRef === form.talkgroupRef)) return `Talkgroup ID ${form.talkgroupRef} is already used in this system`;
+		if (system.talkgroups.some((tg) => tg.id !== talkgroup?.id && tg.talkgroupRef === form.talkgroupRef))
+			return `Talkgroup ID ${form.talkgroupRef} is already used in this system`;
 		if (form.toneDownstreamEnabled && !form.toneDownstreamURL.trim()) return 'Destination URL is required when forwarding tones';
 		return null;
 	}
@@ -130,7 +131,11 @@
 	<DialogContent class="flex max-h-[92dvh] flex-col gap-0 p-0 sm:max-w-3xl">
 		<DialogHeader class="border-b border-border px-6 py-4">
 			<DialogTitle>{isNew ? 'Add talkgroup' : `Edit ${talkgroup?.label}`}</DialogTitle>
-			<DialogDescription>{isNew ? `New talkgroup in ${system.label}.` : `Talkgroup ${talkgroup?.talkgroupRef} in ${system.label}. Only changed fields are sent.`}</DialogDescription>
+			<DialogDescription
+				>{isNew
+					? `New talkgroup in ${system.label}.`
+					: `Talkgroup ${talkgroup?.talkgroupRef} in ${system.label}. Only changed fields are sent.`}</DialogDescription
+			>
 		</DialogHeader>
 
 		<div class="flex-1 overflow-y-auto px-6 py-4">
@@ -172,7 +177,14 @@
 					</div>
 					<div class="grid gap-1.5">
 						<Label>Groups</Label>
-						<MultiSelect items={page.groups} value={form.groupIds} onchange={(ids) => (form.groupIds = ids)} placeholder="Select groups" />
+						<MultiSelect
+							items={page.groups}
+							value={form.groupIds}
+							onchange={(ids) => {
+								form.groupIds = ids;
+							}}
+							placeholder="Select groups"
+						/>
 					</div>
 				</section>
 
@@ -187,15 +199,36 @@
 					</div>
 					<div class="grid gap-1.5">
 						<Label for="tg-retention">Retention (days)</Label>
-						<Input id="tg-retention" type="number" min="0" step="1" value={form.retentionDays || ''} oninput={(e) => num(e, 'retentionDays')} placeholder="System/global" />
+						<Input
+							id="tg-retention"
+							type="number"
+							min="0"
+							step="1"
+							value={form.retentionDays || ''}
+							oninput={(e) => num(e, 'retentionDays')}
+							placeholder="System/global"
+						/>
 					</div>
 					<div class="grid gap-1.5">
 						<Label for="tg-cooldown">Alert cooldown (s)</Label>
-						<Input id="tg-cooldown" type="number" min="0" step="1" value={form.alertCooldownSeconds || ''} oninput={(e) => num(e, 'alertCooldownSeconds')} placeholder="0 = off" />
+						<Input
+							id="tg-cooldown"
+							type="number"
+							min="0"
+							step="1"
+							value={form.alertCooldownSeconds || ''}
+							oninput={(e) => num(e, 'alertCooldownSeconds')}
+							placeholder="0 = off"
+						/>
 					</div>
 					<div class="grid gap-1.5 sm:col-span-4">
 						<Label for="tg-prompt">Transcription prompt</Label>
-						<Textarea id="tg-prompt" bind:value={form.transcriptionPrompt} rows={2} placeholder="Overrides the system and global prompt for this talkgroup" />
+						<Textarea
+							id="tg-prompt"
+							bind:value={form.transcriptionPrompt}
+							rows={2}
+							placeholder="Overrides the system and global prompt for this talkgroup"
+						/>
 					</div>
 				</section>
 
@@ -209,27 +242,76 @@
 							<Switch {checked} onCheckedChange={onchange} />
 						</div>
 					{/snippet}
-					{@render toggle('Alerts enabled', 'Allow alerts and transcription. Disabling deletes user alert preferences for this talkgroup.', form.alertsEnabled, (v) => (form.alertsEnabled = v))}
-					{@render toggle('Alerting talkgroup', 'Always transcribe and alert on voice, without tone or keyword matching.', form.alertingTalkgroup, (v) => (form.alertingTalkgroup = v))}
-					{@render toggle('Tone detection', 'Detect two-tone and long-tone pages on this talkgroup.', form.toneDetectionEnabled, (v) => (form.toneDetectionEnabled = v))}
-					{@render toggle('Auto-learn tone sets', 'Observe paging patterns and propose tone sets for review.', form.autoLearnToneSets, (v) => (form.autoLearnToneSets = v))}
-					{@render toggle('Auto-learn unit aliases', 'Learn radio unit ID to label mappings from this channel.', form.autoLearnUnitAliases, (v) => (form.autoLearnUnitAliases = v))}
+					{@render toggle(
+						'Alerts enabled',
+						'Allow alerts and transcription. Disabling deletes user alert preferences for this talkgroup.',
+						form.alertsEnabled,
+						(v) => (form.alertsEnabled = v)
+					)}
+					{@render toggle(
+						'Alerting talkgroup',
+						'Always transcribe and alert on voice, without tone or keyword matching.',
+						form.alertingTalkgroup,
+						(v) => (form.alertingTalkgroup = v)
+					)}
+					{@render toggle(
+						'Tone detection',
+						'Detect two-tone and long-tone pages on this talkgroup.',
+						form.toneDetectionEnabled,
+						(v) => (form.toneDetectionEnabled = v)
+					)}
+					{@render toggle(
+						'Auto-learn tone sets',
+						'Observe paging patterns and propose tone sets for review.',
+						form.autoLearnToneSets,
+						(v) => (form.autoLearnToneSets = v)
+					)}
+					{@render toggle(
+						'Auto-learn unit aliases',
+						'Learn radio unit ID to label mappings from this channel.',
+						form.autoLearnUnitAliases,
+						(v) => (form.autoLearnUnitAliases = v)
+					)}
 				</section>
 
 				<section class="grid gap-3 sm:grid-cols-3">
 					<div class="grid gap-1.5">
 						<Label for="tg-linked">Linked voice talkgroup ID</Label>
-						<Input id="tg-linked" type="number" min="0" step="1" value={form.linkedVoiceTalkgroupRef || ''} oninput={(e) => num(e, 'linkedVoiceTalkgroupRef')} placeholder="0 = off" />
+						<Input
+							id="tg-linked"
+							type="number"
+							min="0"
+							step="1"
+							value={form.linkedVoiceTalkgroupRef || ''}
+							oninput={(e) => num(e, 'linkedVoiceTalkgroupRef')}
+							placeholder="0 = off"
+						/>
 						<p class="text-xs text-muted-foreground">After tones here, also watch this talkgroup for the voice dispatch.</p>
 					</div>
 					{#if form.linkedVoiceTalkgroupRef > 0}
 						<div class="grid gap-1.5">
 							<Label for="tg-linked-window">Voice window (s)</Label>
-							<Input id="tg-linked-window" type="number" min="0" step="1" value={form.linkedVoiceWindowSeconds || ''} oninput={(e) => num(e, 'linkedVoiceWindowSeconds')} placeholder="30" />
+							<Input
+								id="tg-linked-window"
+								type="number"
+								min="0"
+								step="1"
+								value={form.linkedVoiceWindowSeconds || ''}
+								oninput={(e) => num(e, 'linkedVoiceWindowSeconds')}
+								placeholder="30"
+							/>
 						</div>
 						<div class="grid gap-1.5">
 							<Label for="tg-linked-min">Min voice duration (s)</Label>
-							<Input id="tg-linked-min" type="number" min="0" step="1" value={form.linkedVoiceMinDurationSeconds || ''} oninput={(e) => num(e, 'linkedVoiceMinDurationSeconds')} placeholder="0" />
+							<Input
+								id="tg-linked-min"
+								type="number"
+								min="0"
+								step="1"
+								value={form.linkedVoiceMinDurationSeconds || ''}
+								oninput={(e) => num(e, 'linkedVoiceMinDurationSeconds')}
+								placeholder="0"
+							/>
 						</div>
 					{/if}
 				</section>
@@ -257,7 +339,12 @@
 						{/if}
 						<div>
 							<p class="mb-2 text-sm font-medium">Tone sets</p>
-							<ToneSetsEditor value={form.toneSets} onchange={(sets) => (form.toneSets = sets)} />
+							<ToneSetsEditor
+								value={form.toneSets}
+								onchange={(sets) => {
+									form.toneSets = sets;
+								}}
+							/>
 						</div>
 					</section>
 				{/if}

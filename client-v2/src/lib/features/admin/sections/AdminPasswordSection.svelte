@@ -88,7 +88,9 @@
 				<KeyRound class="size-4" />
 				Change password
 			</CardTitle>
-			<CardDescription>At least {MIN_LENGTH} characters. Other signed-in admin sessions keep working until they log out or the server restarts.</CardDescription>
+			<CardDescription
+				>At least {MIN_LENGTH} characters. Other signed-in admin sessions keep working until they log out or the server restarts.</CardDescription
+			>
 		</CardHeader>
 		<CardContent class="px-4 pt-0 pb-4">
 			<form

@@ -211,13 +211,17 @@
 						{@const labels = labelFor(row.system, row.talkgroup)}
 						<TableRow data-state={selected.has(row.id) ? 'selected' : undefined}>
 							<TableCell>
-								<Checkbox checked={selected.has(row.id)} onCheckedChange={(checked) => toggleRow(row.id, checked === true)} aria-label={`Select call ${row.id}`} />
+								<Checkbox
+									checked={selected.has(row.id)}
+									onCheckedChange={(checked) => toggleRow(row.id, checked === true)}
+									aria-label={`Select call ${row.id}`}
+								/>
 							</TableCell>
-							<TableCell class="tabular-nums whitespace-nowrap">{formatRowTime(row.dateTime)}</TableCell>
+							<TableCell class="whitespace-nowrap tabular-nums">{formatRowTime(row.dateTime)}</TableCell>
 							<TableCell>{labels.system}</TableCell>
 							<TableCell>{labels.talkgroup}</TableCell>
 							<TableCell class="tabular-nums">{formatFrequency(row.frequency) ?? '-'}</TableCell>
-							<TableCell class="text-right tabular-nums text-muted-foreground">{row.id}</TableCell>
+							<TableCell class="text-right text-muted-foreground tabular-nums">{row.id}</TableCell>
 						</TableRow>
 					{/each}
 				</TableBody>

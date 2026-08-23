@@ -27,8 +27,8 @@
 	<div>
 		<h2 class="text-lg font-semibold">Tags</h2>
 		<p class="text-sm text-muted-foreground">
-			Every talkgroup is assigned one tag; tags filter calls on the main screen. The "Untagged" tag is the fallback for imports that carry no tag. Drag or
-			use the arrows to reorder, then Save.
+			Every talkgroup is assigned one tag; tags filter calls on the main screen. The "Untagged" tag is the fallback for imports that carry no tag.
+			Drag or use the arrows to reorder, then Save.
 		</p>
 	</div>
 

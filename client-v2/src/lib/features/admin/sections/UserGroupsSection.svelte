@@ -82,8 +82,8 @@
 		<div>
 			<h2 class="text-lg font-semibold">User Groups</h2>
 			<p class="text-sm text-muted-foreground">
-				Groups bundle system access, delays and limits for their members, and own the registration codes and invitations that let people
-				join. Changes save immediately.
+				Groups bundle system access, delays and limits for their members, and own the registration codes and invitations that let people join. Changes
+				save immediately.
 			</p>
 		</div>
 		<div class="flex items-center gap-2">

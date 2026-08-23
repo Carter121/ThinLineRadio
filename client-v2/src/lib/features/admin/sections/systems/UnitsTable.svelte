@@ -51,7 +51,10 @@
 		const term = search.trim().toLowerCase();
 		if (!term) return system.units;
 		return system.units.filter(
-			(u) => String(u.unitRef ?? '').includes(term) || u.label.toLowerCase().includes(term) || (u.unitFrom && u.unitTo && `${u.unitFrom}-${u.unitTo}`.includes(term))
+			(u) =>
+				String(u.unitRef ?? '').includes(term) ||
+				u.label.toLowerCase().includes(term) ||
+				(u.unitFrom && u.unitTo && `${u.unitFrom}-${u.unitTo}`.includes(term))
 		);
 	});
 
@@ -158,7 +161,8 @@
 			<Table>
 				<TableHeader>
 					<TableRow>
-						<TableHead class="w-8"><Checkbox checked={allPageSelected} onCheckedChange={(v) => togglePage(!!v)} aria-label="Select page" /></TableHead>
+						<TableHead class="w-8"><Checkbox checked={allPageSelected} onCheckedChange={(v) => togglePage(!!v)} aria-label="Select page" /></TableHead
+						>
 						<TableHead class="w-32">Unit ID</TableHead>
 						<TableHead>Label</TableHead>
 						<TableHead class="hidden w-40 sm:table-cell">Range</TableHead>
@@ -169,11 +173,17 @@
 					{#each pageRows as unit (unit.id)}
 						<TableRow class="cursor-pointer" onclick={() => openEdit(unit)}>
 							<TableCell onclick={(e: MouseEvent) => e.stopPropagation()}>
-								<Checkbox checked={selected.has(unit.id)} onCheckedChange={(v) => (v ? selected.add(unit.id) : selected.delete(unit.id))} aria-label="Select {unit.label}" />
+								<Checkbox
+									checked={selected.has(unit.id)}
+									onCheckedChange={(v) => (v ? selected.add(unit.id) : selected.delete(unit.id))}
+									aria-label="Select {unit.label}"
+								/>
 							</TableCell>
 							<TableCell class="font-mono text-xs">{unit.unitRef ?? '-'}</TableCell>
 							<TableCell class="font-medium">{unit.label}</TableCell>
-							<TableCell class="hidden text-sm text-muted-foreground sm:table-cell">{unit.unitFrom && unit.unitTo ? `${unit.unitFrom} to ${unit.unitTo}` : '-'}</TableCell>
+							<TableCell class="hidden text-sm text-muted-foreground sm:table-cell"
+								>{unit.unitFrom && unit.unitTo ? `${unit.unitFrom} to ${unit.unitTo}` : '-'}</TableCell
+							>
 							<TableCell onclick={(e: MouseEvent) => e.stopPropagation()}>
 								<div class="flex justify-end gap-1">
 									<Button variant="ghost" size="icon-sm" aria-label="Edit {unit.label}" onclick={() => openEdit(unit)}><Pencil /></Button>
@@ -201,11 +211,23 @@
 						{/each}
 					</SelectContent>
 				</Select>
-				<Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={clampedPage === 0} onclick={() => (pageIndex = clampedPage - 1)}>
+				<Button
+					variant="outline"
+					size="icon-sm"
+					aria-label="Previous page"
+					disabled={clampedPage === 0}
+					onclick={() => (pageIndex = clampedPage - 1)}
+				>
 					<ChevronLeft />
 				</Button>
 				<span class="tabular-nums">Page {clampedPage + 1} of {pageCount}</span>
-				<Button variant="outline" size="icon-sm" aria-label="Next page" disabled={clampedPage >= pageCount - 1} onclick={() => (pageIndex = clampedPage + 1)}>
+				<Button
+					variant="outline"
+					size="icon-sm"
+					aria-label="Next page"
+					disabled={clampedPage >= pageCount - 1}
+					onclick={() => (pageIndex = clampedPage + 1)}
+				>
 					<ChevronRight />
 				</Button>
 			</div>

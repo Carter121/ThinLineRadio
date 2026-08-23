@@ -81,9 +81,7 @@
 	const systems = $derived(toPickerSystems(session.config?.systems));
 	const candidateAdmins = $derived.by(() => {
 		const query = adminSearch.trim().toLowerCase();
-		const list = query
-			? users.filter((u) => u.email.toLowerCase().includes(query) || userDisplayName(u).toLowerCase().includes(query))
-			: users;
+		const list = query ? users.filter((u) => u.email.toLowerCase().includes(query) || userDisplayName(u).toLowerCase().includes(query)) : users;
 		return list.slice(0, 50);
 	});
 	const selectedAdmin = $derived(users.find((u) => u.id === adminUserId) ?? null);

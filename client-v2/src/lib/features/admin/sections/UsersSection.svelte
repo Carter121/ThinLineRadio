@@ -23,16 +23,15 @@
 	import Users from '@lucide/svelte/icons/users';
 	import X from '@lucide/svelte/icons/x';
 	import type { AdminSessionState } from '$lib/core/admin-session.svelte.ts';
+	import { deleteDeviceToken, deleteUser, errorMessage, listGroups, listUsers, resendVerification, sendTestPush } from './access/access-api.ts';
 	import {
-		deleteDeviceToken,
-		deleteUser,
-		errorMessage,
-		listGroups,
-		listUsers,
-		resendVerification,
-		sendTestPush
-	} from './access/access-api.ts';
-	import { describeAccess, parseAccess, toPickerSystems, userDisplayName, type AdminUserGroupRecord, type AdminUserRecord } from './access/access-types.ts';
+		describeAccess,
+		parseAccess,
+		toPickerSystems,
+		userDisplayName,
+		type AdminUserGroupRecord,
+		type AdminUserRecord
+	} from './access/access-types.ts';
 	import ConfirmDialog from './access/ConfirmDialog.svelte';
 	import UserCreateDialog from './access/UserCreateDialog.svelte';
 	import UserEditDialog from './access/UserEditDialog.svelte';
@@ -397,7 +396,13 @@
 						<div class="flex items-center justify-between border-t border-border px-4 py-2 text-sm text-muted-foreground">
 							<span>{filtered.length} users</span>
 							<div class="flex items-center gap-2">
-								<Button variant="ghost" size="icon-sm" aria-label="Previous page" disabled={page === 0} onclick={() => (page = Math.max(0, page - 1))}>
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									aria-label="Previous page"
+									disabled={page === 0}
+									onclick={() => (page = Math.max(0, page - 1))}
+								>
 									<ChevronLeft class="size-4" />
 								</Button>
 								<span>Page {Math.min(page, pageCount - 1) + 1} of {pageCount}</span>

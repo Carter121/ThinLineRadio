@@ -341,7 +341,11 @@
 										{#if view.truncated}
 											<div class="flex items-center justify-between border-t border-border px-3 py-2 text-xs text-muted-foreground">
 												<span>Showing {view.rows.length} of {view.total}</span>
-												<Button variant="ghost" size="sm" onclick={() => (limit[system.systemRef] = (limit[system.systemRef] ?? PAGE_SIZE) + PAGE_SIZE)}>
+												<Button
+													variant="ghost"
+													size="sm"
+													onclick={() => (limit[system.systemRef] = (limit[system.systemRef] ?? PAGE_SIZE) + PAGE_SIZE)}
+												>
 													Show more
 												</Button>
 											</div>

@@ -196,9 +196,13 @@
 					{#each rows as row (row.id)}
 						<TableRow data-state={selected.has(row.id) ? 'selected' : undefined}>
 							<TableCell>
-								<Checkbox checked={selected.has(row.id)} onCheckedChange={(checked) => toggleRow(row.id, checked === true)} aria-label={`Select log ${row.id}`} />
+								<Checkbox
+									checked={selected.has(row.id)}
+									onCheckedChange={(checked) => toggleRow(row.id, checked === true)}
+									aria-label={`Select log ${row.id}`}
+								/>
 							</TableCell>
-							<TableCell class="tabular-nums whitespace-nowrap">{formatRowTime(row.dateTime)}</TableCell>
+							<TableCell class="whitespace-nowrap tabular-nums">{formatRowTime(row.dateTime)}</TableCell>
 							<TableCell><Badge variant={levelVariant(row.level)}>{row.level}</Badge></TableCell>
 							<TableCell class="whitespace-nowrap text-muted-foreground">{row.category ?? '-'}</TableCell>
 							<TableCell class="max-w-[32rem] truncate" title={row.message}>{row.message}</TableCell>

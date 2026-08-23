@@ -390,7 +390,8 @@
 				<div>
 					<p class="text-sm font-medium">Backfill Past Addresses</p>
 					<p class="text-xs text-muted-foreground">
-						Re-run address extraction and geocoding for historical transcripts using the address points database (Nominatim as fallback). Can take a while on large call databases.
+						Re-run address extraction and geocoding for historical transcripts using the address points database (Nominatim as fallback). Can take a
+						while on large call databases.
 					</p>
 				</div>
 				<div class="flex items-center gap-2">
@@ -402,9 +403,7 @@
 						{/if}
 						Backfill
 					</Button>
-					<Button variant="outline" size="sm" disabled={backfillingAddresses} onclick={() => backfillAddresses(true)}>
-						Force re-geocode
-					</Button>
+					<Button variant="outline" size="sm" disabled={backfillingAddresses} onclick={() => backfillAddresses(true)}>Force re-geocode</Button>
 				</div>
 			</CardContent>
 		</Card>
@@ -415,7 +414,8 @@
 					<div>
 						<p class="text-sm font-medium">County Priority</p>
 						<p class="text-xs text-muted-foreground">
-							Restrict geocoding to a county for calls from a talkgroup. Addresses outside the county never match; unmatched calls keep their spoken address.
+							Restrict geocoding to a county for calls from a talkgroup. Addresses outside the county never match; unmatched calls keep their spoken
+							address.
 						</p>
 					</div>
 					<div class="flex items-center gap-2">
@@ -453,7 +453,8 @@
 									}}
 								>
 									<SelectTrigger class="h-8 w-64 text-xs">
-										{talkgroupChoices.find((c) => c.systemRef === hint.systemRef && c.talkgroupRef === hint.talkgroupRef)?.label ?? 'Select talkgroup...'}
+										{talkgroupChoices.find((c) => c.systemRef === hint.systemRef && c.talkgroupRef === hint.talkgroupRef)?.label ??
+											'Select talkgroup...'}
 									</SelectTrigger>
 									<SelectContent>
 										{#each talkgroupChoices as choice (choice.value)}
@@ -489,7 +490,8 @@
 					<div>
 						<p class="text-sm font-medium">Fire Notification Tiers</p>
 						<p class="text-xs text-muted-foreground">
-							Send ntfy notifications for fire incidents by matched incident type. Patterns match as substrings and earlier rows win, so keep "do not notify" rows first. Requires the NTFY_FIRE_TOPIC environment variable.
+							Send ntfy notifications for fire incidents by matched incident type. Patterns match as substrings and earlier rows win, so keep "do not
+							notify" rows first. Requires the NTFY_FIRE_TOPIC environment variable.
 						</p>
 					</div>
 					<div class="flex items-center gap-2">
