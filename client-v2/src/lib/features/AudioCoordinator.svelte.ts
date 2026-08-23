@@ -112,14 +112,17 @@ export class AudioCoordinator {
 		this.wakeLock.destroy();
 	}
 
-	register(id: ConsumerId, callbacks: ConsumerCallbacks) {
+	//* Returns an unregister function that only fires while these exact callbacks are current.
+	//* Tabs share ids (every alert surface is 'alert') and the incoming tab mounts before the
+	//* outgoing one runs onDestroy, so an id-only delete would evict its replacement.
+	register(id: ConsumerId, callbacks: ConsumerCallbacks): () => void {
 		this.consumers.set(id, callbacks);
-	}
-
-	unregister(id: ConsumerId) {
-		this.consumers.delete(id);
-		if (this.owner === id) this.owner = null;
-		if (this.previousOwner === id) this.previousOwner = null;
+		return () => {
+			if (this.consumers.get(id) !== callbacks) return;
+			this.consumers.delete(id);
+			if (this.owner === id) this.owner = null;
+			if (this.previousOwner === id) this.previousOwner = null;
+		};
 	}
 
 	/** Yield current owner and set new owner. */

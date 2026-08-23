@@ -19,6 +19,7 @@ export class AlertFeedCardState {
 	private alertObjectUrl: string | null = null;
 	private alertPendingPlaybackId: number | null = null;
 	private nowTimer: ReturnType<typeof setInterval> | null = null;
+	private unregisterConsumer: () => void;
 
 	constructor(feed: TlrAlertFeed, coordinator: AudioCoordinator, client: TlrClient) {
 		this.feed = feed;
@@ -29,7 +30,7 @@ export class AlertFeedCardState {
 			this.nowMs = Date.now();
 		}, 15_000);
 
-		coordinator.register('alert', {
+		this.unregisterConsumer = coordinator.register('alert', {
 			onEnded: () => {
 				if (this.alertPlaybackCallId == null || this.alertPlaybackLoading) return;
 				this.alertIsPlaying = false;
@@ -164,7 +165,7 @@ export class AlertFeedCardState {
 
 	destroy() {
 		this.stopAlertPlayback();
-		this.coordinator.unregister('alert');
+		this.unregisterConsumer();
 		if (this.nowTimer) clearInterval(this.nowTimer);
 	}
 }

@@ -9,10 +9,12 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Select, SelectContent, SelectItem, SelectTrigger } from '$lib/components/ui/select';
+	import { userPrefersMode } from 'mode-watcher';
 	import BellRing from '@lucide/svelte/icons/bell-ring';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
 	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import Loader2 from '@lucide/svelte/icons/loader-2';
+	import Palette from '@lucide/svelte/icons/palette';
 	import Rss from '@lucide/svelte/icons/rss';
 	import Save from '@lucide/svelte/icons/save';
 	import SlidersHorizontal from '@lucide/svelte/icons/sliders-horizontal';
@@ -63,12 +65,52 @@
 		state.updatePref(row, { keywords });
 	}
 
+	const themeOptions = [
+		{ value: 'dark', label: 'Dark' },
+		{ value: 'light', label: 'Light' },
+		{ value: 'system', label: 'Match System' }
+	] as const;
+
+	const themeLabel = $derived(themeOptions.find((o) => o.value === userPrefersMode.current)?.label ?? 'Dark');
+
+	function setTheme(value: string) {
+		const match = themeOptions.find((o) => o.value === value);
+		if (match) userPrefersMode.current = match.value;
+	}
+
 	function enabledCount(rows: PreferenceRow[]): number {
 		return rows.filter((r) => r.pref.alertEnabled).length;
 	}
 </script>
 
 <div class="space-y-4 pb-24">
+	<Card class="gap-0 border-border/60 py-0">
+		<CardHeader class="px-3.5 pt-3 pb-2">
+			<CardTitle class="flex items-center gap-2 text-sm">
+				<Palette class="size-3.5" />
+				Appearance
+			</CardTitle>
+		</CardHeader>
+		<CardContent class="space-y-4 px-3.5 pt-0 pb-3.5">
+			<div class="grid gap-4 sm:grid-cols-2">
+				<div class="space-y-1.5">
+					<label for="tlr-theme" class="text-sm font-medium">Theme</label>
+					<Select type="single" value={userPrefersMode.current} onValueChange={setTheme}>
+						<SelectTrigger id="tlr-theme" size="sm" class="w-full">
+							{themeLabel}
+						</SelectTrigger>
+						<SelectContent>
+							{#each themeOptions as option (option.value)}
+								<SelectItem value={option.value} label={option.label} />
+							{/each}
+						</SelectContent>
+					</Select>
+					<p class="text-xs text-muted-foreground">Use the dark or light interface, or follow your device setting.</p>
+				</div>
+			</div>
+		</CardContent>
+	</Card>
+
 	{#each settingsSections() as { section, settings } (section)}
 		{@const SectionIcon = sectionIcons[section] ?? SlidersHorizontal}
 		<Card class="gap-0 border-border/60 py-0">

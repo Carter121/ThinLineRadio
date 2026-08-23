@@ -13,12 +13,11 @@
 </script>
 
 <svelte:head>
-	<meta name="theme-color" content="#09090b" />
-
 	<title>TLR</title>
 </svelte:head>
 
-<ModeWatcher track={true} />
+<!--* Dark is the default on every device; system preference only applies if the user picks "System" in Settings. -->
+<ModeWatcher track={true} defaultMode="dark" themeColors={{ dark: '#0e1626', light: '#fbfdff' }} />
 <Toaster />
 
 <main class={isFullBleed ? '' : 'min-h-[90vh] p-2 py-4'}>

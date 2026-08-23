@@ -255,6 +255,24 @@ against the code if something seems off; add new findings here.
 
 Newest first.
 
+## 2026-08-22: shared AudioCoordinator consumer ids evicted each other
+
+**Shipped:** `AudioCoordinator.register()` now returns an unregister function that only takes
+effect while those exact callbacks are still the registered ones; `unregister(id)` is gone.
+Callers (`AlertFeedCardState`, `CallHistoryState`, `AudioPlayerState`) keep the returned function
+and call it from `destroy()`.
+**Bug:** every alert surface registers under the consumer id `'alert'` (dashboard alert feed via
+`TlrSessionState`, plus the Alert Log, Transcripts, and Map page states), and Svelte mounts the
+incoming tab before running the outgoing component's `onDestroy`. Going Dashboard -> Alert Log
+therefore registered the new consumer and then let the dashboard's teardown delete it, so
+`timeupdate`/`loadedmetadata`/`ended` reached nobody: audio played but the card sat at
+`00:00 / 00:00` and never reset when the clip ended. Calls was unaffected because it uses the
+distinct id `'call-history'`, which is why this looked like fallout from the 2026-08-16 move to
+the HTTP audio route.
+**Learned:** ownership state (`owner`, `previousOwner`) had the same eviction problem and is
+cleared in the same identity-checked path. Verified in the browser: Dashboard -> Alert Log /
+Transcripts / Map and Map -> Dashboard all track time again, and the calls page still plays.
+
 ## 2026-08-17: geocode hard county filter + fire ntfy tiers + incident threading
 
 **Shipped:** Three features from FEATURE-PROPOSALS.md.

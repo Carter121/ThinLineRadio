@@ -44,6 +44,7 @@ export class AudioPlayerState {
 	private replayingFromHistory = false;
 	private client: TlrClient;
 	private coordinator: AudioCoordinator;
+	private unregisterConsumer: () => void;
 
 	constructor(client: TlrClient, coordinator: AudioCoordinator) {
 		this.client = client;
@@ -52,7 +53,7 @@ export class AudioPlayerState {
 		this.audio = coordinator.callAudio;
 		this.audio.volume = this.volume;
 
-		coordinator.register('live', {
+		this.unregisterConsumer = coordinator.register('live', {
 			onEnded: () => {
 				if (!this.current) return;
 				this.isPlaying = false;
@@ -271,7 +272,7 @@ export class AudioPlayerState {
 
 	destroy() {
 		if (this.current) this.audio.pause();
-		this.coordinator.unregister('live');
+		this.unregisterConsumer();
 		this.current = null;
 		this.queue = [];
 		this.history = [];

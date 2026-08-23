@@ -23,7 +23,7 @@ const FETCH_SIZE = PAGE_SIZE * 20;
 //* Max audio blobs kept in the in-memory LRU cache
 const AUDIO_CACHE_MAX = 40;
 //* How many upcoming calls to prefetch while one is playing
-const LOOKAHEAD_COUNT = 2;
+const LOOKAHEAD_COUNT = 5;
 const DEFAULT_DATE_PARAM = dateToParam(today(getLocalTimeZone()));
 const VOLUME_STORAGE_KEY = 'tlr-history-volume';
 
@@ -235,13 +235,14 @@ export class CallHistoryState {
 	//* Dedups fetches between lookahead prefetch and playCall
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	private audioInFlight = new Map<number, Promise<Blob>>();
+	private unregisterConsumer: () => void;
 
 	constructor(client: TlrClient, coordinator: AudioCoordinator) {
 		this.client = client;
 		this.coordinator = coordinator;
 		this.audio = coordinator.callAudio;
 
-		coordinator.register('call-history', {
+		this.unregisterConsumer = coordinator.register('call-history', {
 			onEnded: () => {
 				if (this.playbackCallId == null || this.playbackLoading) return;
 				this.isPlaying = false;
@@ -286,7 +287,7 @@ export class CallHistoryState {
 	destroy() {
 		this.unsubscribeSocket?.();
 		this.stopPlayback();
-		this.coordinator.unregister('call-history');
+		this.unregisterConsumer();
 	}
 
 	search(options: { loadAll?: boolean } = {}) {
