@@ -357,6 +357,8 @@ func main() {
 	http.HandleFunc("/api/admin/dirwatch", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.DirwatchConfigHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/systems/save", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemSaveHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/systems/delete/", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemDeleteHandler)).ServeHTTP)
+	// Targeted single system / talkgroup / unit edits (admin_systems.go); the two patterns above stay more specific.
+	http.HandleFunc("/api/admin/systems/", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.SystemsRouter)).ServeHTTP)
 	http.HandleFunc("/api/admin/email-logo", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.EmailLogoUploadHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/email-logo/delete", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.EmailLogoDeleteHandler)).ServeHTTP)
 	http.HandleFunc("/api/admin/favicon", wrapHandler(controller.Admin.requireLocalhost(controller.Admin.FaviconUploadHandler)).ServeHTTP)

@@ -296,46 +296,59 @@ func (units *Units) WriteTx(tx *sql.Tx, systemId uint64) error {
 	}
 
 	for _, unit := range units.List {
-		if unit.Id > 0 {
-			var count uint
-			query = fmt.Sprintf(`SELECT COUNT(*) FROM "units" WHERE "unitId" = %d AND "systemId" = %d`, unit.Id, systemId)
-			if err = tx.QueryRow(query).Scan(&count); err != nil {
-				break
-			}
-			if count > 0 {
-				query = fmt.Sprintf(`UPDATE "units" SET "label" = '%s', "order" = %d, "unitRef" = %d, "unitFrom" = %d, "unitTo" = %d WHERE "unitId" = %d AND "systemId" = %d`, escapeQuotes(unit.Label), unit.Order, unit.UnitRef, unit.UnitFrom, unit.UnitTo, unit.Id, systemId)
-				if _, err = tx.Exec(query); err != nil {
-					break
-				}
-				continue
-			}
-		}
-
-		if unit.UnitRef > 0 {
-			var existingId uint64
-			q2 := fmt.Sprintf(`SELECT "unitId" FROM "units" WHERE "systemId" = %d AND "unitRef" = %d LIMIT 1`, systemId, unit.UnitRef)
-			scanErr := tx.QueryRow(q2).Scan(&existingId)
-			if scanErr == sql.ErrNoRows {
-				// fall through to INSERT
-			} else if scanErr != nil {
-				err = scanErr
-				break
-			} else if existingId > 0 {
-				query = fmt.Sprintf(`UPDATE "units" SET "label" = '%s', "order" = %d, "unitRef" = %d, "unitFrom" = %d, "unitTo" = %d WHERE "unitId" = %d AND "systemId" = %d`, escapeQuotes(unit.Label), unit.Order, unit.UnitRef, unit.UnitFrom, unit.UnitTo, existingId, systemId)
-				if _, err = tx.Exec(query); err != nil {
-					break
-				}
-				continue
-			}
-		}
-
-		query = fmt.Sprintf(`INSERT INTO "units" ("label", "order", "systemId", "unitRef", "unitFrom", "unitTo") VALUES ('%s', %d, %d, %d, %d, %d)`, escapeQuotes(unit.Label), unit.Order, systemId, unit.UnitRef, unit.UnitFrom, unit.UnitTo)
-		if _, err = tx.Exec(query); err != nil {
-			break
+		if err = writeUnitTx(tx, systemId, unit); err != nil {
+			return err
 		}
 	}
 
-	if err != nil {
+	return nil
+}
+
+// writeUnitTx upserts a single unit row (by unitId, else by unitRef, else insert). Shared by
+// the bulk WriteTx above and the admin single-unit endpoints (admin_systems.go).
+func writeUnitTx(tx *sql.Tx, systemId uint64, unit *Unit) error {
+	var (
+		err   error
+		query string
+	)
+
+	formatError := errorFormatter("units", "writetx")
+
+	if unit.Id > 0 {
+		var count uint
+		query = fmt.Sprintf(`SELECT COUNT(*) FROM "units" WHERE "unitId" = %d AND "systemId" = %d`, unit.Id, systemId)
+		if err = tx.QueryRow(query).Scan(&count); err != nil {
+			return formatError(err, query)
+		}
+		if count > 0 {
+			query = fmt.Sprintf(`UPDATE "units" SET "label" = '%s', "order" = %d, "unitRef" = %d, "unitFrom" = %d, "unitTo" = %d WHERE "unitId" = %d AND "systemId" = %d`, escapeQuotes(unit.Label), unit.Order, unit.UnitRef, unit.UnitFrom, unit.UnitTo, unit.Id, systemId)
+			if _, err = tx.Exec(query); err != nil {
+				return formatError(err, query)
+			}
+			return nil
+		}
+	}
+
+	if unit.UnitRef > 0 {
+		var existingId uint64
+		q2 := fmt.Sprintf(`SELECT "unitId" FROM "units" WHERE "systemId" = %d AND "unitRef" = %d LIMIT 1`, systemId, unit.UnitRef)
+		scanErr := tx.QueryRow(q2).Scan(&existingId)
+		if scanErr == sql.ErrNoRows {
+			// fall through to INSERT
+		} else if scanErr != nil {
+			return formatError(scanErr, q2)
+		} else if existingId > 0 {
+			query = fmt.Sprintf(`UPDATE "units" SET "label" = '%s', "order" = %d, "unitRef" = %d, "unitFrom" = %d, "unitTo" = %d WHERE "unitId" = %d AND "systemId" = %d`, escapeQuotes(unit.Label), unit.Order, unit.UnitRef, unit.UnitFrom, unit.UnitTo, existingId, systemId)
+			if _, err = tx.Exec(query); err != nil {
+				return formatError(err, query)
+			}
+			unit.Id = existingId
+			return nil
+		}
+	}
+
+	query = fmt.Sprintf(`INSERT INTO "units" ("label", "order", "systemId", "unitRef", "unitFrom", "unitTo") VALUES ('%s', %d, %d, %d, %d, %d)`, escapeQuotes(unit.Label), unit.Order, systemId, unit.UnitRef, unit.UnitFrom, unit.UnitTo)
+	if _, err = tx.Exec(query); err != nil {
 		return formatError(err, query)
 	}
 

@@ -942,77 +942,9 @@ func (systems *Systems) Write(db *Database) error {
 	}
 
 	for _, system := range systems.List {
-		var count uint
-		var existingId uint64
-
-		// First check if a system with this ID already exists
-		if system.Id > 0 {
-			query = fmt.Sprintf(`SELECT COUNT(*) FROM "systems" WHERE "systemId" = %d`, system.Id)
-			if err = tx.QueryRow(query).Scan(&count); err != nil {
-				break
-			}
+		if err = writeSystemRowTx(tx, db.Config.DbType, system); err != nil {
+			break
 		}
-
-		// If not found by ID, check if a system with the same SystemRef exists
-		// This prevents duplicates when auto-creating systems
-		if count == 0 && system.SystemRef > 0 {
-			query = fmt.Sprintf(`SELECT "systemId" FROM "systems" WHERE "systemRef" = %d LIMIT 1`, system.SystemRef)
-			if err = tx.QueryRow(query).Scan(&existingId); err == nil && existingId > 0 {
-				// Found existing system with same SystemRef, use its ID
-				system.Id = existingId
-				count = 1
-			} else if err != nil && err != sql.ErrNoRows {
-				// Real error occurred
-				break
-			}
-		}
-
-		preferredApiKeyIdSQL := "NULL"
-
-		if count == 0 {
-			if system.Id > 0 {
-				// Preserve the explicit ID when inserting
-				query = fmt.Sprintf(`INSERT INTO "systems" ("systemId", "autoPopulate", "blacklists", "delay", "label", "order", "systemRef", "type", "preferredApiKeyId", "noAudioAlertsEnabled", "noAudioThresholdMinutes", "retentionDays", "duplicateDetectionEnabled", "alertsEnabled", "autoPopulateAlertsEnabled", "autoPopulateUnits", "transcriptionPrompt", "autoLearnToneSets", "autoLearnToneSetsTagIds", "autoLearnToneSetsAutoOffDays", "autoLearnToneSetsExpiresAt", "bulkToneDetectionEnabled", "bulkToneDetectionTagIds", "bulkToneDetectionAutoOffDays", "bulkToneDetectionExpiresAt", "autoLearnUnitAliases", "autoLearnUnitAliasesTagIds", "autoLearnUnitAliasesAutoOffDays", "autoLearnUnitAliasesExpiresAt") VALUES (%d, %t, '%s', %d, '%s', %d, %d, '%s', %s, %t, %d, %d, %t, %t, %t, %t, '%s', %t, '%s', %d, %d, %t, '%s', %d, %d, %t, '%s', %d, %d)`, system.Id, system.AutoPopulate, system.Blacklists, system.Delay, escapeQuotes(system.Label), system.Order, system.SystemRef, system.Kind, preferredApiKeyIdSQL, system.NoAudioAlertsEnabled, system.NoAudioThresholdMinutes, system.RetentionDays, system.DuplicateDetectionEnabled, system.AlertsEnabled, system.AutoPopulateAlertsEnabled, system.AutoPopulateUnits, escapeQuotes(system.TranscriptionPrompt), system.AutoLearnToneSets, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnToneSetsTagIds)), system.AutoLearnToneSetsAutoOffDays, system.AutoLearnToneSetsExpiresAt, system.BulkToneDetectionEnabled, escapeQuotes(serializeBulkToneTagIds(system.BulkToneDetectionTagIds)), system.BulkToneDetectionAutoOffDays, system.BulkToneDetectionExpiresAt, system.AutoLearnUnitAliases, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnUnitAliasesTagIds)), system.AutoLearnUnitAliasesAutoOffDays, system.AutoLearnUnitAliasesExpiresAt)
-			} else {
-				// Let database assign auto-increment ID
-				query = fmt.Sprintf(`INSERT INTO "systems" ("autoPopulate", "blacklists", "delay", "label", "order", "systemRef", "type", "preferredApiKeyId", "noAudioAlertsEnabled", "noAudioThresholdMinutes", "retentionDays", "duplicateDetectionEnabled", "alertsEnabled", "autoPopulateAlertsEnabled", "autoPopulateUnits", "transcriptionPrompt", "autoLearnToneSets", "autoLearnToneSetsTagIds", "autoLearnToneSetsAutoOffDays", "autoLearnToneSetsExpiresAt", "bulkToneDetectionEnabled", "bulkToneDetectionTagIds", "bulkToneDetectionAutoOffDays", "bulkToneDetectionExpiresAt", "autoLearnUnitAliases", "autoLearnUnitAliasesTagIds", "autoLearnUnitAliasesAutoOffDays", "autoLearnUnitAliasesExpiresAt") VALUES (%t, '%s', %d, '%s', %d, %d, '%s', %s, %t, %d, %d, %t, %t, %t, %t, '%s', %t, '%s', %d, %d, %t, '%s', %d, %d, %t, '%s', %d, %d)`, system.AutoPopulate, system.Blacklists, system.Delay, escapeQuotes(system.Label), system.Order, system.SystemRef, system.Kind, preferredApiKeyIdSQL, system.NoAudioAlertsEnabled, system.NoAudioThresholdMinutes, system.RetentionDays, system.DuplicateDetectionEnabled, system.AlertsEnabled, system.AutoPopulateAlertsEnabled, system.AutoPopulateUnits, escapeQuotes(system.TranscriptionPrompt), system.AutoLearnToneSets, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnToneSetsTagIds)), system.AutoLearnToneSetsAutoOffDays, system.AutoLearnToneSetsExpiresAt, system.BulkToneDetectionEnabled, escapeQuotes(serializeBulkToneTagIds(system.BulkToneDetectionTagIds)), system.BulkToneDetectionAutoOffDays, system.BulkToneDetectionExpiresAt, system.AutoLearnUnitAliases, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnUnitAliasesTagIds)), system.AutoLearnUnitAliasesAutoOffDays, system.AutoLearnUnitAliasesExpiresAt)
-			}
-
-			if db.Config.DbType == DbTypePostgresql {
-				if system.Id > 0 {
-					// When inserting with explicit ID, don't use RETURNING as it's already set
-					if _, err = tx.Exec(query); err != nil {
-						break
-					}
-				} else {
-					// Only use RETURNING when database assigns the ID
-					query = query + ` RETURNING "systemId"`
-					if err = tx.QueryRow(query).Scan(&system.Id); err != nil {
-						break
-					}
-				}
-
-			} else {
-				if res, err = tx.Exec(query); err == nil {
-					// Only get LastInsertId when we didn't specify an explicit ID
-					if system.Id == 0 {
-						if id, err := res.LastInsertId(); err == nil {
-							system.Id = uint64(id)
-						}
-					}
-					// If system.Id > 0, we already have the ID, so don't override it
-				} else {
-					break
-				}
-			}
-
-		} else {
-			query = fmt.Sprintf(`UPDATE "systems" SET "autoPopulate" = %t, "blacklists" = '%s', "delay" = %d, "label" = '%s', "order" = %d, "systemRef" = %d, "type" = '%s', "preferredApiKeyId" = %s, "noAudioAlertsEnabled" = %t, "noAudioThresholdMinutes" = %d, "retentionDays" = %d, "duplicateDetectionEnabled" = %t, "alertsEnabled" = %t, "autoPopulateAlertsEnabled" = %t, "autoPopulateUnits" = %t, "transcriptionPrompt" = '%s', "autoLearnToneSets" = %t, "autoLearnToneSetsTagIds" = '%s', "autoLearnToneSetsAutoOffDays" = %d, "autoLearnToneSetsExpiresAt" = %d, "bulkToneDetectionEnabled" = %t, "bulkToneDetectionTagIds" = '%s', "bulkToneDetectionAutoOffDays" = %d, "bulkToneDetectionExpiresAt" = %d, "autoLearnUnitAliases" = %t, "autoLearnUnitAliasesTagIds" = '%s', "autoLearnUnitAliasesAutoOffDays" = %d, "autoLearnUnitAliasesExpiresAt" = %d WHERE "systemId" = %d`, system.AutoPopulate, system.Blacklists, system.Delay, escapeQuotes(system.Label), system.Order, system.SystemRef, system.Kind, preferredApiKeyIdSQL, system.NoAudioAlertsEnabled, system.NoAudioThresholdMinutes, system.RetentionDays, system.DuplicateDetectionEnabled, system.AlertsEnabled, system.AutoPopulateAlertsEnabled, system.AutoPopulateUnits, escapeQuotes(system.TranscriptionPrompt), system.AutoLearnToneSets, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnToneSetsTagIds)), system.AutoLearnToneSetsAutoOffDays, system.AutoLearnToneSetsExpiresAt, system.BulkToneDetectionEnabled, escapeQuotes(serializeBulkToneTagIds(system.BulkToneDetectionTagIds)), system.BulkToneDetectionAutoOffDays, system.BulkToneDetectionExpiresAt, system.AutoLearnUnitAliases, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnUnitAliasesTagIds)), system.AutoLearnUnitAliasesAutoOffDays, system.AutoLearnUnitAliasesExpiresAt, system.Id)
-			if _, err = tx.Exec(query); err != nil {
-				break
-			}
-		}
-
 		query = ""
 
 		system.applyBulkToneDetection()
@@ -1043,9 +975,100 @@ func (systems *Systems) Write(db *Database) error {
 		return formatError(err, "")
 	}
 
-	// Idempotent cleanup: delete user alert preferences for any talkgroup or system
-	// that now has alertsEnabled = false. Runs on every config save but only touches
-	// rows that are actually disabled, so it's safe and self-healing.
+	cleanupDisabledAlertPreferences(db)
+
+	return nil
+}
+
+// writeSystemRowTx inserts or updates the single "systems" row for system (resolving an
+// existing row by id, then by systemRef) and fills in system.Id for new rows. Shared by the
+// bulk Write above and the admin system PATCH endpoint (admin_systems.go).
+func writeSystemRowTx(tx *sql.Tx, dbType string, system *System) error {
+	var (
+		err   error
+		query string
+		res   sql.Result
+	)
+
+	formatError := errorFormatter("systems", "writerow")
+
+	var count uint
+	var existingId uint64
+
+	// First check if a system with this ID already exists
+	if system.Id > 0 {
+		query = fmt.Sprintf(`SELECT COUNT(*) FROM "systems" WHERE "systemId" = %d`, system.Id)
+		if err = tx.QueryRow(query).Scan(&count); err != nil {
+			return formatError(err, query)
+		}
+	}
+
+	// If not found by ID, check if a system with the same SystemRef exists
+	// This prevents duplicates when auto-creating systems
+	if count == 0 && system.SystemRef > 0 {
+		query = fmt.Sprintf(`SELECT "systemId" FROM "systems" WHERE "systemRef" = %d LIMIT 1`, system.SystemRef)
+		if err = tx.QueryRow(query).Scan(&existingId); err == nil && existingId > 0 {
+			// Found existing system with same SystemRef, use its ID
+			system.Id = existingId
+			count = 1
+		} else if err != nil && err != sql.ErrNoRows {
+			// Real error occurred
+			return formatError(err, query)
+		}
+	}
+
+	preferredApiKeyIdSQL := "NULL"
+
+	if count == 0 {
+		if system.Id > 0 {
+			// Preserve the explicit ID when inserting
+			query = fmt.Sprintf(`INSERT INTO "systems" ("systemId", "autoPopulate", "blacklists", "delay", "label", "order", "systemRef", "type", "preferredApiKeyId", "noAudioAlertsEnabled", "noAudioThresholdMinutes", "retentionDays", "duplicateDetectionEnabled", "alertsEnabled", "autoPopulateAlertsEnabled", "autoPopulateUnits", "transcriptionPrompt", "autoLearnToneSets", "autoLearnToneSetsTagIds", "autoLearnToneSetsAutoOffDays", "autoLearnToneSetsExpiresAt", "bulkToneDetectionEnabled", "bulkToneDetectionTagIds", "bulkToneDetectionAutoOffDays", "bulkToneDetectionExpiresAt", "autoLearnUnitAliases", "autoLearnUnitAliasesTagIds", "autoLearnUnitAliasesAutoOffDays", "autoLearnUnitAliasesExpiresAt") VALUES (%d, %t, '%s', %d, '%s', %d, %d, '%s', %s, %t, %d, %d, %t, %t, %t, %t, '%s', %t, '%s', %d, %d, %t, '%s', %d, %d, %t, '%s', %d, %d)`, system.Id, system.AutoPopulate, system.Blacklists, system.Delay, escapeQuotes(system.Label), system.Order, system.SystemRef, system.Kind, preferredApiKeyIdSQL, system.NoAudioAlertsEnabled, system.NoAudioThresholdMinutes, system.RetentionDays, system.DuplicateDetectionEnabled, system.AlertsEnabled, system.AutoPopulateAlertsEnabled, system.AutoPopulateUnits, escapeQuotes(system.TranscriptionPrompt), system.AutoLearnToneSets, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnToneSetsTagIds)), system.AutoLearnToneSetsAutoOffDays, system.AutoLearnToneSetsExpiresAt, system.BulkToneDetectionEnabled, escapeQuotes(serializeBulkToneTagIds(system.BulkToneDetectionTagIds)), system.BulkToneDetectionAutoOffDays, system.BulkToneDetectionExpiresAt, system.AutoLearnUnitAliases, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnUnitAliasesTagIds)), system.AutoLearnUnitAliasesAutoOffDays, system.AutoLearnUnitAliasesExpiresAt)
+		} else {
+			// Let database assign auto-increment ID
+			query = fmt.Sprintf(`INSERT INTO "systems" ("autoPopulate", "blacklists", "delay", "label", "order", "systemRef", "type", "preferredApiKeyId", "noAudioAlertsEnabled", "noAudioThresholdMinutes", "retentionDays", "duplicateDetectionEnabled", "alertsEnabled", "autoPopulateAlertsEnabled", "autoPopulateUnits", "transcriptionPrompt", "autoLearnToneSets", "autoLearnToneSetsTagIds", "autoLearnToneSetsAutoOffDays", "autoLearnToneSetsExpiresAt", "bulkToneDetectionEnabled", "bulkToneDetectionTagIds", "bulkToneDetectionAutoOffDays", "bulkToneDetectionExpiresAt", "autoLearnUnitAliases", "autoLearnUnitAliasesTagIds", "autoLearnUnitAliasesAutoOffDays", "autoLearnUnitAliasesExpiresAt") VALUES (%t, '%s', %d, '%s', %d, %d, '%s', %s, %t, %d, %d, %t, %t, %t, %t, '%s', %t, '%s', %d, %d, %t, '%s', %d, %d, %t, '%s', %d, %d)`, system.AutoPopulate, system.Blacklists, system.Delay, escapeQuotes(system.Label), system.Order, system.SystemRef, system.Kind, preferredApiKeyIdSQL, system.NoAudioAlertsEnabled, system.NoAudioThresholdMinutes, system.RetentionDays, system.DuplicateDetectionEnabled, system.AlertsEnabled, system.AutoPopulateAlertsEnabled, system.AutoPopulateUnits, escapeQuotes(system.TranscriptionPrompt), system.AutoLearnToneSets, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnToneSetsTagIds)), system.AutoLearnToneSetsAutoOffDays, system.AutoLearnToneSetsExpiresAt, system.BulkToneDetectionEnabled, escapeQuotes(serializeBulkToneTagIds(system.BulkToneDetectionTagIds)), system.BulkToneDetectionAutoOffDays, system.BulkToneDetectionExpiresAt, system.AutoLearnUnitAliases, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnUnitAliasesTagIds)), system.AutoLearnUnitAliasesAutoOffDays, system.AutoLearnUnitAliasesExpiresAt)
+		}
+
+		if dbType == DbTypePostgresql {
+			if system.Id > 0 {
+				// When inserting with explicit ID, don't use RETURNING as it's already set
+				if _, err = tx.Exec(query); err != nil {
+					return formatError(err, query)
+				}
+			} else {
+				// Only use RETURNING when database assigns the ID
+				query = query + ` RETURNING "systemId"`
+				if err = tx.QueryRow(query).Scan(&system.Id); err != nil {
+					return formatError(err, query)
+				}
+			}
+
+		} else {
+			if res, err = tx.Exec(query); err == nil {
+				// Only get LastInsertId when we didn't specify an explicit ID
+				if system.Id == 0 {
+					if id, err := res.LastInsertId(); err == nil {
+						system.Id = uint64(id)
+					}
+				}
+				// If system.Id > 0, we already have the ID, so don't override it
+			} else {
+				return formatError(err, query)
+			}
+		}
+
+	} else {
+		query = fmt.Sprintf(`UPDATE "systems" SET "autoPopulate" = %t, "blacklists" = '%s', "delay" = %d, "label" = '%s', "order" = %d, "systemRef" = %d, "type" = '%s', "preferredApiKeyId" = %s, "noAudioAlertsEnabled" = %t, "noAudioThresholdMinutes" = %d, "retentionDays" = %d, "duplicateDetectionEnabled" = %t, "alertsEnabled" = %t, "autoPopulateAlertsEnabled" = %t, "autoPopulateUnits" = %t, "transcriptionPrompt" = '%s', "autoLearnToneSets" = %t, "autoLearnToneSetsTagIds" = '%s', "autoLearnToneSetsAutoOffDays" = %d, "autoLearnToneSetsExpiresAt" = %d, "bulkToneDetectionEnabled" = %t, "bulkToneDetectionTagIds" = '%s', "bulkToneDetectionAutoOffDays" = %d, "bulkToneDetectionExpiresAt" = %d, "autoLearnUnitAliases" = %t, "autoLearnUnitAliasesTagIds" = '%s', "autoLearnUnitAliasesAutoOffDays" = %d, "autoLearnUnitAliasesExpiresAt" = %d WHERE "systemId" = %d`, system.AutoPopulate, system.Blacklists, system.Delay, escapeQuotes(system.Label), system.Order, system.SystemRef, system.Kind, preferredApiKeyIdSQL, system.NoAudioAlertsEnabled, system.NoAudioThresholdMinutes, system.RetentionDays, system.DuplicateDetectionEnabled, system.AlertsEnabled, system.AutoPopulateAlertsEnabled, system.AutoPopulateUnits, escapeQuotes(system.TranscriptionPrompt), system.AutoLearnToneSets, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnToneSetsTagIds)), system.AutoLearnToneSetsAutoOffDays, system.AutoLearnToneSetsExpiresAt, system.BulkToneDetectionEnabled, escapeQuotes(serializeBulkToneTagIds(system.BulkToneDetectionTagIds)), system.BulkToneDetectionAutoOffDays, system.BulkToneDetectionExpiresAt, system.AutoLearnUnitAliases, escapeQuotes(serializeBulkToneTagIds(system.AutoLearnUnitAliasesTagIds)), system.AutoLearnUnitAliasesAutoOffDays, system.AutoLearnUnitAliasesExpiresAt, system.Id)
+		if _, err = tx.Exec(query); err != nil {
+			return formatError(err, query)
+		}
+	}
+
+	return nil
+}
+
+// cleanupDisabledAlertPreferences deletes user alert preferences for talkgroups whose own or
+// whose system's alertsEnabled is false. Idempotent; runs after every systems write.
+func cleanupDisabledAlertPreferences(db *Database) {
 	cleanupQuery := `
 		DELETE FROM "userAlertPreferences"
 		WHERE "talkgroupId" IN (
@@ -1056,8 +1079,6 @@ func (systems *Systems) Write(db *Database) error {
 	if _, err := db.Sql.Exec(cleanupQuery); err != nil {
 		log.Printf("systems.write: cleanup userAlertPreferences failed: %v", err)
 	}
-
-	return nil
 }
 
 type SystemsMap []SystemMap

@@ -27,6 +27,7 @@ import Tags from '@lucide/svelte/icons/tags';
 import Trash2 from '@lucide/svelte/icons/trash-2';
 import UserPlus from '@lucide/svelte/icons/user-plus';
 import Users from '@lucide/svelte/icons/users';
+import Wrench from '@lucide/svelte/icons/wrench';
 import UsersRound from '@lucide/svelte/icons/users-round';
 import type { AdminSessionState } from '$lib/core/admin-session.svelte.ts';
 import AdminPasswordSection from './sections/AdminPasswordSection.svelte';
@@ -37,6 +38,7 @@ import ImportExportSection from './sections/ImportExportSection.svelte';
 import KeywordListsSection from './sections/KeywordListsSection.svelte';
 import LogsSection from './sections/LogsSection.svelte';
 import OptionsSection from './sections/OptionsSection.svelte';
+import MaintenanceSection from './sections/MaintenanceSection.svelte';
 import PurgeSection from './sections/PurgeSection.svelte';
 import SystemHealthSection from './sections/SystemHealthSection.svelte';
 import SystemOverridesSection from './sections/SystemOverridesSection.svelte';
@@ -131,7 +133,8 @@ export const AdminSectionGroups: AdminSectionGroup[] = [
 		sections: [
 			{ id: 'import-export', label: 'Import & Export', icon: Database, component: ImportExportSection },
 			{ id: 'purge', label: 'Purge Data', icon: Trash2, component: PurgeSection },
-			{ id: 'admin-password', label: 'Admin Password', icon: LockKeyhole, component: AdminPasswordSection }
+			{ id: 'admin-password', label: 'Admin Password', icon: LockKeyhole, component: AdminPasswordSection },
+			{ id: 'maintenance', label: 'Maintenance', icon: Wrench, component: MaintenanceSection }
 		]
 	}
 ];

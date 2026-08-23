@@ -439,11 +439,9 @@ func (talkgroups *Talkgroups) WriteTx(tx *sql.Tx, systemId uint64, dbType string
 	var (
 		err   error
 		query string
-		res   sql.Result
 		rows  *sql.Rows
 
-		talkgroupGroupIds = []uint64{}
-		talkgroupIds      = []uint64{}
+		talkgroupIds = []uint64{}
 	)
 
 	talkgroups.mutex.Lock()
@@ -496,193 +494,174 @@ func (talkgroups *Talkgroups) WriteTx(tx *sql.Tx, systemId uint64, dbType string
 	}
 
 	for _, talkgroup := range talkgroups.List {
-		var count uint
-
-		if talkgroup.Id > 0 {
-			query = fmt.Sprintf(`SELECT COUNT(*) FROM "talkgroups" WHERE "talkgroupId" = %d`, talkgroup.Id)
-			if err = tx.QueryRow(query).Scan(&count); err != nil {
-				break
-			}
-		}
-
-		// Validate that tagId exists - if not, use first available tag or "Untagged"
-		var tagExists uint
-		var validTagId uint64 = talkgroup.TagId
-		if talkgroup.TagId > 0 {
-			query = fmt.Sprintf(`SELECT COUNT(*) FROM "tags" WHERE "tagId" = %d`, talkgroup.TagId)
-			if err = tx.QueryRow(query).Scan(&tagExists); err != nil {
-				break
-			}
-			if tagExists == 0 {
-				// Tag doesn't exist, try to get "Untagged" tag
-				query = `SELECT "tagId" FROM "tags" WHERE "label" = 'Untagged' LIMIT 1`
-				err = tx.QueryRow(query).Scan(&validTagId)
-				if err == sql.ErrNoRows {
-					// "Untagged" doesn't exist, get first available tag
-					query = `SELECT "tagId" FROM "tags" ORDER BY "tagId" LIMIT 1`
-					err = tx.QueryRow(query).Scan(&validTagId)
-					if err == sql.ErrNoRows {
-						// No tags exist at all - this should not happen if tags are written first
-						// but we'll skip this talkgroup to avoid foreign key violation
-						continue
-					} else if err != nil {
-						break
-					}
-				} else if err != nil {
-					break
-				}
-			}
-		} else {
-			// TagId is 0 or invalid, try to get "Untagged" tag
-			query = `SELECT "tagId" FROM "tags" WHERE "label" = 'Untagged' LIMIT 1`
-			err = tx.QueryRow(query).Scan(&validTagId)
-			if err == sql.ErrNoRows {
-				// "Untagged" doesn't exist, get first available tag
-				query = `SELECT "tagId" FROM "tags" ORDER BY "tagId" LIMIT 1`
-				err = tx.QueryRow(query).Scan(&validTagId)
-				if err == sql.ErrNoRows {
-					// No tags exist at all - skip this talkgroup
-					continue
-				} else if err != nil {
-					break
-				}
-			} else if err != nil {
-				break
-			}
-		}
-
-		// Serialize tone sets
-		toneSetsJson := "[]"
-		if len(talkgroup.ToneSets) > 0 {
-			if json, err := SerializeToneSets(talkgroup.ToneSets); err == nil {
-				toneSetsJson = json
-			}
-		}
-
-		preferredApiKeyIdSQL := "NULL"
-
-		if count == 0 {
-			if talkgroup.Id > 0 {
-				// Preserve the explicit ID when inserting
-				query = fmt.Sprintf(`INSERT INTO "talkgroups" ("talkgroupId", "delay", "frequency", "label", "name", "order", "systemId", "tagId", "talkgroupRef", "type", "toneDetectionEnabled", "toneSets", "preferredApiKeyId", "excludeFromPreferredSite", "toneDownstreamEnabled", "toneDownstreamURL", "toneDownstreamAPIKey", "alertCooldownSeconds", "linkedVoiceTalkgroupRef", "linkedVoiceWindowSeconds", "linkedVoiceMinDurationSeconds", "alertsEnabled", "transcriptionPrompt", "autoLearnToneSets", "alertingTalkgroup", "autoLearnUnitAliases", "retentionDays") VALUES (%d, %d, %d, '%s', '%s', %d, %d, %d, %d, '%s', %t, '%s', %s, %t, %t, '%s', '%s', %d, %d, %d, %d, %t, '%s', %t, %t, %t, %d)`, talkgroup.Id, talkgroup.Delay, talkgroup.Frequency, escapeQuotes(talkgroup.Label), escapeQuotes(talkgroup.Name), talkgroup.Order, systemId, validTagId, talkgroup.TalkgroupRef, talkgroup.Kind, talkgroup.ToneDetectionEnabled, escapeQuotes(toneSetsJson), preferredApiKeyIdSQL, false, talkgroup.ToneDownstreamEnabled, escapeQuotes(talkgroup.ToneDownstreamURL), escapeQuotes(talkgroup.ToneDownstreamAPIKey), talkgroup.AlertCooldownSeconds, talkgroup.LinkedVoiceTalkgroupRef, talkgroup.LinkedVoiceWindowSeconds, talkgroup.LinkedVoiceMinDurationSeconds, talkgroup.AlertsEnabled, escapeQuotes(talkgroup.TranscriptionPrompt), talkgroup.AutoLearnToneSets, talkgroup.AlertingTalkgroup, talkgroup.AutoLearnUnitAliases, talkgroup.RetentionDays)
-			} else {
-				// Let database assign auto-increment ID
-				query = fmt.Sprintf(`INSERT INTO "talkgroups" ("delay", "frequency", "label", "name", "order", "systemId", "tagId", "talkgroupRef", "type", "toneDetectionEnabled", "toneSets", "preferredApiKeyId", "excludeFromPreferredSite", "toneDownstreamEnabled", "toneDownstreamURL", "toneDownstreamAPIKey", "alertCooldownSeconds", "linkedVoiceTalkgroupRef", "linkedVoiceWindowSeconds", "linkedVoiceMinDurationSeconds", "alertsEnabled", "transcriptionPrompt", "autoLearnToneSets", "alertingTalkgroup", "autoLearnUnitAliases", "retentionDays") VALUES (%d, %d, '%s', '%s', %d, %d, %d, %d, '%s', %t, '%s', %s, %t, %t, '%s', '%s', %d, %d, %d, %d, %t, '%s', %t, %t, %t, %d)`, talkgroup.Delay, talkgroup.Frequency, escapeQuotes(talkgroup.Label), escapeQuotes(talkgroup.Name), talkgroup.Order, systemId, validTagId, talkgroup.TalkgroupRef, talkgroup.Kind, talkgroup.ToneDetectionEnabled, escapeQuotes(toneSetsJson), preferredApiKeyIdSQL, false, talkgroup.ToneDownstreamEnabled, escapeQuotes(talkgroup.ToneDownstreamURL), escapeQuotes(talkgroup.ToneDownstreamAPIKey), talkgroup.AlertCooldownSeconds, talkgroup.LinkedVoiceTalkgroupRef, talkgroup.LinkedVoiceWindowSeconds, talkgroup.LinkedVoiceMinDurationSeconds, talkgroup.AlertsEnabled, escapeQuotes(talkgroup.TranscriptionPrompt), talkgroup.AutoLearnToneSets, talkgroup.AlertingTalkgroup, talkgroup.AutoLearnUnitAliases, talkgroup.RetentionDays)
-			}
-
-			if dbType == DbTypePostgresql {
-				query = query + ` RETURNING "talkgroupId"`
-
-				if err = tx.QueryRow(query).Scan(&talkgroup.Id); err != nil {
-					break
-				}
-
-			} else {
-				if res, err = tx.Exec(query); err == nil {
-					if id, err := res.LastInsertId(); err == nil {
-						talkgroup.Id = uint64(id)
-					}
-				} else {
-					break
-				}
-			}
-
-		} else {
-			// Serialize tone sets (already done above, but we're in else block so need to recalculate)
-			toneSetsJson := "[]"
-			if len(talkgroup.ToneSets) > 0 {
-				if json, err := SerializeToneSets(talkgroup.ToneSets); err == nil {
-					toneSetsJson = json
-				}
-			}
-			// preferredApiKeyIdSQL is already calculated above
-			query = fmt.Sprintf(`UPDATE "talkgroups" SET "delay" = %d, "frequency" = %d, "label" = '%s', "name" = '%s', "order" = %d, "tagId" = %d, "talkgroupRef" = %d, "type" = '%s', "toneDetectionEnabled" = %t, "toneSets" = '%s', "preferredApiKeyId" = %s, "excludeFromPreferredSite" = %t, "toneDownstreamEnabled" = %t, "toneDownstreamURL" = '%s', "toneDownstreamAPIKey" = '%s', "alertCooldownSeconds" = %d, "linkedVoiceTalkgroupRef" = %d, "linkedVoiceWindowSeconds" = %d, "linkedVoiceMinDurationSeconds" = %d, "alertsEnabled" = %t, "transcriptionPrompt" = '%s', "autoLearnToneSets" = %t, "alertingTalkgroup" = %t, "autoLearnUnitAliases" = %t, "retentionDays" = %d WHERE "talkgroupId" = %d`, talkgroup.Delay, talkgroup.Frequency, escapeQuotes(talkgroup.Label), escapeQuotes(talkgroup.Name), talkgroup.Order, validTagId, talkgroup.TalkgroupRef, talkgroup.Kind, talkgroup.ToneDetectionEnabled, escapeQuotes(toneSetsJson), preferredApiKeyIdSQL, false, talkgroup.ToneDownstreamEnabled, escapeQuotes(talkgroup.ToneDownstreamURL), escapeQuotes(talkgroup.ToneDownstreamAPIKey), talkgroup.AlertCooldownSeconds, talkgroup.LinkedVoiceTalkgroupRef, talkgroup.LinkedVoiceWindowSeconds, talkgroup.LinkedVoiceMinDurationSeconds, talkgroup.AlertsEnabled, escapeQuotes(talkgroup.TranscriptionPrompt), talkgroup.AutoLearnToneSets, talkgroup.AlertingTalkgroup, talkgroup.AutoLearnUnitAliases, talkgroup.RetentionDays, talkgroup.Id)
-			if _, err = tx.Exec(query); err != nil {
-				break
-			}
-		}
-
-		query = fmt.Sprintf(`SELECT "groupId", "talkgroupGroupId" FROM "talkgroupGroups" WHERE "talkgroupId" = %d`, talkgroup.Id)
-		if rows, err = tx.Query(query); err != nil {
-			break
-		}
-
-		for rows.Next() {
-			var (
-				groupId          uint64
-				talkgroupGroupId uint64
-			)
-			if err = rows.Scan(&groupId, &talkgroupGroupId); err != nil {
-				break
-			}
-			remove := true
-			for _, id := range talkgroup.GroupIds {
-				if id == 0 || id == groupId {
-					remove = false
-					break
-				}
-			}
-			if remove {
-				talkgroupGroupIds = append(talkgroupGroupIds, talkgroupGroupId)
-			}
-		}
-
-		rows.Close()
-
-		if err != nil {
-			return formatError(err, "")
-		}
-
-		if len(talkgroupGroupIds) > 0 {
-			if b, err := json.Marshal(talkgroupGroupIds); err == nil {
-				in := strings.ReplaceAll(strings.ReplaceAll(string(b), "[", "("), "]", ")")
-				query = fmt.Sprintf(`DELETE FROM "talkgroupGroups" WHERE "talkgroupGroupId" IN %s`, in)
-				if _, err = tx.Exec(query); err != nil {
-					return formatError(err, query)
-				}
-			}
-		}
-
-		for _, groupId := range talkgroup.GroupIds {
-			// groupId == 0 means the group was not yet persisted (race during auto-populate).
-			// Skip it to avoid a foreign-key violation; the next call will write it correctly.
-			if groupId == 0 {
-				continue
-			}
-
-			var groupExists uint
-			query = fmt.Sprintf(`SELECT COUNT(*) FROM "groups" WHERE "groupId" = %d`, groupId)
-			if err = tx.QueryRow(query).Scan(&groupExists); err != nil {
-				break
-			}
-			if groupExists == 0 {
-				continue
-			}
-
-			query = fmt.Sprintf(`SELECT COUNT(*) FROM "talkgroupGroups" WHERE "talkgroupId" = %d AND "groupId" = %d`, talkgroup.Id, groupId)
-			if err = tx.QueryRow(query).Scan(&count); err != nil {
-				break
-			}
-
-			if count == 0 {
-				query = fmt.Sprintf(`INSERT INTO "talkgroupGroups" ("groupId", "talkgroupId") VALUES (%d, %d)`, groupId, talkgroup.Id)
-				if _, err = tx.Exec(query); err != nil {
-					break
-				}
-			}
-		}
-
-		// If the groupId inner loop encountered an error (e.g. FK violation on a deleted
-		// group), break out of the outer talkgroup loop immediately.  Without this break,
-		// the outer loop would continue running queries on a transaction that PostgreSQL
-		// has already marked aborted (SQLSTATE 25P02), masking the real error.
-		if err != nil {
-			break
+		if err = writeTalkgroupTx(tx, systemId, dbType, talkgroup); err != nil {
+			return err
 		}
 	}
 
-	if err != nil {
+	return nil
+}
+
+// writeTalkgroupTx upserts a single talkgroup row (insert or update, with tag validation)
+// and syncs its talkgroupGroups rows. Shared by the bulk WriteTx above and the admin
+// single-talkgroup endpoints (admin_systems.go) so both paths write identical columns.
+// Returns nil without writing when no tag exists at all (mirrors the bulk path's skip).
+func writeTalkgroupTx(tx *sql.Tx, systemId uint64, dbType string, talkgroup *Talkgroup) error {
+	var (
+		err   error
+		query string
+		res   sql.Result
+		rows  *sql.Rows
+		count uint
+
+		talkgroupGroupIds = []uint64{}
+	)
+
+	formatError := errorFormatter("talkgroups", "writetx")
+
+	if talkgroup.Id > 0 {
+		query = fmt.Sprintf(`SELECT COUNT(*) FROM "talkgroups" WHERE "talkgroupId" = %d`, talkgroup.Id)
+		if err = tx.QueryRow(query).Scan(&count); err != nil {
+			return formatError(err, query)
+		}
+	}
+
+	// Validate that tagId exists - if not, use "Untagged" or the first available tag.
+	var validTagId uint64 = talkgroup.TagId
+	var tagExists uint
+	if talkgroup.TagId > 0 {
+		query = fmt.Sprintf(`SELECT COUNT(*) FROM "tags" WHERE "tagId" = %d`, talkgroup.TagId)
+		if err = tx.QueryRow(query).Scan(&tagExists); err != nil {
+			return formatError(err, query)
+		}
+	}
+	if talkgroup.TagId == 0 || tagExists == 0 {
+		query = `SELECT "tagId" FROM "tags" WHERE "label" = 'Untagged' LIMIT 1`
+		err = tx.QueryRow(query).Scan(&validTagId)
+		if err == sql.ErrNoRows {
+			query = `SELECT "tagId" FROM "tags" ORDER BY "tagId" LIMIT 1`
+			err = tx.QueryRow(query).Scan(&validTagId)
+			if err == sql.ErrNoRows {
+				// No tags exist at all - skip this talkgroup to avoid a foreign key violation.
+				return nil
+			} else if err != nil {
+				return formatError(err, query)
+			}
+		} else if err != nil {
+			return formatError(err, query)
+		}
+	}
+
+	// Serialize tone sets
+	toneSetsJson := "[]"
+	if len(talkgroup.ToneSets) > 0 {
+		if json, err := SerializeToneSets(talkgroup.ToneSets); err == nil {
+			toneSetsJson = json
+		}
+	}
+
+	preferredApiKeyIdSQL := "NULL"
+
+	if count == 0 {
+		if talkgroup.Id > 0 {
+			// Preserve the explicit ID when inserting
+			query = fmt.Sprintf(`INSERT INTO "talkgroups" ("talkgroupId", "delay", "frequency", "label", "name", "order", "systemId", "tagId", "talkgroupRef", "type", "toneDetectionEnabled", "toneSets", "preferredApiKeyId", "excludeFromPreferredSite", "toneDownstreamEnabled", "toneDownstreamURL", "toneDownstreamAPIKey", "alertCooldownSeconds", "linkedVoiceTalkgroupRef", "linkedVoiceWindowSeconds", "linkedVoiceMinDurationSeconds", "alertsEnabled", "transcriptionPrompt", "autoLearnToneSets", "alertingTalkgroup", "autoLearnUnitAliases", "retentionDays") VALUES (%d, %d, %d, '%s', '%s', %d, %d, %d, %d, '%s', %t, '%s', %s, %t, %t, '%s', '%s', %d, %d, %d, %d, %t, '%s', %t, %t, %t, %d)`, talkgroup.Id, talkgroup.Delay, talkgroup.Frequency, escapeQuotes(talkgroup.Label), escapeQuotes(talkgroup.Name), talkgroup.Order, systemId, validTagId, talkgroup.TalkgroupRef, talkgroup.Kind, talkgroup.ToneDetectionEnabled, escapeQuotes(toneSetsJson), preferredApiKeyIdSQL, false, talkgroup.ToneDownstreamEnabled, escapeQuotes(talkgroup.ToneDownstreamURL), escapeQuotes(talkgroup.ToneDownstreamAPIKey), talkgroup.AlertCooldownSeconds, talkgroup.LinkedVoiceTalkgroupRef, talkgroup.LinkedVoiceWindowSeconds, talkgroup.LinkedVoiceMinDurationSeconds, talkgroup.AlertsEnabled, escapeQuotes(talkgroup.TranscriptionPrompt), talkgroup.AutoLearnToneSets, talkgroup.AlertingTalkgroup, talkgroup.AutoLearnUnitAliases, talkgroup.RetentionDays)
+		} else {
+			query = fmt.Sprintf(`INSERT INTO "talkgroups" ("delay", "frequency", "label", "name", "order", "systemId", "tagId", "talkgroupRef", "type", "toneDetectionEnabled", "toneSets", "preferredApiKeyId", "excludeFromPreferredSite", "toneDownstreamEnabled", "toneDownstreamURL", "toneDownstreamAPIKey", "alertCooldownSeconds", "linkedVoiceTalkgroupRef", "linkedVoiceWindowSeconds", "linkedVoiceMinDurationSeconds", "alertsEnabled", "transcriptionPrompt", "autoLearnToneSets", "alertingTalkgroup", "autoLearnUnitAliases", "retentionDays") VALUES (%d, %d, '%s', '%s', %d, %d, %d, %d, '%s', %t, '%s', %s, %t, %t, '%s', '%s', %d, %d, %d, %d, %t, '%s', %t, %t, %t, %d)`, talkgroup.Delay, talkgroup.Frequency, escapeQuotes(talkgroup.Label), escapeQuotes(talkgroup.Name), talkgroup.Order, systemId, validTagId, talkgroup.TalkgroupRef, talkgroup.Kind, talkgroup.ToneDetectionEnabled, escapeQuotes(toneSetsJson), preferredApiKeyIdSQL, false, talkgroup.ToneDownstreamEnabled, escapeQuotes(talkgroup.ToneDownstreamURL), escapeQuotes(talkgroup.ToneDownstreamAPIKey), talkgroup.AlertCooldownSeconds, talkgroup.LinkedVoiceTalkgroupRef, talkgroup.LinkedVoiceWindowSeconds, talkgroup.LinkedVoiceMinDurationSeconds, talkgroup.AlertsEnabled, escapeQuotes(talkgroup.TranscriptionPrompt), talkgroup.AutoLearnToneSets, talkgroup.AlertingTalkgroup, talkgroup.AutoLearnUnitAliases, talkgroup.RetentionDays)
+		}
+
+		if dbType == DbTypePostgresql {
+			query = query + ` RETURNING "talkgroupId"`
+
+			if err = tx.QueryRow(query).Scan(&talkgroup.Id); err != nil {
+				return formatError(err, query)
+			}
+
+		} else {
+			if res, err = tx.Exec(query); err == nil {
+				if id, err := res.LastInsertId(); err == nil {
+					talkgroup.Id = uint64(id)
+				}
+			} else {
+				return formatError(err, query)
+			}
+		}
+
+	} else {
+		query = fmt.Sprintf(`UPDATE "talkgroups" SET "delay" = %d, "frequency" = %d, "label" = '%s', "name" = '%s', "order" = %d, "tagId" = %d, "talkgroupRef" = %d, "type" = '%s', "toneDetectionEnabled" = %t, "toneSets" = '%s', "preferredApiKeyId" = %s, "excludeFromPreferredSite" = %t, "toneDownstreamEnabled" = %t, "toneDownstreamURL" = '%s', "toneDownstreamAPIKey" = '%s', "alertCooldownSeconds" = %d, "linkedVoiceTalkgroupRef" = %d, "linkedVoiceWindowSeconds" = %d, "linkedVoiceMinDurationSeconds" = %d, "alertsEnabled" = %t, "transcriptionPrompt" = '%s', "autoLearnToneSets" = %t, "alertingTalkgroup" = %t, "autoLearnUnitAliases" = %t, "retentionDays" = %d WHERE "talkgroupId" = %d`, talkgroup.Delay, talkgroup.Frequency, escapeQuotes(talkgroup.Label), escapeQuotes(talkgroup.Name), talkgroup.Order, validTagId, talkgroup.TalkgroupRef, talkgroup.Kind, talkgroup.ToneDetectionEnabled, escapeQuotes(toneSetsJson), preferredApiKeyIdSQL, false, talkgroup.ToneDownstreamEnabled, escapeQuotes(talkgroup.ToneDownstreamURL), escapeQuotes(talkgroup.ToneDownstreamAPIKey), talkgroup.AlertCooldownSeconds, talkgroup.LinkedVoiceTalkgroupRef, talkgroup.LinkedVoiceWindowSeconds, talkgroup.LinkedVoiceMinDurationSeconds, talkgroup.AlertsEnabled, escapeQuotes(talkgroup.TranscriptionPrompt), talkgroup.AutoLearnToneSets, talkgroup.AlertingTalkgroup, talkgroup.AutoLearnUnitAliases, talkgroup.RetentionDays, talkgroup.Id)
+		if _, err = tx.Exec(query); err != nil {
+			return formatError(err, query)
+		}
+	}
+
+	query = fmt.Sprintf(`SELECT "groupId", "talkgroupGroupId" FROM "talkgroupGroups" WHERE "talkgroupId" = %d`, talkgroup.Id)
+	if rows, err = tx.Query(query); err != nil {
 		return formatError(err, query)
+	}
+
+	for rows.Next() {
+		var (
+			groupId          uint64
+			talkgroupGroupId uint64
+		)
+		if err = rows.Scan(&groupId, &talkgroupGroupId); err != nil {
+			break
+		}
+		remove := true
+		for _, id := range talkgroup.GroupIds {
+			if id == 0 || id == groupId {
+				remove = false
+				break
+			}
+		}
+		if remove {
+			talkgroupGroupIds = append(talkgroupGroupIds, talkgroupGroupId)
+		}
+	}
+
+	rows.Close()
+
+	if err != nil {
+		return formatError(err, "")
+	}
+
+	if len(talkgroupGroupIds) > 0 {
+		if b, err := json.Marshal(talkgroupGroupIds); err == nil {
+			in := strings.ReplaceAll(strings.ReplaceAll(string(b), "[", "("), "]", ")")
+			query = fmt.Sprintf(`DELETE FROM "talkgroupGroups" WHERE "talkgroupGroupId" IN %s`, in)
+			if _, err = tx.Exec(query); err != nil {
+				return formatError(err, query)
+			}
+		}
+	}
+
+	for _, groupId := range talkgroup.GroupIds {
+		// groupId == 0 means the group was not yet persisted (race during auto-populate).
+		// Skip it to avoid a foreign-key violation; the next call will write it correctly.
+		if groupId == 0 {
+			continue
+		}
+
+		var groupExists uint
+		query = fmt.Sprintf(`SELECT COUNT(*) FROM "groups" WHERE "groupId" = %d`, groupId)
+		if err = tx.QueryRow(query).Scan(&groupExists); err != nil {
+			return formatError(err, query)
+		}
+		if groupExists == 0 {
+			continue
+		}
+
+		query = fmt.Sprintf(`SELECT COUNT(*) FROM "talkgroupGroups" WHERE "talkgroupId" = %d AND "groupId" = %d`, talkgroup.Id, groupId)
+		if err = tx.QueryRow(query).Scan(&count); err != nil {
+			return formatError(err, query)
+		}
+
+		if count == 0 {
+			query = fmt.Sprintf(`INSERT INTO "talkgroupGroups" ("groupId", "talkgroupId") VALUES (%d, %d)`, groupId, talkgroup.Id)
+			if _, err = tx.Exec(query); err != nil {
+				return formatError(err, query)
+			}
+		}
 	}
 
 	return nil
