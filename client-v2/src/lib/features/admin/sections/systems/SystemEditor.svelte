@@ -75,17 +75,18 @@
 			<TabsTrigger value="sites">Sites <span class="text-muted-foreground">({system.sites?.length ?? 0})</span></TabsTrigger>
 			<TabsTrigger value="settings">Settings</TabsTrigger>
 		</TabsList>
+		<!--* Inactive tab panels stay mounted, so only build the active table's rows. -->
 		<TabsContent value="talkgroups">
-			<TalkgroupsTable {page} {system} />
+			{#if tab === 'talkgroups'}<TalkgroupsTable {page} {system} />{/if}
 		</TabsContent>
 		<TabsContent value="units">
-			<UnitsTable {page} {system} />
+			{#if tab === 'units'}<UnitsTable {page} {system} />{/if}
 		</TabsContent>
 		<TabsContent value="sites">
-			<SitesTable {page} {system} />
+			{#if tab === 'sites'}<SitesTable {page} {system} />{/if}
 		</TabsContent>
 		<TabsContent value="settings">
-			<SystemSettingsForm {page} {system} />
+			{#if tab === 'settings'}<SystemSettingsForm {page} {system} />{/if}
 		</TabsContent>
 	</Tabs>
 </div>
