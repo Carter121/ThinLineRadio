@@ -350,12 +350,15 @@
 								>
 									<TableCell class="py-1">
 										<div class="flex items-center gap-0.5">
-											<span
+											<button
+												type="button"
+												tabindex={-1}
 												class={[
 													'inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground',
 													filterActive ? 'opacity-30' : 'cursor-grab hover:bg-muted active:cursor-grabbing'
 												]}
 												title={filterActive ? 'Clear the filter to reorder' : 'Drag to reorder'}
+												aria-label="Drag to reorder"
 												onpointerdown={() => {
 													if (!filterActive) dragArmedKey = row.key;
 												}}
@@ -364,7 +367,7 @@
 												}}
 											>
 												<GripVertical class="size-4" />
-											</span>
+											</button>
 											<Button
 												variant="ghost"
 												size="icon-sm"

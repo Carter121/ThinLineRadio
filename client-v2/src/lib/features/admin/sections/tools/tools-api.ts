@@ -1,6 +1,7 @@
 //* API helpers and types for the admin Tools sections (import/export, purge,
 //* password, maintenance). Contracts come from server/admin.go.
 
+import { DateTime } from 'luxon';
 import type { AdminClient } from '$lib/core/admin-client.ts';
 import type { AdminConfigDocument, AdminConfigPayload } from '$lib/core/admin-types.ts';
 
@@ -290,3 +291,16 @@ export function reloadConfig(client: AdminClient): Promise<{ success: boolean; m
 
 //* The file name SyncConfigToFile writes inside configSyncPath.
 export const CONFIG_SYNC_FILENAME = 'ThinLineRadioV7-config.json';
+
+//* Converts an <input type="date"> value (local calendar day) to the RFC3339
+//* instant the calls/logs search expects (local midnight, with offset).
+export function dateInputToRfc3339(value: string): string | undefined {
+	if (!value) return undefined;
+	const dt = DateTime.fromISO(value);
+	return dt.isValid ? (dt.startOf('day').toISO({ suppressMilliseconds: true }) ?? undefined) : undefined;
+}
+
+export function formatRowTime(value: string): string {
+	const dt = DateTime.fromISO(value);
+	return dt.isValid ? dt.toFormat('yyyy-LL-dd HH:mm:ss') : value;
+}

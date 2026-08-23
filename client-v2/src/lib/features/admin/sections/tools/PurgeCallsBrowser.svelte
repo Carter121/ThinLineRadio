@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SvelteSet } from 'svelte/reactivity';
 	import { toast } from 'svelte-sonner';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { Button, buttonVariants } from '$lib/components/ui/button';
@@ -37,7 +38,7 @@
 	let loading = $state(false);
 	let deleting = $state(false);
 	let confirmOpen = $state(false);
-	let selected = $state<Set<number>>(new Set());
+	const selected = new SvelteSet<number>();
 
 	const systems = $derived(session.config?.systems ?? []);
 	const selectedSystem = $derived(systems.find((s) => String(s.systemRef ?? s.id) === systemValue));
@@ -83,19 +84,12 @@
 	}
 
 	function toggleRow(id: number, checked: boolean) {
-		const next = new Set(selected);
-		if (checked) next.add(id);
-		else next.delete(id);
-		selected = next;
+		if (checked) selected.add(id);
+		else selected.delete(id);
 	}
 
 	function togglePage(checked: boolean) {
-		const next = new Set(selected);
-		for (const row of rows) {
-			if (checked) next.add(row.id);
-			else next.delete(row.id);
-		}
-		selected = next;
+		for (const row of rows) toggleRow(row.id, checked);
 	}
 
 	async function deleteSelected() {
@@ -106,7 +100,7 @@
 		try {
 			const result = await purgeData(session.client, 'calls', ids);
 			toast.success(result.message ?? `${ids.length} calls deleted`);
-			selected = new Set();
+			selected.clear();
 			await load(offset);
 		} catch (error) {
 			toast.error(error instanceof Error ? error.message : 'Failed to delete calls');
@@ -178,7 +172,7 @@
 			Delete selected ({selected.size})
 		</Button>
 		{#if selected.size > 0}
-			<Button size="sm" variant="ghost" onclick={() => (selected = new Set())}>Clear selection</Button>
+			<Button size="sm" variant="ghost" onclick={() => selected.clear()}>Clear selection</Button>
 		{/if}
 	</div>
 

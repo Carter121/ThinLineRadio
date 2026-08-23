@@ -53,7 +53,7 @@ export function normalizeKeywordList(raw: Partial<AdminKeywordList>): AdminKeywo
 		id: Number(raw.id ?? 0),
 		label: raw.label ?? '',
 		description: raw.description ?? '',
-		keywords: Array.isArray(raw.keywords) ? raw.keywords.filter((k): k is string => typeof k === 'string') : [],
+		keywords: Array.isArray(raw.keywords) ? normalizeKeywords(raw.keywords.filter((k): k is string => typeof k === 'string')) : [],
 		order: Number(raw.order ?? 0),
 		createdAt: raw.createdAt
 	};
@@ -85,10 +85,58 @@ export function groupUsageCounts(systems: AdminSystem[]): Map<number, number> {
 	return counts;
 }
 
-//* Sorts by order (zero/missing last, stable), matching the server's Read sort.
+//* Sorts ascending by order (zero/missing first, stable), like the server Read sort.
 export function sortByOrder<T extends { order?: number }>(rows: T[]): T[] {
 	return rows
 		.map((row, index) => ({ row, index }))
 		.sort((a, b) => (a.row.order ?? 0) - (b.row.order ?? 0) || a.index - b.index)
 		.map((entry) => entry.row);
+}
+
+//* Uppercases, trims, and dedupes keywords (server matching is case-insensitive).
+export function normalizeKeywords(raw: string[]): string[] {
+	const out: string[] = [];
+	const seen = new Set<string>();
+	for (const value of raw) {
+		const keyword = value.toUpperCase().trim();
+		if (!keyword || seen.has(keyword)) continue;
+		seen.add(keyword);
+		out.push(keyword);
+	}
+	return out;
+}
+
+//* Parses an imported keywords file. .txt is one keyword per line; .json is
+//* either an array or an object of category -> array (returned as categories).
+export type KeywordImport = { keywords: string[] } | { categories: Record<string, string[]> };
+
+export function parseKeywordFile(name: string, mime: string, text: string): KeywordImport {
+	const isJson = name.toLowerCase().endsWith('.json') || mime === 'application/json';
+	if (!isJson) {
+		return { keywords: normalizeKeywords(text.split(/\r?\n/)) };
+	}
+	const data: unknown = JSON.parse(text);
+	if (Array.isArray(data)) {
+		return { keywords: normalizeKeywords(data.filter((k): k is string => typeof k === 'string')) };
+	}
+	if (data && typeof data === 'object') {
+		const categories: Record<string, string[]> = {};
+		for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+			if (Array.isArray(value)) categories[key] = normalizeKeywords(value.filter((k): k is string => typeof k === 'string'));
+		}
+		const names = Object.keys(categories);
+		if (names.length === 0) throw new Error('No keyword arrays found in JSON');
+		if (names.length === 1) return { keywords: categories[names[0]] };
+		return { categories };
+	}
+	throw new Error('Unsupported JSON structure');
+}
+
+//* "fire_keywords" -> "Fire Keywords".
+export function categoryToLabel(key: string): string {
+	return key
+		.split(/[_\s]+/)
+		.filter(Boolean)
+		.map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+		.join(' ');
 }

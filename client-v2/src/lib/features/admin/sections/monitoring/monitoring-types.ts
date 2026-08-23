@@ -232,7 +232,14 @@ export interface FailedCall {
 	failureReason: string;
 }
 
-export const ALERT_GROUP_ORDER = ['no_audio', 'no_audio_received', 'api_key_no_audio', 'tone_detection_issue', 'transcription_failure', 'other'] as const;
+export const ALERT_GROUP_ORDER = [
+	'no_audio',
+	'no_audio_received',
+	'api_key_no_audio',
+	'tone_detection_issue',
+	'transcription_failure',
+	'other'
+] as const;
 
 export function alertTypeLabel(type: string): string {
 	switch (type) {

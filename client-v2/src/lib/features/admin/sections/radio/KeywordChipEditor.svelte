@@ -7,6 +7,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import Plus from '@lucide/svelte/icons/plus';
 	import X from '@lucide/svelte/icons/x';
+	import { normalizeKeywords } from './radio-api.ts';
 
 	interface Props {
 		items: string[];
@@ -15,18 +16,6 @@
 	let { items = $bindable() }: Props = $props();
 
 	let text = $state('');
-
-	export function normalizeKeywords(raw: string[]): string[] {
-		const out: string[] = [];
-		const seen = new Set<string>();
-		for (const value of raw) {
-			const keyword = value.toUpperCase().trim();
-			if (!keyword || seen.has(keyword)) continue;
-			seen.add(keyword);
-			out.push(keyword);
-		}
-		return out;
-	}
 
 	function addMany(values: string[]) {
 		items = normalizeKeywords([...items, ...values]);

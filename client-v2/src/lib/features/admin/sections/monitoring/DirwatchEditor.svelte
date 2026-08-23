@@ -29,16 +29,13 @@
 
 	let { open = $bindable(), entry, others, systems, onsave }: Props = $props();
 
-	//* Working copy; the caller only sees it on Save.
-	let draft = $state<DirwatchEntry>({});
+	//* Working copy; the caller only sees it on Save. The parent remounts this
+	//* component ({#key}) every time the dialog opens, so the copy starts fresh.
+	function initialDraft(): DirwatchEntry {
+		return { ...(entry ?? {}) };
+	}
+	let draft = $state<DirwatchEntry>(initialDraft());
 	let attempted = $state(false);
-
-	$effect(() => {
-		if (open) {
-			draft = { ...(entry ?? {}) };
-			attempted = false;
-		}
-	});
 
 	const isNew = $derived(!entry?.id);
 	const type = $derived(draft.type || 'default');
