@@ -12,11 +12,12 @@
 	import { Button } from '$lib/components/ui/button/index.ts';
 	import Maximize from '@lucide/svelte/icons/maximize';
 	import LocateFixed from '@lucide/svelte/icons/locate-fixed';
+	import { PUBLIC_CARTO_KEY } from '$env/static/public';
 
 	let { pageState }: { pageState: MapPageState } = $props();
 
-	const LIGHT_TILES = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-	const DARK_TILES = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+	const LIGHT_TILES = `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${PUBLIC_CARTO_KEY}`;
+	const DARK_TILES = `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${PUBLIC_CARTO_KEY}`;
 	const DEFAULT_VIEW = { lat: 40.6632297, lng: -111.9103124, zoom: 11 };
 
 	const layerVisibility = new PersistedState<Record<string, boolean>>('tlr-map-layers', {

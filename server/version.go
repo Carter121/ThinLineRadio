@@ -16,5 +16,5 @@
 
 package main
 
-// CalVer-style release id (YY.MM.build-carter).
-const Version = "26.08.22.2-carter"
+// CalVer-style release id (YY.MM.DD.build-carter).
+const Version = "26.09.26.1-carter"
