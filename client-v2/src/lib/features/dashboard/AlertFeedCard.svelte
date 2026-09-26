@@ -227,9 +227,7 @@
 					<span class="flex items-center gap-1.5 truncate">
 						<span class="truncate">{alertSubtitle(alert) || 'Unknown'}</span>
 						{#each channels as channel (`${channel.dispatch}-${channel.channel}`)}
-							<Badge variant="secondary" class="h-full shrink-0 text-[11px] leading-none text-muted-foreground"
-								>{formatChannelName(channel)}</Badge
-							>
+							<Badge variant="secondary" class="h-full shrink-0 text-[11px] leading-none text-muted-foreground">{formatChannelName(channel)}</Badge>
 						{/each}
 					</span>
 					<span class="shrink-0 text-[11px] font-normal text-muted-foreground" title={formatAbsoluteTime(alert.createdAt)}>

@@ -10,12 +10,7 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import Layers from '@lucide/svelte/icons/layers';
 
-	let {
-		group,
-		alertFeed,
-		nowMs,
-		query = ''
-	}: { group: IncidentGroup; alertFeed: AlertFeedCardState; nowMs: number; query?: string } = $props();
+	let { group, alertFeed, nowMs, query = '' }: { group: IncidentGroup; alertFeed: AlertFeedCardState; nowMs: number; query?: string } = $props();
 
 	let expanded = $state(false);
 </script>
@@ -54,7 +49,8 @@
 				class="flex w-full cursor-pointer items-center justify-center gap-1 py-0.5 text-xs text-muted-foreground hover:text-foreground"
 			>
 				<ChevronDown class={['size-3.5 transition-transform', expanded && 'rotate-180']} />
-				{expanded ? 'Hide' : 'Show'} {group.alerts.length - 1} earlier {group.alerts.length === 2 ? 'call' : 'calls'}
+				{expanded ? 'Hide' : 'Show'}
+				{group.alerts.length - 1} earlier {group.alerts.length === 2 ? 'call' : 'calls'}
 			</CollapsibleTrigger>
 			<CollapsibleContent>
 				<div class="space-y-2 pt-1">

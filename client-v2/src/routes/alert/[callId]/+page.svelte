@@ -53,9 +53,7 @@
 	let currentTime = $state(0);
 	let duration = $state(0);
 
-	const subtitle = $derived(
-		meta ? [meta.systemLabel, meta.talkgroupLabel ?? meta.talkgroupName].filter(Boolean).join(' / ') || 'Unknown' : ''
-	);
+	const subtitle = $derived(meta ? [meta.systemLabel, meta.talkgroupLabel ?? meta.talkgroupName].filter(Boolean).join(' / ') || 'Unknown' : '');
 	const units = $derived(
 		sortUnits([
 			...new Map(
@@ -289,12 +287,7 @@
 						<span class="font-mono text-xs text-muted-foreground tabular-nums">
 							{formatDuration(currentTime)} / {formatDuration(duration)}
 						</span>
-						<Button
-							variant="ghost"
-							size="sm"
-							class="ml-auto size-8 p-0 text-muted-foreground hover:text-foreground"
-							onclick={stopPlayback}
-						>
+						<Button variant="ghost" size="sm" class="ml-auto size-8 p-0 text-muted-foreground hover:text-foreground" onclick={stopPlayback}>
 							<Square class="size-3.5" />
 						</Button>
 					{/if}

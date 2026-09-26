@@ -438,10 +438,7 @@ export class CallHistoryState {
 			.catch((err) => {
 				if (token !== this.playbackToken) return;
 				this.playbackLoading = false;
-				this.playbackError =
-					err instanceof TlrApiError && err.status === 404
-						? 'No audio available for this call'
-						: 'Failed to load call audio';
+				this.playbackError = err instanceof TlrApiError && err.status === 404 ? 'No audio available for this call' : 'Failed to load call audio';
 				if (this.autoAdvancing) this.playNextCall();
 			});
 	}

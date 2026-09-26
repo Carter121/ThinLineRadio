@@ -276,12 +276,7 @@
 										</Button>
 									{/if}
 								{:else}
-									<Button
-										variant="ghost"
-										size="sm"
-										class="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
-										onclick={() => playCall(call.callId)}
-									>
+									<Button variant="ghost" size="sm" class="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground" onclick={() => playCall(call.callId)}>
 										<Play class="size-3" />
 										Play
 									</Button>
