@@ -12,7 +12,7 @@
 	import type { Component } from 'svelte';
 
 	let { params }: PageProps = $props();
-	const activeTab = $derived(params.tab);
+	const activeTab = $derived(params.tab.toLowerCase());
 </script>
 
 {#snippet tab(id: string, Component: Component)}

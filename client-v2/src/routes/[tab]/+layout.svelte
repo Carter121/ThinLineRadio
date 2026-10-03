@@ -11,11 +11,13 @@
 	import { PersistedState } from 'runed';
 	import { Toggle } from '$lib/components/ui/toggle';
 	import { tlrOrigin } from '$lib/tlr-config.ts';
-	import { DebugTab, Tabs } from '$lib/core/tabs.ts';
+	import { DebugTab, TabId, Tabs, type TlrTab } from '$lib/core/tabs.ts';
 
-	let { params, children }: LayoutProps = $props();
+	let { data, children }: LayoutProps = $props();
 
-	const activeTab = $derived(params.tab);
+	const activeTab = $derived(data.activeTab);
+
+	const pageTitle = $derived(getPageTitle(activeTab));
 
 	const showDebug = new PersistedState<boolean>('tlr-show-debug', false);
 
@@ -30,7 +32,15 @@
 	const feed = new TlrAlertFeed(tlrClient, coordinator);
 	setTlrAlertFeed(feed);
 
+	function getPageTitle(activeTab: TlrTab | undefined): string {
+		//* Dashboard is the default, nothing special is needed
+		if (!activeTab || activeTab.id === TabId.dashboard) return 'TLR';
+
+		return `TLR | ${activeTab.label}`;
+	}
+
 	onMount(() => feed.start());
+
 	onDestroy(() => {
 		feed.destroy();
 		coordinator.destroy();
@@ -58,15 +68,20 @@
 	});
 </script>
 
+<svelte:head>
+	<title>{pageTitle}</title>
+</svelte:head>
+
 <!--* The map tab locks the page to the viewport so the map can fill the remaining height. -->
-<div class={activeTab === 'map' ? 'flex h-dvh flex-col overflow-hidden' : ''}>
+<div class={activeTab.id === TabId.map ? 'flex h-dvh flex-col overflow-hidden' : ''}>
 	<div class="flex w-full shrink-0 justify-center px-2 pt-0 pb-4 sm:px-10 sm:pt-4">
 		<nav class="flex w-full max-w-6xl items-end gap-4 overflow-x-auto border-b border-border">
 			{#each visibleTabs as tab (tab.id)}
 				{@const Icon = tab.icon}
 				<a
 					href={`/${tab.id}`}
-					class="flex cursor-pointer items-center gap-1.5 pb-2 text-sm whitespace-nowrap transition-colors {activeTab === tab.id
+					class="flex cursor-pointer items-center gap-1.5 pb-2 text-sm whitespace-nowrap transition-colors
+                        {tab.id === activeTab.id
 						? 'border-b-2 border-primary font-medium text-foreground'
 						: 'text-muted-foreground hover:text-foreground'}"
 				>
@@ -106,7 +121,7 @@
 		</div>
 	{/if}
 
-	<div class={activeTab === 'map' ? 'min-h-0 flex-1' : ''}>
+	<div class={activeTab.id === TabId.map ? 'min-h-0 flex-1' : ''}>
 		<svelte:boundary onerror={(error) => console.error('[tlr] Component error caught by boundary:', error)}>
 			{@render children()}
 
