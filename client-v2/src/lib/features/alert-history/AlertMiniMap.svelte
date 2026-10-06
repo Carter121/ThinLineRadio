@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import type L from 'leaflet';
+	import { PUBLIC_CARTO_KEY } from '$env/static/public';
 
 	let { lat, lon }: { lat: number; lon: number } = $props();
 
@@ -29,7 +30,7 @@
 			.setView([lat, lon], 14);
 
 		leafletLib
-			.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png', {
+			.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/voyager_labels_under/{z}/{x}/{y}{r}.png?key=${PUBLIC_CARTO_KEY}`, {
 				maxZoom: 19
 			})
 			.addTo(map);
