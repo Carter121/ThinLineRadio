@@ -279,28 +279,29 @@
 		<!-- Call timeline -->
 		<Card class="border-border/60 py-0">
 			<CardContent class="p-4">
-				<div class="space-y-3">
+				<div class="flex flex-col gap-3">
 					{#each incident.calls as call, index (call.callId)}
-						{#if incident.canManageIncidents}
-							<div class="flex items-center justify-end">
-								<IncidentActions
-									{client}
-									call={{ callId: call.callId, incidentId: incident.incidentId, incidentCallCount: incident.callCount, canManageIncidents: true }}
-								/>
-							</div>
-						{/if}
 						{#if index > 0}
 							<Separator />
 						{/if}
-						<div class="space-y-1.5">
+						<div class="flex flex-col gap-1.5">
 							<div class="flex items-center justify-between gap-2">
-								<span class="text-xs font-medium text-foreground">
+								<span class="min-w-0 text-xs font-medium text-foreground">
 									{[call.systemLabel, call.talkgroupLabel].filter(Boolean).join(' / ') || 'Unknown'}
 									{#each callChannels(call) as channel (`${channel.dispatch}-${channel.channel}`)}
 										<Badge variant="secondary" class="ml-1 text-[10px]">{formatChannelName(channel)}</Badge>
 									{/each}
 								</span>
-								<span class="shrink-0 text-[11px] text-muted-foreground">{formatDateTime(call.timestamp)}</span>
+								<div class="flex shrink-0 items-center gap-1">
+									<span class="text-[11px] text-muted-foreground">{formatDateTime(call.timestamp)}</span>
+									{#if incident.canManageIncidents}
+										<IncidentActions
+											{client}
+											compact
+											call={{ callId: call.callId, incidentId: incident.incidentId, incidentCallCount: incident.callCount, canManageIncidents: true }}
+										/>
+									{/if}
+								</div>
 							</div>
 
 							{#if call.transcript}

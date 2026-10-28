@@ -387,6 +387,14 @@ against the code if something seems off; add new findings here.
 
 Newest first.
 
+## 2026-10-27: incident timeline menus belong to each call header
+
+**Shipped:** Moved each call's overflow menu into its metadata row next to the timestamp, using
+the compact muted trigger. Removed the standalone menu rows and kept separators between complete
+call blocks, so menus no longer appear attached to the preceding alert or add blank rows.
+**Validation:** Client typecheck, targeted lint, and production build pass (existing admin warnings).
+
+
 ## 2026-10-27: incident menu follows current membership
 
 **Shipped:** Unlinked alerts show Create incident; linked alerts show Edit incident, Move, and
