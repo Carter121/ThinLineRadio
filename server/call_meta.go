@@ -99,12 +99,14 @@ func (api *Api) CallMetaHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var incidentID sql.NullInt64
 	var manual bool
-	if err := api.Controller.Database.Sql.QueryRow(`SELECT ic."incidentId", c."incidentAssignmentManual" FROM "calls" c LEFT JOIN "incidentCalls" ic ON ic."callId"=c."callId" WHERE c."callId"=$1`, call.Id).Scan(&incidentID, &manual); err != nil {
+	var incidentCallCount int
+	if err := api.Controller.Database.Sql.QueryRow(`SELECT ic."incidentId", c."incidentAssignmentManual", (SELECT COUNT(*) FROM "incidentCalls" members WHERE members."incidentId"=ic."incidentId") FROM "calls" c LEFT JOIN "incidentCalls" ic ON ic."callId"=c."callId" WHERE c."callId"=$1`, call.Id).Scan(&incidentID, &manual, &incidentCallCount); err != nil {
 		api.exitWithError(w, 500, "failed to read incident membership")
 		return
 	}
 	if incidentID.Valid {
 		meta["incidentId"] = incidentID.Int64
+		meta["incidentCallCount"] = incidentCallCount
 	}
 	meta["incidentAssignmentManual"] = manual
 	meta["canManageIncidents"] = client.User != nil && client.User.SystemAdmin

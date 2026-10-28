@@ -283,7 +283,10 @@
 					{#each incident.calls as call, index (call.callId)}
 						{#if incident.canManageIncidents}
 							<div class="flex items-center justify-end">
-								<IncidentActions {client} call={{ callId: call.callId, incidentId: incident.incidentId, canManageIncidents: true }} />
+								<IncidentActions
+									{client}
+									call={{ callId: call.callId, incidentId: incident.incidentId, incidentCallCount: incident.callCount, canManageIncidents: true }}
+								/>
 							</div>
 						{/if}
 						{#if index > 0}

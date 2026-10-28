@@ -1,7 +1,7 @@
 import type { TlrClient } from '$lib/core/tlr-client';
 import type { Incident, IncidentMembership, IncidentMutationResult } from '$lib/core/types';
 
-export type IncidentAction = 'create' | 'assign' | 'remove' | 'edit';
+export type IncidentAction = 'create' | 'separate' | 'assign' | 'remove' | 'edit';
 
 class IncidentManagement {
 	open = $state(false);

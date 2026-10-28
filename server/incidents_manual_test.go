@@ -381,6 +381,9 @@ func TestManualIncidentOlderAlertRefresh(t *testing.T) {
 		t.Fatalf("older call alerts not returned: %+v", alerts)
 	}
 	for _, alert := range alerts {
+		if alert["incidentCallCount"] != float64(1) {
+			t.Fatalf("alert rows counted instead of unique calls: %+v", alert)
+		}
 		if alert["incidentId"] != float64(id) || alert["incidentType"] != "Manual incident" || alert["incidentAddress"] != "Warehouse" || alert["incidentAssignmentManual"] != true || alert["canManageIncidents"] != true {
 			t.Fatalf("missing incident metadata: %+v", alert)
 		}
@@ -394,4 +397,36 @@ func TestManualIncidentOlderAlertRefresh(t *testing.T) {
 			t.Fatalf("stale membership: %+v", alert)
 		}
 	}
+}
+
+func TestManualIncidentSeparation(t *testing.T) {
+	api, client := incidentTestAPI(t)
+	id := incidentTestMutation(t, api, client, "POST", 0, false, incidentMutationInput{IncidentType: "Transport", Calls: []incidentMemberInput{{CallID: 1}}}, 201)
+	separate := incidentMutationInput{IncidentType: "Transport", Separate: true, Calls: []incidentMemberInput{{CallID: 1, ExpectedIncidentID: incidentPointer(id)}}}
+	incidentTestMutation(t, api, client, "POST", 0, false, separate, 409)
+	incidentTestMutation(t, api, client, "POST", 0, false, incidentMutationInput{IncidentType: "Unlinked", Separate: true, Calls: []incidentMemberInput{{CallID: 3}}}, 400)
+	incidentTestMutation(t, api, client, "PUT", id, true, incidentMutationInput{Calls: []incidentMemberInput{{CallID: 2}}}, 200)
+	if _, err := api.Controller.Database.Sql.Exec(`UPDATE "incidents" SET "callCount"=999 WHERE "incidentId"=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	api.serveIncidentDetail(response, client, id)
+	var detail struct {
+		CallCount int `json:"callCount"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil || response.Code != 200 || detail.CallCount != 2 {
+		t.Fatalf("detail must count actual membership: %d %s", response.Code, response.Body.String())
+	}
+	newID := incidentTestMutation(t, api, client, "POST", 0, false, separate, 201)
+	if newID == id {
+		t.Fatal("separation did not create a new incident")
+	}
+	for _, incidentID := range []uint64{id, newID} {
+		var count int
+		if err := api.Controller.Database.Sql.QueryRow(`SELECT COUNT(*) FROM "incidentCalls" WHERE "incidentId"=$1`, incidentID).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("split membership: %d %v", count, err)
+		}
+	}
+	separate.Calls[0].ExpectedIncidentID = incidentPointer(newID)
+	incidentTestMutation(t, api, client, "POST", 0, false, separate, 409)
 }

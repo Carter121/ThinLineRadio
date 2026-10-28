@@ -56,7 +56,7 @@ func incidentToMap(inc *incidentRow, nowMs int64, tierRows []FireIncidentType) m
 	return m
 }
 
-const incidentSelectColumns = `"incidentId", "firstSeenAt", "lastSeenAt", "lat", "lon", "displayAddress", "incidentType", "callCount", "talkgroupRefs"`
+const incidentSelectColumns = `"incidentId", "firstSeenAt", "lastSeenAt", "lat", "lon", "displayAddress", "incidentType", (SELECT COUNT(*) FROM "incidentCalls" members WHERE members."incidentId"="incidents"."incidentId"), "talkgroupRefs"`
 
 func scanIncidentRow(scan func(dest ...any) error) (*incidentRow, error) {
 	inc := &incidentRow{}

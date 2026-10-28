@@ -75,6 +75,7 @@ export interface ParsedAddress {
 
 export interface IncidentMembership {
 	callId: number;
+	incidentCallCount?: number;
 	incidentId?: number;
 	canManageIncidents?: boolean;
 	incidentAssignmentManual?: boolean;

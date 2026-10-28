@@ -246,8 +246,7 @@
 					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 					<AlertDescription class="text-foreground"><span>{@html getTranscriptHTML(alert)}</span></AlertDescription>
 				{/if}
-				<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-					<IncidentActions call={alert} {client} />
+				<div class="col-start-2 mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
 					{#if isActive}
 						<Button
 							variant="ghost"
@@ -299,14 +298,17 @@
 							Play
 						</Button>
 					{/if}
-					{#if mapsUrl}
-						<a href={mapsUrl} target="_blank" rel="noopener noreferrer" class="ml-auto" onclick={(e: MouseEvent) => e.stopPropagation()}>
-							<Button variant="ghost" size="sm" class="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground">
-								<MapPin class="size-3" />
-								Map
-							</Button>
-						</a>
-					{/if}
+					<div class="ml-auto flex shrink-0 items-center gap-1">
+						<IncidentActions call={alert} {client} compact />
+						{#if mapsUrl}
+							<a href={mapsUrl} target="_blank" rel="noopener noreferrer" onclick={(e: MouseEvent) => e.stopPropagation()}>
+								<Button variant="ghost" size="sm" class="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground">
+									<MapPin class="size-3" />
+									Map
+								</Button>
+							</a>
+						{/if}
+					</div>
 				</div>
 			{/snippet}
 		{/if}

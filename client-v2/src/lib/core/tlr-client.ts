@@ -245,8 +245,11 @@ export class TlrClient {
 		return this.request<IncidentListResult>(`/incidents${toQueryString(options)}`);
 	}
 
-	async createIncident(incidentType: string, address: string, calls: IncidentMemberInput[]): Promise<IncidentMutationResult> {
-		return this.request('/incidents', { method: 'POST', body: JSON.stringify({ incidentType, address, calls }) });
+	async createIncident(incidentType: string, address: string, calls: IncidentMemberInput[], separate = false): Promise<IncidentMutationResult> {
+		return this.request('/incidents', {
+			method: 'POST',
+			body: JSON.stringify({ incidentType, address, calls, ...(separate ? { separate: true } : {}) })
+		});
 	}
 
 	async editIncident(incidentId: number, incidentType: string, address: string): Promise<IncidentMutationResult> {

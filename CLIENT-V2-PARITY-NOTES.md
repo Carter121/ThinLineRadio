@@ -65,6 +65,15 @@ otherwise. Date each item when adding it.
 
 ## Manual incident management
 
+- Per-alert menus show Create incident only when unlinked, Edit incident when linked, and
+  Separate into new incident only when the incident contains multiple calls. Use the server's
+  actual membership count, not the number of visible alert rows. Move/Add and Remove remain
+  available as appropriate. (2026-10-27)
+
+- Incident navigation belongs on grouped incident headers, not every individual alert. Individual
+  alerts expose manual management through the overflow menu, styled like existing muted playback
+  and map controls. (2026-10-27)
+
 - Shared incidents can be created and managed by signed-in **system-admin users only**.
   Start from existing alerts, with bulk selection in Alert Log and per-alert actions on the
   dashboard and alert detail page. No empty incidents. (2026-10-27)
@@ -182,6 +191,13 @@ against the code if something seems off; add new findings here.
   ALT frame as "refetch the alert feed".
 
 ## Manual incident APIs (2026-10-27)
+
+- Alert and single-call metadata responses expose `incidentCallCount` for linked calls. Incident
+  list/detail `callCount` is now counted from live membership, so call retention cannot leave a
+  stale singleton/split decision. Per-alert menus refresh incident details when opened.
+- Creation accepts optional `separate: true` for splitting one linked call into a new incident.
+  This requires an expected source incident and more than one remaining member; it returns 409
+  if the source becomes a singleton before submission. Existing creation requests stay compatible.
 
 - Existing PIN-authenticated `/api/incidents` routes now accept `POST` to create from calls,
   `PATCH /api/incidents/{id}` for metadata, and `PUT`/`DELETE /api/incidents/{id}/calls` for
@@ -370,6 +386,40 @@ against the code if something seems off; add new findings here.
 # Session Log
 
 Newest first.
+
+## 2026-10-27: incident menu follows current membership
+
+**Shipped:** Unlinked alerts show Create incident; linked alerts show Edit incident, Move, and
+Remove; Separate into new incident appears only for incidents with multiple calls. Menus refresh
+server details on opening. The split dialog uses the explicit separation label and preserves
+source metadata. The server checks current membership before splitting and rejects singleton
+splits transactionally. Added actual membership counts to alert/call metadata and incident reads.
+**Decisions:** Single-call incidents should be edited or moved, never offered a redundant split.
+Bulk creation from an explicit selection keeps its existing behavior.
+**Validation:** `pnpm check` and targeted ESLint pass; client production build and Go build pass.
+Go suite with race detector and isolated PostgreSQL passes with the known personal-database
+`TestDiscoverLFDAll20FromDB` excluded. New regression tests cover singleton rejection, successful
+splits, stale stored counts, and multiple alert rows belonging to one call.
+
+
+## 2026-10-27: remove individual incident links and match overflow controls
+
+**Shipped:** Removed the repeated incident link from shared per-alert actions. Grouped incident
+headers retain their navigation link. The overflow trigger now uses `text-muted-foreground` and
+`hover:text-foreground`, matching existing controls, with compact dashboard sizing.
+**Decisions:** No incident button on every alert; keep management actions in the overflow menu.
+**Validation:** Client typecheck, targeted lint, and production build pass (existing admin warnings).
+
+
+## 2026-10-27: compact dashboard alert controls
+
+**Shipped:** Fixed the dashboard alert action row's missing `col-start-2`, which placed it in
+shadcn Alert's zero-width icon column and stacked every control. Playback stays on the left;
+compact Incident, management menu, and Map controls share a group on the right.
+**Learned:** Every direct content child of the generated Alert grid needs explicit content-column
+placement. Expanded incident rows also reuse this footer, so keep the class on the shared snippet.
+**Validation:** Client typecheck, targeted lint, and production build verified for this change.
+
 
 ## 2026-10-27: manual incident creation and alert membership
 

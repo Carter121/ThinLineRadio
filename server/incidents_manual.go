@@ -64,6 +64,7 @@ type incidentMutationInput struct {
 	IncidentType string                `json:"incidentType"`
 	Address      string                `json:"address"`
 	Calls        []incidentMemberInput `json:"calls"`
+	Separate     bool                  `json:"separate,omitempty"`
 }
 
 // * Keep all derived membership data in the same transaction as its links.
@@ -192,6 +193,10 @@ func (api *Api) mutateIncident(w http.ResponseWriter, r *http.Request, client *C
 		api.exitWithError(w, 400, err.Error())
 		return
 	}
+	if input.Separate && (!create || len(input.Calls) != 1 || input.Calls[0].ExpectedIncidentID == nil || *input.Calls[0].ExpectedIncidentID == 0) {
+		api.exitWithError(w, 400, "separation requires one call in an existing incident")
+		return
+	}
 	if id > 0 {
 		accessible, err := api.canReadIncident(client.User, id)
 		if err != nil {
@@ -261,6 +266,17 @@ func (api *Api) mutateIncident(w http.ResponseWriter, r *http.Request, client *C
 			affected[current] = true
 		}
 		callIDs = append(callIDs, member.CallID)
+	}
+	if input.Separate {
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM "incidentCalls" WHERE "incidentId"=$1`, *input.Calls[0].ExpectedIncidentID).Scan(&count); err != nil {
+			fail(err)
+			return
+		}
+		if count <= 1 {
+			api.exitWithError(w, 409, "this incident only has one call; edit the incident instead")
+			return
+		}
 	}
 	if create {
 		if err := tx.QueryRow(`INSERT INTO "incidents" ("firstSeenAt","lastSeenAt","incidentType","displayAddress","normalizedAddress","metadataManual") VALUES (0,0,$1,$2,$3,true) RETURNING "incidentId"`, input.IncidentType, input.Address, normalizeIncidentAddress(input.Address)).Scan(&id); err != nil {

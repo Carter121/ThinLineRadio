@@ -23,9 +23,15 @@
 	let confirm = $state(false);
 	let searchVersion = 0;
 	const title = $derived(
-		{ create: 'Create incident', assign: 'Add alerts to incident', remove: 'Remove from incident', edit: 'Edit incident' }[management.action]
+		{
+			create: 'Create incident',
+			separate: 'Separate into new incident',
+			assign: 'Add alerts to incident',
+			remove: 'Remove from incident',
+			edit: 'Edit incident'
+		}[management.action]
 	);
-	const metadata = $derived(management.action === 'create' || management.action === 'edit');
+	const metadata = $derived(management.action === 'create' || management.action === 'separate' || management.action === 'edit');
 	const sourceIds = $derived([...new Set(management.calls.flatMap((call) => (call.incidentId ? [call.incidentId] : [])))]);
 
 	$effect(() => {
@@ -80,7 +86,8 @@
 			const client = management.client;
 			const calls = management.calls.map((call) => ({ callId: call.callId, expectedIncidentId: call.incidentId ?? null }));
 			let result: IncidentMutationResult;
-			if (management.action === 'create') result = await client.createIncident(incidentType, address, calls);
+			if (management.action === 'create' || management.action === 'separate')
+				result = await client.createIncident(incidentType, address, calls, management.action === 'separate');
 			else if (management.action === 'edit') result = await client.editIncident(management.incident!.incidentId, incidentType, address);
 			else
 				result = await client.assignIncidentCalls(
@@ -103,7 +110,11 @@
 				}
 				confirm = false;
 				management.changed({ incidentId: 0, callIds: management.calls.map((call) => call.callId) });
-				if (management.calls.length) error = 'Membership changed. Review the refreshed source incidents and submit again.';
+				if (management.calls.length)
+					error =
+						management.action === 'separate' && (management.calls[0].incidentCallCount ?? 0) <= 1
+							? 'This incident only has one call. Close this dialog and use Edit incident instead.'
+							: 'Membership changed. Review the refreshed source incidents and submit again.';
 			}
 		} finally {
 			busy = false;
@@ -199,7 +210,7 @@
 				Confirm {management.action === 'remove' ? 'removing' : 'moving'}
 				{management.calls.length} unique calls from {sourceIds.map((id) => `#${id}`).join(', ')}{target
 					? ` to #${target.incidentId}`
-					: management.action === 'create'
+					: management.action === 'create' || management.action === 'separate'
 						? ' to the new incident'
 						: ''}.
 			</p>{/if}
@@ -210,6 +221,7 @@
 				disabled={busy ||
 					(metadata && !incidentType.trim()) ||
 					(management.action === 'assign' && !target) ||
+					(management.action === 'separate' && (management.calls[0]?.incidentCallCount ?? 0) <= 1) ||
 					(management.action === 'remove' && management.calls.some((call) => !call.incidentId)) ||
 					(management.action !== 'edit' && !management.calls.length)}
 				onclick={save}

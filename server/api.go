@@ -2924,7 +2924,7 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Query all alerts (no userId filter) with system, talkgroup labels, call transcripts, and tone sequence
-		query := fmt.Sprintf(`SELECT a."alertId", a."callId", a."systemId", a."talkgroupId", a."alertType", a."toneDetected", a."toneSetId", a."keywordsMatched", a."transcriptSnippet", a."createdAt", s."label" as "systemLabel", s."systemRef" as "systemRef", t."label" as "talkgroupLabel", t."name" as "talkgroupName", c."transcript" as "callTranscript", c."transcriptionStatus" as "callTranscriptionStatus", c."toneSequence" as "callToneSequence", c."timestamp" as "callTimestamp", c."alertSummary" as "callAlertSummary", c."parsedAddress" as "callParsedAddress", ic."incidentId" as "incidentId", i."incidentType" as "incidentType", c."incidentAssignmentManual", i."metadataManual", i."displayAddress" FROM "alerts" a LEFT JOIN "systems" s ON s."systemId" = a."systemId" LEFT JOIN "talkgroups" t ON t."talkgroupId" = a."talkgroupId" LEFT JOIN "calls" c ON c."callId" = a."callId" LEFT JOIN "incidentCalls" ic ON ic."callId" = a."callId" LEFT JOIN "incidents" i ON i."incidentId" = ic."incidentId" %s ORDER BY a."createdAt" DESC LIMIT %d`, whereClause, maxAlerts)
+		query := fmt.Sprintf(`SELECT a."alertId", a."callId", a."systemId", a."talkgroupId", a."alertType", a."toneDetected", a."toneSetId", a."keywordsMatched", a."transcriptSnippet", a."createdAt", s."label" as "systemLabel", s."systemRef" as "systemRef", t."label" as "talkgroupLabel", t."name" as "talkgroupName", c."transcript" as "callTranscript", c."transcriptionStatus" as "callTranscriptionStatus", c."toneSequence" as "callToneSequence", c."timestamp" as "callTimestamp", c."alertSummary" as "callAlertSummary", c."parsedAddress" as "callParsedAddress", ic."incidentId" as "incidentId", i."incidentType" as "incidentType", c."incidentAssignmentManual", i."metadataManual", i."displayAddress", (SELECT COUNT(*) FROM "incidentCalls" members WHERE members."incidentId"=ic."incidentId") FROM "alerts" a LEFT JOIN "systems" s ON s."systemId" = a."systemId" LEFT JOIN "talkgroups" t ON t."talkgroupId" = a."talkgroupId" LEFT JOIN "calls" c ON c."callId" = a."callId" LEFT JOIN "incidentCalls" ic ON ic."callId" = a."callId" LEFT JOIN "incidents" i ON i."incidentId" = ic."incidentId" %s ORDER BY a."createdAt" DESC LIMIT %d`, whereClause, maxAlerts)
 		rows, err := api.Controller.Database.Sql.Query(query)
 		if err != nil {
 			api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to query alerts: %v", err))
@@ -2961,9 +2961,10 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				assignmentManual        sql.NullBool
 				metadataManual          sql.NullBool
 				incidentAddress         sql.NullString
+				incidentCallCount       int
 			)
 
-			if err := rows.Scan(&alertId, &callId, &systemId, &talkgroupId, &alertType, &toneDetected, &toneSetId, &keywordsMatched, &transcriptSnippet, &createdAt, &systemLabel, &systemRef, &talkgroupLabel, &talkgroupName, &callTranscript, &callTranscriptionStatus, &callToneSequence, &callTimestamp, &callAlertSummary, &callParsedAddress, &incidentId, &incidentTypeStr, &assignmentManual, &metadataManual, &incidentAddress); err != nil {
+			if err := rows.Scan(&alertId, &callId, &systemId, &talkgroupId, &alertType, &toneDetected, &toneSetId, &keywordsMatched, &transcriptSnippet, &createdAt, &systemLabel, &systemRef, &talkgroupLabel, &talkgroupName, &callTranscript, &callTranscriptionStatus, &callToneSequence, &callTimestamp, &callAlertSummary, &callParsedAddress, &incidentId, &incidentTypeStr, &assignmentManual, &metadataManual, &incidentAddress, &incidentCallCount); err != nil {
 				continue
 			}
 
@@ -3070,6 +3071,7 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 			if incidentId.Valid {
 				alertMap["incidentType"] = incidentTypeStr.String
 				alertMap["incidentAddress"] = incidentAddress.String
+				alertMap["incidentCallCount"] = incidentCallCount
 			}
 			if callTimestamp.Valid {
 				alertMap["callTimestamp"] = callTimestamp.Int64
