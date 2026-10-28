@@ -1,4 +1,7 @@
 <script lang="ts">
+	import IncidentActions from '../incidents/IncidentActions.svelte';
+	import { getTlrClient } from '$lib/core/context';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import type { Alert, TranscriptAnnotationUnit, TranscriptAnnotationChannel } from '$lib/core/types.ts';
 	import type { AlertFeedCardState } from '../dashboard/AlertFeedCardState.svelte.ts';
 	import {
@@ -23,7 +26,25 @@
 	import Loader2 from '@lucide/svelte/icons/loader-2';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 
-	let { alert, alertFeed, nowMs, query }: { alert: Alert; alertFeed: AlertFeedCardState; nowMs: number; query: string } = $props();
+	const client = getTlrClient();
+
+	let {
+		alert,
+		alertFeed,
+		nowMs,
+		query,
+		selecting = false,
+		selected = false,
+		onselect
+	}: {
+		selecting?: boolean;
+		selected?: boolean;
+		onselect?: (alert: Alert, checked: boolean) => void;
+		alert: Alert;
+		alertFeed: AlertFeedCardState;
+		nowMs: number;
+		query: string;
+	} = $props();
 
 	const subtitle = $derived([alert.systemLabel, alert.talkgroupLabel ?? alert.talkgroupName].filter(Boolean).join(' / ') || 'Unknown');
 	const units = $derived(
@@ -45,7 +66,7 @@
 	const hasBattalion = $derived(units.some((u) => u.apparatus === 'BATTALION'));
 	const isFire = $derived(alert.fireTier === 'structure' || alert.fireTier === 'wildland');
 	const geocodedMatch = $derived(alert.parsedAddress?.match ?? null);
-	const addressText = $derived(displayAddress(alert.parsedAddress));
+	const addressText = $derived(alert.incidentAddress || displayAddress(alert.parsedAddress));
 	const isApprox = $derived(!!geocodedMatch && !isExactMatch(geocodedMatch));
 	const isUncertain = $derived(geocodedMatch?.precision === 'uncertain');
 	const mapsUrl = $derived(alert.parsedAddress?.match ? formatMapsUrl(alert.parsedAddress.match) : null);
@@ -59,6 +80,11 @@
 		<div class="flex flex-1 flex-col p-4">
 			<!-- Top: header + transcript -->
 			<div class="min-h-0 flex-1 space-y-2 overflow-y-auto">
+				{#if selecting && alert.canManageIncidents}
+					<label class="flex items-center gap-2 text-sm"
+						><Checkbox checked={selected} onCheckedChange={(checked) => onselect?.(alert, checked === true)} />Select call #{alert.callId}</label
+					>
+				{/if}
 				<!-- Row 1: Metadata header -->
 				<div class="flex items-center justify-between gap-2">
 					<div class="flex items-center gap-2">
@@ -113,7 +139,8 @@
 				</p>
 
 				<!-- Playback controls + Maps link -->
-				<div class="flex items-center gap-1.5">
+				<div class="flex flex-wrap items-center gap-1.5">
+					<IncidentActions call={alert} {client} />
 					{#if isActive}
 						<Button
 							variant="ghost"

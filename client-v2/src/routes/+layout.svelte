@@ -1,5 +1,6 @@
 <script lang="ts">
 	import './layout.css';
+	import IncidentDialog from '$lib/features/incidents/IncidentDialog.svelte';
 
 	import { ModeWatcher } from 'mode-watcher';
 	import { page } from '$app/state';
@@ -23,3 +24,5 @@
 <main class={isFullBleed ? '' : 'min-h-[90vh] p-2 py-4'}>
 	{@render children()}
 </main>
+
+<IncidentDialog />

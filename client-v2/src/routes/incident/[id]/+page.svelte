@@ -1,4 +1,7 @@
 <script lang="ts">
+	import IncidentActions from '$lib/features/incidents/IncidentActions.svelte';
+	import { incidentManagement as management } from '$lib/features/incidents/incident-management.svelte';
+	import { goto } from '$app/navigation';
 	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { Card, CardContent } from '$lib/components/ui/card';
@@ -143,7 +146,46 @@
 		playingCallId = null;
 	}
 
-	onMount(load);
+	onMount(() => {
+		void load();
+		const refresh = async () => {
+			try {
+				const updated = await client.getIncident(page.params.id ?? '');
+				if (playingCallId && !updated.calls.some((call) => call.callId === playingCallId)) stopPlayback();
+				incident = updated;
+			} catch (err) {
+				if (err instanceof TlrApiError && err.status === 404) {
+					stopPlayback();
+					await goto('/alert-log');
+				} else await load();
+			}
+		};
+		const changed = (event: Event) => {
+			const detail = (event as CustomEvent<{ incidentId: number; callIds: number[] }>).detail;
+			if (detail.incidentId === incident?.incidentId || incident?.calls.some((call) => detail.callIds.includes(call.callId))) void refresh();
+		};
+		const resume = () => {
+			if (!document.hidden) void refresh();
+		};
+		const unsubscribe = client.subscribe((event) => {
+			if (event.type === 'config') void refresh();
+			if (
+				event.type === 'alert' &&
+				event.payload.type === 'incident' &&
+				(event.payload.incidentId === incident?.incidentId || incident?.calls.some((call) => event.payload.callIds?.includes(call.callId)))
+			)
+				void refresh();
+		});
+		client.connectSocket();
+		window.addEventListener('tlr-incidents-changed', changed);
+		document.addEventListener('visibilitychange', resume);
+		return () => {
+			unsubscribe();
+			client.disconnectSocket();
+			window.removeEventListener('tlr-incidents-changed', changed);
+			document.removeEventListener('visibilitychange', resume);
+		};
+	});
 	onDestroy(releaseAudio);
 </script>
 
@@ -181,6 +223,12 @@
 			</CardContent>
 		</Card>
 	{:else if incident}
+		{#if incident.canManageIncidents}
+			<div class="flex flex-wrap gap-2">
+				<Button variant="outline" onclick={() => management.show(client, 'edit', [], incident)}>Edit incident</Button>
+				<Button href={`/alert-log?incident=${incident.incidentId}`} variant="outline">Add alerts</Button>
+			</div>
+		{/if}
 		<!-- Header -->
 		<div class="space-y-1 px-1">
 			<div class="flex flex-wrap items-center gap-2">
@@ -233,6 +281,11 @@
 			<CardContent class="p-4">
 				<div class="space-y-3">
 					{#each incident.calls as call, index (call.callId)}
+						{#if incident.canManageIncidents}
+							<div class="flex items-center justify-end">
+								<IncidentActions {client} call={{ callId: call.callId, incidentId: incident.incidentId, canManageIncidents: true }} />
+							</div>
+						{/if}
 						{#if index > 0}
 							<Separator />
 						{/if}

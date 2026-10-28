@@ -1,3 +1,4 @@
+import { SvelteSet } from 'svelte/reactivity';
 import { appSettings } from './app-settings.svelte.ts';
 import type { TlrClient } from './tlr-client.ts';
 import { ResumeWatcher } from './resume-watcher.ts';
@@ -46,9 +47,30 @@ export class TlrAlertFeed {
 		this.coordinator = coordinator ?? null;
 	}
 
+	private onIncidentChange = (event: Event) => {
+		const result = (event as CustomEvent<{ callIds: number[] }>).detail;
+		void this.refreshIncidentCalls(result.callIds);
+	};
+
+	async refreshIncidentCalls(callIds: number[]) {
+		try {
+			for (let i = 0; i < callIds.length; i += 200) {
+				const alerts = await this.client.getAlerts({ callIds: callIds.slice(i, i + 200), limit: 10000 });
+				this.mergeAlerts(alerts, true);
+			}
+		} catch {
+			//* The next resume or incident poke retries failed refreshes.
+		}
+	}
+
 	async start() {
+		window.addEventListener('tlr-incidents-changed', this.onIncidentChange);
 		this.unsubscribeSocket = this.client.subscribe((event: TlrSocketEvent) => {
-			if (event.type === 'alert') this.scheduleRefresh();
+			if (event.type === 'config' && this.lastRefreshAt != null) void this.resync();
+			if (event.type === 'alert') {
+				if (event.payload.silent && event.payload.callIds) void this.refreshIncidentCalls(event.payload.callIds);
+				else this.scheduleRefresh();
+			}
 		});
 
 		this.client.connectSocket();
@@ -62,6 +84,7 @@ export class TlrAlertFeed {
 	}
 
 	destroy() {
+		window.removeEventListener('tlr-incidents-changed', this.onIncidentChange);
 		if (this.refreshTimer) clearTimeout(this.refreshTimer);
 		this.resumeWatcher.stop();
 		this.unsubscribeSocket?.();
@@ -95,6 +118,7 @@ export class TlrAlertFeed {
 		this.hydrating = true;
 		try {
 			await this.refreshIncremental();
+			await this.refreshIncidentCalls([...new SvelteSet(this.allAlerts.map((a) => a.callId))]);
 		} finally {
 			this.hydrating = false;
 			this.resyncing = false;
@@ -119,7 +143,7 @@ export class TlrAlertFeed {
 		}
 	}
 
-	private mergeAlerts(nextAlerts: Alert[]) {
+	private mergeAlerts(nextAlerts: Alert[], silent = false) {
 		if (nextAlerts.length === 0) {
 			this.lastRefreshAt = Date.now();
 			return;
@@ -141,9 +165,9 @@ export class TlrAlertFeed {
 				}
 			}
 			const previous = merged.get(alertKey(alert));
-			if (!this.hydrating && !existingKeys.has(alertKey(alert))) {
+			if (!silent && !this.hydrating && !existingKeys.has(alertKey(alert))) {
 				freshIds.push(alert.alertId);
-			} else if (!this.hydrating && previous && !previous.fireTier && alert.fireTier) {
+			} else if (!silent && !this.hydrating && previous && !previous.fireTier && alert.fireTier && !alert.incidentAssignmentManual) {
 				//* Incident assignment races the alert feed: the fire tier can
 				//* arrive on a later refetch. Re-fresh so fire-type notification
 				//* filters get a second look; notifiedAlertIds prevents dupes.

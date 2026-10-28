@@ -63,6 +63,15 @@ otherwise. Date each item when adding it.
   list is paged/filtered client-side and every edit goes through the targeted per-row endpoints
   (see Server API Reference) instead of the whole-tree `systems/save`. (2026-08-22)
 
+## Manual incident management
+
+- Shared incidents can be created and managed by signed-in **system-admin users only**.
+  Start from existing alerts, with bulk selection in Alert Log and per-alert actions on the
+  dashboard and alert detail page. No empty incidents. (2026-10-27)
+- Manual incident changes are silent: no ntfy, browser notification, or sound. Addresses are
+  optional text, without address lookup or manual pin placement. Manual assignments and removals
+  survive retranscription; future location-free calls still require manual assignment. (2026-10-27)
+
 ## Scope: what the new UI should NOT include
 
 - **No AI chat-bot features.** (2026-07)
@@ -171,6 +180,34 @@ against the code if something seems off; add new findings here.
   every marker sync so overlapping incidents keep the newest pin clickable.
 - The `ALT` websocket command also carries `{"type":"incident","incidentId":N}` pokes; treat any
   ALT frame as "refetch the alert feed".
+
+## Manual incident APIs (2026-10-27)
+
+- Existing PIN-authenticated `/api/incidents` routes now accept `POST` to create from calls,
+  `PATCH /api/incidents/{id}` for metadata, and `PUT`/`DELETE /api/incidents/{id}/calls` for
+  membership. Mutations require a signed-in `SystemAdmin` user, not an admin-panel token.
+- Metadata bodies use `{incidentType, address}`; creation also requires `calls`.
+  Membership bodies use `{calls: [{callId, expectedIncidentId}]}`, with `null` for an unlinked
+  call. Maximum 200 unique calls per request. Stale membership returns 409 with no partial changes.
+  Successful mutations return `{incidentId, callIds}`. Removing the final call deletes the incident.
+- `GET /api/incidents` adds `search`, `offset`, `hasMore`, and `canManageIncidents`. Search covers
+  incident type, address, and ID; pagination is applied after access filtering. Details and call
+  metadata also expose `canManageIncidents`; call metadata includes current membership.
+- `GET /api/alerts?callIds=1,2` overrides `since`, retains access/preference filters, and refreshes
+  older calls. Alert rows add saved `incidentType`, `incidentAddress`, `canManageIncidents`, and
+  `incidentAssignmentManual` (also true for manually edited incident metadata, to suppress a
+  retroactive browser fire-tier notification).
+- Migration adds `calls.incidentAssignmentManual`, `incidents.metadataManual`, and a unique index
+  on `incidentCalls.callId`. Duplicate historical memberships keep the newest `addedAt`, then the
+  highest incident ID. Affected aggregates are repaired transactionally.
+- Manual writes and automatic assignment share serialization, transactional links, and aggregate
+  recalculation. Manual metadata stays authoritative. Automatic assignment skips manually managed
+  calls and already-linked calls. Timestamp/activity derives from member call times, not edit time.
+- Silent ALT incident pokes include `{incidentId, callIds, silent: true}`. Clients refetch the
+  affected calls without notifications and refresh cached older calls after reconnect/resume.
+  Typed addresses never overwrite call parsed addresses or create map coordinates.
+- Database regression tests use **only** `TLR_INCIDENT_TEST_DSN` and an isolated temporary schema.
+  They do not read the application's database configuration.
 
 ## Websocket protocol
 
@@ -333,6 +370,29 @@ against the code if something seems off; add new findings here.
 # Session Log
 
 Newest first.
+
+## 2026-10-27: manual incident creation and alert membership
+
+**Shipped:** System-admin incident actions on dashboard alerts, Alert Log cards, and standalone
+alert pages; bulk selection across Alert Log pages; shared create/edit/search/assign/remove dialogs;
+incident detail editing and Add alerts navigation. Added atomic server mutations, stale-membership
+checks, persistent manual overrides, uniqueness migration, aggregate repair, and silent refresh of
+older alert rows. No old-client UI changes or address lookup.
+**Decisions:** See Manual incident management above. Explicitly edited metadata stays authoritative;
+manual removal leaves a call unlinked until manually reassigned. No empty incidents.
+**Learned:** Existing incident links are call-based, so every alert row for that call changes
+membership together. Incremental `since` refresh cannot update older members. Standalone pages
+need their own socket subscriptions and audio-preserving refresh; tab sockets now disconnect on
+layout destruction.
+**Validation:** `pnpm check` passes (12 existing admin-form warnings); client production build and
+targeted ESLint pass. Incident PostgreSQL integration tests pass with the race detector, covering
+address-free creation, membership conflicts, rollback, aggregates/coordinates, migration duplicates,
+permissions, search/pagination, retranscription, concurrency, silent pokes, and older-alert refresh.
+The full Go suite has the pre-existing `TestDiscoverLFDAll20FromDB` failure because its personal
+PostgreSQL database on port 5432 is unavailable; the suite passes with that test excluded. Browser
+smoke testing was not run.
+**Next:** Deploy the rebuilt client-v2 and Go server together; startup applies the additive migration.
+
 
 ## 2026-08-22: admin panel port completed (all sections except Radio Reference)
 

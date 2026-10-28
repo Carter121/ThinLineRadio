@@ -73,7 +73,30 @@ export interface ParsedAddress {
 	match?: AddressMatch;
 }
 
-export interface Alert {
+export interface IncidentMembership {
+	callId: number;
+	incidentId?: number;
+	canManageIncidents?: boolean;
+	incidentAssignmentManual?: boolean;
+}
+
+export interface IncidentMemberInput {
+	callId: number;
+	expectedIncidentId: number | null;
+}
+
+export interface IncidentMutationResult {
+	incidentId: number;
+	callIds: number[];
+}
+
+export interface IncidentListResult {
+	incidents: Incident[];
+	hasMore: boolean;
+	canManageIncidents: boolean;
+}
+
+export interface Alert extends IncidentMembership {
 	alertId: number;
 	callId: number;
 	systemId: number;
@@ -98,6 +121,8 @@ export interface Alert {
 	matchedToneSetNames?: string[];
 	//* Set when the call has been threaded into an incident server-side
 	incidentId?: number;
+	incidentType?: string;
+	incidentAddress?: string;
 	//* The incident's fire tier ("structure" | "wildland") when it notifies
 	fireTier?: string;
 }
@@ -132,11 +157,12 @@ export interface IncidentCall {
 }
 
 export interface IncidentDetail extends Incident {
+	canManageIncidents?: boolean;
 	calls: IncidentCall[];
 }
 
 //* Single-call metadata from GET /api/calls/{id}/meta (the /alert/[callId] page)
-export interface CallMeta {
+export interface CallMeta extends IncidentMembership {
 	callId: number;
 	timestamp?: number;
 	systemId?: number;
@@ -425,6 +451,8 @@ export interface SocketCall {
 //* Both just prompt the feed to refetch.
 export interface SocketAlertNotification {
 	type: 'alert' | 'incident';
+	callIds?: number[];
+	silent?: boolean;
 	callId?: number;
 	alertType?: AlertType;
 	incidentId?: number;

@@ -27,21 +27,21 @@ import (
 	"rdio-scanner/server/internal/models"
 )
 
-//* Clustering thresholds: a call within this distance and rolling window of
-//* an open incident threads into it instead of opening a new one
+// * Clustering thresholds: a call within this distance and rolling window of
+// * an open incident threads into it instead of opening a new one
 const (
 	incidentClusterRadiusMeters = 100.0
 	incidentClusterWindowMs     = int64(30 * 60 * 1000)
 )
 
-//* Serializes incident assignment across transcription workers so two related
-//* calls cannot both open a new incident
+// * Serializes incident assignment across transcription workers so two related
+// * calls cannot both open a new incident
 var incidentAssignMutex sync.Mutex
 
-//* incidentRow mirrors one incidents table row during assignment. The fire
-//* tier is deliberately NOT stored: it is classified from IncidentType with
-//* the current admin rules at read time (like unit parsing), so tier edits
-//* apply immediately and retroactively.
+// * incidentRow mirrors one incidents table row during assignment. The fire
+// * tier is deliberately NOT stored: it is classified from IncidentType with
+// * the current admin rules at read time (like unit parsing), so tier edits
+// * apply immediately and retroactively.
 type incidentRow struct {
 	Id                uint64
 	FirstSeenAt       int64
@@ -52,13 +52,14 @@ type incidentRow struct {
 	IncidentType      string
 	CallCount         int
 	TalkgroupRefs     string
+	MetadataManual    bool
 }
 
 var incidentAddrJunk = regexp.MustCompile(`[^A-Z0-9 ]`)
 
-//* normalizeIncidentAddress canonicalizes a spoken address for equality
-//* comparison: uppercase, punctuation stripped, direction words shortened,
-//* whitespace collapsed
+// * normalizeIncidentAddress canonicalizes a spoken address for equality
+// * comparison: uppercase, punctuation stripped, direction words shortened,
+// * whitespace collapsed
 func normalizeIncidentAddress(addr string) string {
 	up := incidentAddrJunk.ReplaceAllString(strings.ToUpper(addr), " ")
 	fields := strings.Fields(up)
@@ -87,7 +88,7 @@ func haversineMeters(lat1, lon1, lat2, lon2 float64) float64 {
 	return 2 * earthRadius * math.Asin(math.Sqrt(a))
 }
 
-//* fireTierRank orders tiers for upgrades: an incident's tier only ever moves up
+// * fireTierRank orders tiers for upgrades: an incident's tier only ever moves up
 func fireTierRank(tier string) int {
 	switch tier {
 	case fireTierStructure:
@@ -98,9 +99,9 @@ func fireTierRank(tier string) int {
 	return 0
 }
 
-//* matchIncident returns the first open incident the call belongs to: within
-//* the cluster radius when both sides have confident coordinates, else by
-//* normalized address equality. Cross-talkgroup by construction.
+// * matchIncident returns the first open incident the call belongs to: within
+// * the cluster radius when both sides have confident coordinates, else by
+// * normalized address equality. Cross-talkgroup by construction.
 func matchIncident(open []*incidentRow, hasPoint bool, lat, lon float64, addr string) *incidentRow {
 	for _, inc := range open {
 		if hasPoint && inc.Lat.Valid && inc.Lon.Valid &&
@@ -114,8 +115,8 @@ func matchIncident(open []*incidentRow, hasPoint bool, lat, lon float64, addr st
 	return nil
 }
 
-//* incidentDisplayAddress picks the address stored for UI cards: geocoded
-//* rooftop address when available, else the spoken address
+// * incidentDisplayAddress picks the address stored for UI cards: geocoded
+// * rooftop address when available, else the spoken address
 func incidentDisplayAddress(parsedAddr *models.ParsedAddress) string {
 	if parsedAddr.Match != nil && (parsedAddr.Match.Precision == "" || parsedAddr.Match.Precision == "rooftop") {
 		return parsedAddr.Match.FullAddress
@@ -126,10 +127,10 @@ func incidentDisplayAddress(parsedAddr *models.ParsedAddress) string {
 	return parsedAddr.Address
 }
 
-//* assignCallToIncident threads a freshly transcribed alerting-talkgroup call
-//* into an incident, creating one when nothing matches, and sends the fire
-//* topic notification when the incident is a notifying fire tier. Called from
-//* storeTranscription, the only place holding the parsed address in memory.
+// * assignCallToIncident threads a freshly transcribed alerting-talkgroup call
+// * into an incident, creating one when nothing matches, and sends the fire
+// * topic notification when the incident is a notifying fire tier. Called from
+// * storeTranscription, the only place holding the parsed address in memory.
 func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef uint, parsedAddr *models.ParsedAddress, transcript string) {
 	if parsedAddr == nil {
 		return
@@ -161,9 +162,23 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 	incidentAssignMutex.Lock()
 	defer incidentAssignMutex.Unlock()
 
-	rows, err := controller.Database.Sql.Query(`
+	tx, err := controller.Database.Sql.Begin()
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+	var manual bool
+	if err := tx.QueryRow(`SELECT "incidentAssignmentManual" FROM "calls" WHERE "callId" = $1 FOR UPDATE`, callId).Scan(&manual); err != nil || manual {
+		return
+	}
+	var linked bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM "incidentCalls" WHERE "callId" = $1)`, callId).Scan(&linked); err != nil || linked {
+		return
+	}
+
+	rows, err := tx.Query(`
 		SELECT "incidentId", "firstSeenAt", "lastSeenAt", "lat", "lon", "normalizedAddress",
-			"incidentType", "callCount", "talkgroupRefs"
+			"incidentType", "callCount", "talkgroupRefs", "metadataManual"
 		FROM "incidents" WHERE "lastSeenAt" >= $1 ORDER BY "lastSeenAt" DESC`,
 		ts-incidentClusterWindowMs)
 	if err != nil {
@@ -174,7 +189,7 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 	for rows.Next() {
 		inc := &incidentRow{}
 		if err := rows.Scan(&inc.Id, &inc.FirstSeenAt, &inc.LastSeenAt, &inc.Lat, &inc.Lon,
-			&inc.NormalizedAddress, &inc.IncidentType, &inc.CallCount, &inc.TalkgroupRefs); err == nil {
+			&inc.NormalizedAddress, &inc.IncidentType, &inc.CallCount, &inc.TalkgroupRefs, &inc.MetadataManual); err == nil {
 			open = append(open, inc)
 		}
 	}
@@ -192,7 +207,7 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 		if hasPoint {
 			latVal, lonVal = lat, lon
 		}
-		if err := controller.Database.Sql.QueryRow(`
+		if err := tx.QueryRow(`
 			INSERT INTO "incidents" ("firstSeenAt", "lastSeenAt", "lat", "lon", "normalizedAddress",
 				"displayAddress", "incidentType", "callCount", "talkgroupRefs")
 			VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8) RETURNING "incidentId"`,
@@ -219,9 +234,9 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 		//* Fire types upgrade the incident's type, never downgrade it. Tiers
 		//* are classified on the fly so admin rule edits apply immediately.
 		bestTier, _, _ := classifyFireTier(best.IncidentType, tierRows)
-		if fireTierRank(callTier) > fireTierRank(bestTier) {
+		if !best.MetadataManual && fireTierRank(callTier) > fireTierRank(bestTier) {
 			best.IncidentType = parsedAddr.IncidentType
-		} else if best.IncidentType == "" && parsedAddr.IncidentType != "" {
+		} else if !best.MetadataManual && best.IncidentType == "" && parsedAddr.IncidentType != "" {
 			best.IncidentType = parsedAddr.IncidentType
 		}
 
@@ -243,22 +258,31 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 		if best.Lat.Valid {
 			latVal, lonVal = best.Lat.Float64, best.Lon.Float64
 		}
-		if _, err := controller.Database.Sql.Exec(`
+		if _, err := tx.Exec(`
 			UPDATE "incidents" SET "firstSeenAt" = $1, "lastSeenAt" = $2, "lat" = $3, "lon" = $4,
 				"incidentType" = $5, "callCount" = $6, "talkgroupRefs" = $7
 			WHERE "incidentId" = $8`,
 			best.FirstSeenAt, best.LastSeenAt, latVal, lonVal, best.IncidentType,
 			best.CallCount, string(refsJSON), best.Id); err != nil {
 			controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("incident assign: update %d failed: %v", best.Id, err))
+			return
 		}
 
 		incidentType = best.IncidentType
 	}
 
-	if _, err := controller.Database.Sql.Exec(`
+	if _, err := tx.Exec(`
 		INSERT INTO "incidentCalls" ("incidentId", "callId", "addedAt") VALUES ($1, $2, $3)
 		ON CONFLICT DO NOTHING`, incidentId, callId, ts); err != nil {
 		controller.Logs.LogEvent(LogLevelWarn, fmt.Sprintf("incident assign: link call %d failed: %v", callId, err))
+		return
+	}
+
+	if err := recalculateIncident(tx, incidentId); err != nil {
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		return
 	}
 
 	//* The incident's tier comes from its (possibly upgraded) type under the
@@ -283,8 +307,8 @@ func (controller *Controller) assignCallToIncident(callId uint64, talkgroupRef u
 	}
 }
 
-//* broadcastIncidentPoke nudges connected clients to refetch the alert feed.
-//* Access control lives in the REST handlers; the poke carries no call data.
+// * broadcastIncidentPoke nudges connected clients to refetch the alert feed.
+// * Access control lives in the REST handlers; the poke carries no call data.
 func (controller *Controller) broadcastIncidentPoke(incidentId uint64) {
 	controller.Clients.mutex.Lock()
 	var targets []*Client
@@ -312,8 +336,10 @@ func (controller *Controller) broadcastIncidentPoke(incidentId uint64) {
 	}
 }
 
-//* cleanupOrphanIncidents removes incidents whose calls were all pruned
+// * cleanupOrphanIncidents removes incidents whose calls were all pruned
 func (controller *Controller) cleanupOrphanIncidents() {
+	incidentAssignMutex.Lock()
+	defer incidentAssignMutex.Unlock()
 	if _, err := controller.Database.Sql.Exec(`
 		DELETE FROM "incidents" WHERE NOT EXISTS (
 			SELECT 1 FROM "incidentCalls" ic WHERE ic."incidentId" = "incidents"."incidentId"

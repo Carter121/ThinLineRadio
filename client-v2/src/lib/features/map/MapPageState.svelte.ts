@@ -89,7 +89,7 @@ export class MapPageState {
 				callCount: group.alerts.length,
 				lat: match.lat,
 				lon: match.lon,
-				address: displayAddress(located.parsedAddress) ?? match.fullAddress,
+				address: group.newest.incidentAddress || displayAddress(located.parsedAddress) || match.fullAddress,
 				incidentType: group.incidentType,
 				uncertain: match.precision === 'uncertain',
 				units: group.units

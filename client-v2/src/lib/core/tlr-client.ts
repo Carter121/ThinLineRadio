@@ -4,6 +4,9 @@ import type {
 	CallMeta,
 	Incident,
 	IncidentDetail,
+	IncidentListResult,
+	IncidentMemberInput,
+	IncidentMutationResult,
 	KeywordList,
 	LclFilters,
 	LclResponse,
@@ -229,13 +232,29 @@ export class TlrClient {
 		});
 	}
 
-	async getAlerts(options: { since?: number; limit?: number } = {}): Promise<Alert[]> {
-		return this.request<Alert[]>(`/alerts${toQueryString({ since: options.since, limit: options.limit })}`);
+	async getAlerts(options: { since?: number; limit?: number; callIds?: number[] } = {}): Promise<Alert[]> {
+		return this.request<Alert[]>(`/alerts${toQueryString({ since: options.since, limit: options.limit, callIds: options.callIds?.join(',') })}`);
 	}
 
 	async getIncidents(options: { limit?: number } = {}): Promise<Incident[]> {
 		const result = await this.request<{ incidents: Incident[] }>(`/incidents${toQueryString({ limit: options.limit })}`);
 		return result.incidents ?? [];
+	}
+
+	async searchIncidents(options: { search?: string; offset?: number; limit?: number } = {}): Promise<IncidentListResult> {
+		return this.request<IncidentListResult>(`/incidents${toQueryString(options)}`);
+	}
+
+	async createIncident(incidentType: string, address: string, calls: IncidentMemberInput[]): Promise<IncidentMutationResult> {
+		return this.request('/incidents', { method: 'POST', body: JSON.stringify({ incidentType, address, calls }) });
+	}
+
+	async editIncident(incidentId: number, incidentType: string, address: string): Promise<IncidentMutationResult> {
+		return this.request(`/incidents/${incidentId}`, { method: 'PATCH', body: JSON.stringify({ incidentType, address }) });
+	}
+
+	async assignIncidentCalls(incidentId: number, calls: IncidentMemberInput[], remove = false): Promise<IncidentMutationResult> {
+		return this.request(`/incidents/${incidentId}/calls`, { method: remove ? 'DELETE' : 'PUT', body: JSON.stringify({ calls }) });
 	}
 
 	async getIncident(incidentId: number | string): Promise<IncidentDetail> {

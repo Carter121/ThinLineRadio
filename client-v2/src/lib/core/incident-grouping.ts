@@ -34,7 +34,7 @@ export function groupAlertsByIncident(alerts: Alert[]): IncidentGroup[] {
 		list.sort((a, b) => b.createdAt - a.createdAt);
 		const newest = list[0];
 		//* Newest-first scan: a fire-type upgrade arrives on a later call
-		const incidentType = list.map((a) => a.parsedAddress?.incidentType).find(Boolean) ?? null;
+		const incidentType = list.map((a) => a.incidentType || a.parsedAddress?.incidentType).find(Boolean) ?? null;
 		const units = sortUnits([
 			// eslint-disable-next-line svelte/prefer-svelte-reactivity
 			...new Map(list.flatMap(unitAnnotations).map((u) => [`${u.apparatus}-${u.number}`, u])).values()

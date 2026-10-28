@@ -43,6 +43,7 @@
 
 	onDestroy(() => {
 		feed.destroy();
+		tlrClient.disconnectSocket();
 		coordinator.destroy();
 	});
 

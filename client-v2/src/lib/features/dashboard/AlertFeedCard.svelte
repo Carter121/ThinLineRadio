@@ -1,4 +1,6 @@
 <script lang="ts">
+	import IncidentActions from '../incidents/IncidentActions.svelte';
+	import { getTlrClient } from '$lib/core/context';
 	import {
 		formatRelativeTime,
 		formatAbsoluteTime,
@@ -25,6 +27,8 @@
 	import { groupAlertsByIncident, type IncidentGroup } from '$lib/core/incident-grouping.ts';
 	import MapPin from '@lucide/svelte/icons/map-pin';
 	import Layers from '@lucide/svelte/icons/layers';
+	const client = getTlrClient();
+
 	let { state: cardState }: { state: AlertFeedCardState } = $props();
 
 	//* One row per incident group; a threaded incident renders a summary with
@@ -41,6 +45,7 @@
 
 	//* Display address for a group: the first member with a parsed address
 	function groupAddress(group: IncidentGroup): string | null {
+		if (group.newest.incidentAddress) return group.newest.incidentAddress;
 		for (const alert of group.alerts) {
 			const addr = displayAddress(alert.parsedAddress);
 			if (addr) return addr;
@@ -241,7 +246,8 @@
 					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 					<AlertDescription class="text-foreground"><span>{@html getTranscriptHTML(alert)}</span></AlertDescription>
 				{/if}
-				<div class="mt-1.5 flex flex-nowrap items-center gap-1.5">
+				<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+					<IncidentActions call={alert} {client} />
 					{#if isActive}
 						<Button
 							variant="ghost"

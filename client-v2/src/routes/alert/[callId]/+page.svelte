@@ -1,4 +1,5 @@
 <script lang="ts">
+	import IncidentActions from '$lib/features/incidents/IncidentActions.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { Card, CardContent } from '$lib/components/ui/card';
@@ -88,7 +89,7 @@
 			meta = await client.getCallMeta(page.params.callId ?? '');
 			loadState = 'ready';
 			//* Prefetch audio so the play tap can call play() synchronously (iOS autoplay policy)
-			if (meta.hasAudio) void loadAudio(meta.callId);
+			if (meta.hasAudio && !audio && !audioLoading) void loadAudio(meta.callId);
 		} catch (err) {
 			if (err instanceof TlrApiError && err.status === 401) {
 				client.clearPin();
@@ -142,7 +143,34 @@
 		currentTime = 0;
 	}
 
-	onMount(load);
+	onMount(() => {
+		void load();
+		const changed = (event: Event) => {
+			const detail = (event as CustomEvent<{ callIds: number[] }>).detail;
+			if (detail.callIds.includes(Number(page.params.callId))) void load();
+		};
+		const resume = () => {
+			if (!document.hidden) void load();
+		};
+		const unsubscribe = client.subscribe((event) => {
+			if (event.type === 'config') void load();
+			if (
+				event.type === 'alert' &&
+				event.payload.type === 'incident' &&
+				(!event.payload.callIds || event.payload.callIds.includes(Number(page.params.callId)))
+			)
+				void load();
+		});
+		client.connectSocket();
+		window.addEventListener('tlr-incidents-changed', changed);
+		document.addEventListener('visibilitychange', resume);
+		return () => {
+			unsubscribe();
+			client.disconnectSocket();
+			window.removeEventListener('tlr-incidents-changed', changed);
+			document.removeEventListener('visibilitychange', resume);
+		};
+	});
 
 	onDestroy(() => {
 		audio?.pause();
@@ -184,6 +212,7 @@
 			</CardContent>
 		</Card>
 	{:else if meta}
+		<div class="flex items-center gap-2"><IncidentActions call={meta} {client} /></div>
 		<!-- Header -->
 		<div class="space-y-0.5 px-1">
 			<h1 class="text-base font-semibold text-foreground">{subtitle}</h1>

@@ -2905,8 +2905,26 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 			whereClause = fmt.Sprintf(`WHERE a."createdAt" >= %d`, sinceTimestamp)
 		}
 
+		if rawIDs := r.URL.Query().Get("callIds"); rawIDs != "" {
+			parts := strings.Split(rawIDs, ",")
+			if len(parts) > 200 {
+				api.exitWithError(w, 400, "too many call IDs")
+				return
+			}
+			ids := make([]string, 0, len(parts))
+			for _, part := range parts {
+				id, err := strconv.ParseUint(part, 10, 64)
+				if err != nil || id == 0 {
+					api.exitWithError(w, 400, "invalid call ID")
+					return
+				}
+				ids = append(ids, strconv.FormatUint(id, 10))
+			}
+			whereClause = `WHERE a."callId" IN (` + strings.Join(ids, ",") + `)`
+		}
+
 		// Query all alerts (no userId filter) with system, talkgroup labels, call transcripts, and tone sequence
-		query := fmt.Sprintf(`SELECT a."alertId", a."callId", a."systemId", a."talkgroupId", a."alertType", a."toneDetected", a."toneSetId", a."keywordsMatched", a."transcriptSnippet", a."createdAt", s."label" as "systemLabel", s."systemRef" as "systemRef", t."label" as "talkgroupLabel", t."name" as "talkgroupName", c."transcript" as "callTranscript", c."transcriptionStatus" as "callTranscriptionStatus", c."toneSequence" as "callToneSequence", c."timestamp" as "callTimestamp", c."alertSummary" as "callAlertSummary", c."parsedAddress" as "callParsedAddress", ic."incidentId" as "incidentId", i."incidentType" as "incidentType" FROM "alerts" a LEFT JOIN "systems" s ON s."systemId" = a."systemId" LEFT JOIN "talkgroups" t ON t."talkgroupId" = a."talkgroupId" LEFT JOIN "calls" c ON c."callId" = a."callId" LEFT JOIN "incidentCalls" ic ON ic."callId" = a."callId" LEFT JOIN "incidents" i ON i."incidentId" = ic."incidentId" %s ORDER BY a."createdAt" DESC LIMIT %d`, whereClause, maxAlerts)
+		query := fmt.Sprintf(`SELECT a."alertId", a."callId", a."systemId", a."talkgroupId", a."alertType", a."toneDetected", a."toneSetId", a."keywordsMatched", a."transcriptSnippet", a."createdAt", s."label" as "systemLabel", s."systemRef" as "systemRef", t."label" as "talkgroupLabel", t."name" as "talkgroupName", c."transcript" as "callTranscript", c."transcriptionStatus" as "callTranscriptionStatus", c."toneSequence" as "callToneSequence", c."timestamp" as "callTimestamp", c."alertSummary" as "callAlertSummary", c."parsedAddress" as "callParsedAddress", ic."incidentId" as "incidentId", i."incidentType" as "incidentType", c."incidentAssignmentManual", i."metadataManual", i."displayAddress" FROM "alerts" a LEFT JOIN "systems" s ON s."systemId" = a."systemId" LEFT JOIN "talkgroups" t ON t."talkgroupId" = a."talkgroupId" LEFT JOIN "calls" c ON c."callId" = a."callId" LEFT JOIN "incidentCalls" ic ON ic."callId" = a."callId" LEFT JOIN "incidents" i ON i."incidentId" = ic."incidentId" %s ORDER BY a."createdAt" DESC LIMIT %d`, whereClause, maxAlerts)
 		rows, err := api.Controller.Database.Sql.Query(query)
 		if err != nil {
 			api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to query alerts: %v", err))
@@ -2940,9 +2958,12 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				callParsedAddress       sql.NullString
 				incidentId              sql.NullInt64
 				incidentTypeStr         sql.NullString
+				assignmentManual        sql.NullBool
+				metadataManual          sql.NullBool
+				incidentAddress         sql.NullString
 			)
 
-			if err := rows.Scan(&alertId, &callId, &systemId, &talkgroupId, &alertType, &toneDetected, &toneSetId, &keywordsMatched, &transcriptSnippet, &createdAt, &systemLabel, &systemRef, &talkgroupLabel, &talkgroupName, &callTranscript, &callTranscriptionStatus, &callToneSequence, &callTimestamp, &callAlertSummary, &callParsedAddress, &incidentId, &incidentTypeStr); err != nil {
+			if err := rows.Scan(&alertId, &callId, &systemId, &talkgroupId, &alertType, &toneDetected, &toneSetId, &keywordsMatched, &transcriptSnippet, &createdAt, &systemLabel, &systemRef, &talkgroupLabel, &talkgroupName, &callTranscript, &callTranscriptionStatus, &callToneSequence, &callTimestamp, &callAlertSummary, &callParsedAddress, &incidentId, &incidentTypeStr, &assignmentManual, &metadataManual, &incidentAddress); err != nil {
 				continue
 			}
 
@@ -3044,6 +3065,12 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 				"transcriptSnippet": snippet,
 				"createdAt":         createdAt,
 			}
+			alertMap["canManageIncidents"] = client.User.SystemAdmin
+			alertMap["incidentAssignmentManual"] = assignmentManual.Bool || metadataManual.Bool
+			if incidentId.Valid {
+				alertMap["incidentType"] = incidentTypeStr.String
+				alertMap["incidentAddress"] = incidentAddress.String
+			}
 			if callTimestamp.Valid {
 				alertMap["callTimestamp"] = callTimestamp.Int64
 			}
@@ -3091,7 +3118,7 @@ func (api *Api) AlertsHandler(w http.ResponseWriter, r *http.Request) {
 					//* Calls transcribed before incident threading existed have no
 					//* incident link; classify their own incident type instead so
 					//* historical fire alerts still highlight
-					if _, ok := alertMap["fireTier"]; !ok && parsedAddr.IncidentType != "" {
+					if _, ok := alertMap["fireTier"]; !ok && !incidentId.Valid && parsedAddr.IncidentType != "" {
 						if tier, _, notify := classifyFireTier(parsedAddr.IncidentType, api.Controller.Options.FireIncidentTypes); notify {
 							alertMap["fireTier"] = tier
 						}

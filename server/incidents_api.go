@@ -27,9 +27,9 @@ import (
 	"rdio-scanner/server/internal/models"
 )
 
-//* incidentToMap serializes one incidents row for the API. The fire tier is
-//* classified from the incident type at read time so admin tier edits apply
-//* immediately and retroactively (same principle as read-time unit parsing).
+// * incidentToMap serializes one incidents row for the API. The fire tier is
+// * classified from the incident type at read time so admin tier edits apply
+// * immediately and retroactively (same principle as read-time unit parsing).
 func incidentToMap(inc *incidentRow, nowMs int64, tierRows []FireIncidentType) map[string]any {
 	fireTier := ""
 	if tier, _, notify := classifyFireTier(inc.IncidentType, tierRows); notify {
@@ -67,26 +67,29 @@ func scanIncidentRow(scan func(dest ...any) error) (*incidentRow, error) {
 	return inc, err
 }
 
-//* IncidentsHandler handles GET /api/incidents (recent list) and
-//* GET /api/incidents/{id} (detail with member calls)
+// * IncidentsHandler handles GET /api/incidents (recent list) and
+// * GET /api/incidents/{id} (detail with member calls)
 func (api *Api) IncidentsHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		api.exitWithError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
 	client := api.getClient(r)
 	if client == nil || client.User == nil {
 		api.exitWithError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	tail := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/incidents"), "/")
-	if tail != "" {
-		id, err := strconv.ParseUint(tail, 10, 64)
-		if err != nil {
-			api.exitWithError(w, http.StatusBadRequest, "invalid incident id")
-			return
-		}
+	id, members, pathErr := incidentPath(r.URL.Path)
+	if pathErr != nil {
+		api.exitWithError(w, 400, pathErr.Error())
+		return
+	}
+	if r.Method != http.MethodGet {
+		api.mutateIncident(w, r, client, id, members)
+		return
+	}
+	if members {
+		api.exitWithError(w, 405, "method not allowed")
+		return
+	}
+	if id > 0 {
 		api.serveIncidentDetail(w, client, id)
 		return
 	}
@@ -98,8 +101,13 @@ func (api *Api) IncidentsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	search := "%" + strings.TrimSpace(r.URL.Query().Get("search")) + "%"
 	rows, err := api.Controller.Database.Sql.Query(
-		`SELECT `+incidentSelectColumns+` FROM "incidents" ORDER BY "lastSeenAt" DESC LIMIT $1`, limit)
+		`SELECT `+incidentSelectColumns+` FROM "incidents" WHERE "incidentType" ILIKE $1 OR "displayAddress" ILIKE $1 OR "incidentId"::text ILIKE $1 ORDER BY "lastSeenAt" DESC, "incidentId" DESC`, search)
 	if err != nil {
 		api.exitWithError(w, http.StatusInternalServerError, fmt.Sprintf("failed to query incidents: %v", err))
 		return
@@ -109,16 +117,38 @@ func (api *Api) IncidentsHandler(w http.ResponseWriter, r *http.Request) {
 	nowMs := time.Now().UnixMilli()
 	tierRows := api.Controller.Options.FireIncidentTypes
 	incidents := []map[string]any{}
+	visible := 0
+	hasMore := false
 	for rows.Next() {
 		inc, err := scanIncidentRow(rows.Scan)
 		if err != nil {
 			continue
 		}
+		allowed, accessErr := api.canReadIncident(client.User, inc.Id)
+		if accessErr != nil {
+			api.exitWithError(w, 500, "failed to check incident access")
+			return
+		}
+		if !allowed {
+			continue
+		}
+		visible++
+		if visible <= offset {
+			continue
+		}
+		if len(incidents) == limit {
+			hasMore = true
+			break
+		}
 		incidents = append(incidents, incidentToMap(inc, nowMs, tierRows))
 	}
 
+	if err := rows.Err(); err != nil {
+		api.exitWithError(w, 500, "failed to read incidents")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"incidents": incidents})
+	json.NewEncoder(w).Encode(map[string]any{"incidents": incidents, "hasMore": hasMore, "canManageIncidents": client.User.SystemAdmin})
 }
 
 func (api *Api) serveIncidentDetail(w http.ResponseWriter, client *Client, incidentId uint64) {
@@ -215,6 +245,7 @@ func (api *Api) serveIncidentDetail(w http.ResponseWriter, client *Client, incid
 
 	result := incidentToMap(inc, time.Now().UnixMilli(), api.Controller.Options.FireIncidentTypes)
 	result["calls"] = calls
+	result["canManageIncidents"] = client.User.SystemAdmin
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)

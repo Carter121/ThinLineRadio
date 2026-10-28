@@ -16,15 +16,16 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 )
 
-//* CallsRouter dispatches the /api/calls/ prefix:
-//* /api/calls/{id}/audio -> CallAudioDownloadHandler (unchanged contract)
-//* /api/calls/{id}/meta  -> CallMetaHandler
+// * CallsRouter dispatches the /api/calls/ prefix:
+// * /api/calls/{id}/audio -> CallAudioDownloadHandler (unchanged contract)
+// * /api/calls/{id}/meta  -> CallMetaHandler
 func (api *Api) CallsRouter(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 	if len(parts) >= 4 && parts[0] == "api" && parts[1] == "calls" {
@@ -40,11 +41,11 @@ func (api *Api) CallsRouter(w http.ResponseWriter, r *http.Request) {
 	api.exitWithError(w, http.StatusBadRequest, "Invalid path: expected /api/calls/{id}/audio or /api/calls/{id}/meta")
 }
 
-//* CallMetaHandler serves transcript/address/label metadata for a single call.
-//*
-//* GET /api/calls/{id}/meta
-//* Auth: user PIN via ?pin= or Authorization: Bearer (same as the audio endpoint).
-//* Used by the client-v2 /alert/{callId} page linked from ntfy notifications.
+// * CallMetaHandler serves transcript/address/label metadata for a single call.
+// *
+// * GET /api/calls/{id}/meta
+// * Auth: user PIN via ?pin= or Authorization: Bearer (same as the audio endpoint).
+// * Used by the client-v2 /alert/{callId} page linked from ntfy notifications.
 func (api *Api) CallMetaHandler(w http.ResponseWriter, r *http.Request) {
 	//* This prefix bypasses corsMiddleware, so emit CORS headers here
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -96,6 +97,17 @@ func (api *Api) CallMetaHandler(w http.ResponseWriter, r *http.Request) {
 		"timestamp": call.Timestamp.UnixMilli(),
 		"hasAudio":  len(call.Audio) > 0,
 	}
+	var incidentID sql.NullInt64
+	var manual bool
+	if err := api.Controller.Database.Sql.QueryRow(`SELECT ic."incidentId", c."incidentAssignmentManual" FROM "calls" c LEFT JOIN "incidentCalls" ic ON ic."callId"=c."callId" WHERE c."callId"=$1`, call.Id).Scan(&incidentID, &manual); err != nil {
+		api.exitWithError(w, 500, "failed to read incident membership")
+		return
+	}
+	if incidentID.Valid {
+		meta["incidentId"] = incidentID.Int64
+	}
+	meta["incidentAssignmentManual"] = manual
+	meta["canManageIncidents"] = client.User != nil && client.User.SystemAdmin
 	if call.System != nil {
 		meta["systemId"] = call.System.Id
 		meta["systemLabel"] = call.System.Label

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Alert } from '$lib/core/types';
 	import type { IncidentGroup } from '$lib/core/incident-grouping.ts';
 	import type { AlertFeedCardState } from '../dashboard/AlertFeedCardState.svelte.ts';
 	import AlertCard from './AlertCard.svelte';
@@ -10,13 +11,29 @@
 	import ExternalLink from '@lucide/svelte/icons/external-link';
 	import Layers from '@lucide/svelte/icons/layers';
 
-	let { group, alertFeed, nowMs, query = '' }: { group: IncidentGroup; alertFeed: AlertFeedCardState; nowMs: number; query?: string } = $props();
+	let {
+		group,
+		alertFeed,
+		nowMs,
+		query = '',
+		selecting = false,
+		selectedIds = [],
+		onselect
+	}: {
+		selecting?: boolean;
+		selectedIds?: number[];
+		onselect?: (alert: Alert, checked: boolean) => void;
+		group: IncidentGroup;
+		alertFeed: AlertFeedCardState;
+		nowMs: number;
+		query?: string;
+	} = $props();
 
 	let expanded = $state(false);
 </script>
 
 {#if group.alerts.length === 1}
-	<AlertCard alert={group.newest} {alertFeed} {nowMs} {query} />
+	<AlertCard alert={group.newest} {alertFeed} {nowMs} {query} {selecting} selected={selectedIds.includes(group.newest.callId)} {onselect} />
 {:else}
 	<div class="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-2">
 		<!--* Incident header: type, call count, accumulated units, detail link -->
@@ -42,7 +59,7 @@
 			{/if}
 		</div>
 
-		<AlertCard alert={group.newest} {alertFeed} {nowMs} {query} />
+		<AlertCard alert={group.newest} {alertFeed} {nowMs} {query} {selecting} selected={selectedIds.includes(group.newest.callId)} {onselect} />
 
 		<Collapsible bind:open={expanded}>
 			<CollapsibleTrigger
@@ -55,7 +72,7 @@
 			<CollapsibleContent>
 				<div class="space-y-2 pt-1">
 					{#each group.alerts.slice(1) as alert (alert.alertId)}
-						<AlertCard {alert} {alertFeed} {nowMs} {query} />
+						<AlertCard {alert} {alertFeed} {nowMs} {query} {selecting} selected={selectedIds.includes(alert.callId)} {onselect} />
 					{/each}
 				</div>
 			</CollapsibleContent>
