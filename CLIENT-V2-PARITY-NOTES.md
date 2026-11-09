@@ -395,6 +395,20 @@ against the code if something seems off; add new findings here.
 
 Newest first.
 
+## 2026-11-08: Calls selection URL schema fix
+
+**Shipped:** Calls now declares the URL selection as an object and assigns normalized selections
+without stringifying them first. The parser accepts decoded objects and JSON text. Both the LCL
+channel list and toolbar summary now receive the committed selection immediately after Apply.
+**Learned:** Runed automatically decodes JSON URL values before schema validation. Declaring
+selection as a string coerced the decoded object to `[object Object]`; parsing that returned an
+empty selection. The earlier resolver/socket tests bypassed this boundary and missed both symptoms.
+**Validation:** Added a regression test using the actual Runed schema, immediate parameter
+assignment, URL validation/restoration, channel resolution, and selection summaries. All 12 Calls
+tests, typecheck (12 existing admin warnings), targeted ESLint, and production build pass.
+**Next:** The full rendered-browser checklist from the multi-selection plan remains unverified.
+The rebuilt embedded UI still requires recompiling/redeploying the Go server to ship.
+
 ## 2026-11-08: Calls grouped multi-channel picker and search snapshots
 
 **Shipped:** Replaced the Group/Talkgroup dropdowns with a compact grouped picker: separate

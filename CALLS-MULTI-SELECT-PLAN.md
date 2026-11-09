@@ -208,3 +208,13 @@ Saved presets and scan-list integration are outside the initial version.
   narrow screens, both themes, and playback/Refresh/Load all with the rendered UI.
 - Maximum-size search was exercised against 100,000 synthetic history rows with existing
   indexes (about 83 ms locally under the race detector). Production-scale performance is unverified.
+
+### Follow-up: selection URL schema fix (2026-11-08)
+
+- Fixed the shared cause of missing LCL channels and an unchanged picker trigger: Runed decoded
+  JSON selections into objects, then the string schema coerced them to `[object Object]`. The
+  parser fell back to no selection. Selection now uses an object schema and normalized assignments.
+- Added regression coverage through actual Runed parameter assignment and URL restoration, checking
+  resolved channels and summary labels for groups, explicit channels, mixed choices, unavailable
+  groups, and Clear. All 12 Calls tests, typecheck, targeted ESLint, and production build pass.
+- Rendered-browser verification listed above remains pending; automated checks do not replace it.

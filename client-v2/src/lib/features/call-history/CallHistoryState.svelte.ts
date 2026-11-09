@@ -5,7 +5,8 @@ import { TlrDirectory } from '$lib/core/directory.ts';
 import type { AudioCoordinator } from '../AudioCoordinator.svelte.ts';
 import { DateTime } from 'luxon';
 import { getLocalTimeZone, parseDate, today, type DateValue } from '@internationalized/date';
-import { createSearchParamsSchema, useSearchParams } from 'runed/kit';
+import { useSearchParams } from 'runed/kit';
+import { callSearchParamsSchema } from './call-search-params.ts';
 import { PersistedState } from 'runed';
 import { channelChoices, parseChannelSelection, resolveChannelSelection, selectionSummary, type ChannelSelection } from './channel-selection.ts';
 
@@ -16,15 +17,7 @@ const FETCH_SIZE = PAGE_SIZE * 20;
 const AUDIO_CACHE_MAX = 40;
 //* How many upcoming calls to prefetch while one is playing
 const LOOKAHEAD_COUNT = 5;
-const DEFAULT_DATE_PARAM = dateToParam(today(getLocalTimeZone()));
 const VOLUME_STORAGE_KEY = 'tlr-history-volume';
-
-const searchParamsSchema = createSearchParamsSchema({
-	system: { type: 'string', default: '' },
-	selection: { type: 'string', default: '' },
-	date: { type: 'string', default: DEFAULT_DATE_PARAM },
-	sort: { type: 'number', default: -1 }
-});
 
 function dateToParam(date: DateValue | undefined): string {
 	if (!date) return '';
@@ -59,7 +52,7 @@ export interface EnrichedCallResult extends LclResultItem {
 }
 
 export class CallHistoryState {
-	#searchParams = useSearchParams(searchParamsSchema, {
+	#searchParams = useSearchParams(callSearchParamsSchema, {
 		pushHistory: false,
 		noScroll: true
 	});
@@ -77,7 +70,7 @@ export class CallHistoryState {
 	}
 
 	applySelection(selection: ChannelSelection) {
-		this.#searchParams.selection = selection.groups.length || selection.channels.length ? JSON.stringify(selection) : '';
+		this.#searchParams.selection = parseChannelSelection(selection);
 		this.search();
 	}
 

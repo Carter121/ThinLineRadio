@@ -16,12 +16,14 @@ export interface ChannelChoice extends CallChannel {
 
 export const channelKey = (channel: CallChannel): string => `${channel.system}:${channel.talkgroup}`;
 
-export function parseChannelSelection(value: string): ChannelSelection {
+export function parseChannelSelection(value: unknown): ChannelSelection {
 	try {
-		const parsed = JSON.parse(value);
-		const groups = Array.isArray(parsed.groups) ? [...new Set<string>(parsed.groups.filter((v: unknown) => typeof v === 'string'))] : [];
+		const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+		if (!parsed || typeof parsed !== 'object') return { groups: [], channels: [] };
+		const selection = parsed as Partial<ChannelSelection>;
+		const groups = Array.isArray(selection.groups) ? [...new Set<string>(selection.groups.filter((v: unknown) => typeof v === 'string'))] : [];
 		const channels = new Map<string, CallChannel>();
-		for (const channel of Array.isArray(parsed.channels) ? parsed.channels : []) {
+		for (const channel of Array.isArray(selection.channels) ? selection.channels : []) {
 			if (channel && [channel.system, channel.talkgroup].every((ref) => Number.isInteger(ref) && ref > 0 && ref <= 2147483647)) {
 				const pair = { system: channel.system, talkgroup: channel.talkgroup };
 				channels.set(channelKey(pair), pair);
