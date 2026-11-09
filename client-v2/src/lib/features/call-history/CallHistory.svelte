@@ -13,7 +13,7 @@
 	import { Toggle } from '$lib/components/ui/toggle';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Label } from '$lib/components/ui/label';
-	import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger } from '$lib/components/ui/select';
+	import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from '$lib/components/ui/select';
 	import CallDatePicker from './CallDatePicker.svelte';
 	import ChevronLeft from '@lucide/svelte/icons/chevron-left';
 	import ChevronRight from '@lucide/svelte/icons/chevron-right';
@@ -33,7 +33,8 @@
 	import Download from '@lucide/svelte/icons/download';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { PersistedState } from 'runed';
-	import FavoriteStar from '$lib/features/call-history/FavoriteStar.svelte';
+	import ChannelSelectionDialog from './ChannelSelectionDialog.svelte';
+	import * as Alert from '$lib/components/ui/alert';
 
 	const mobileScreen = new MediaQuery('(width >= 40rem)');
 
@@ -80,19 +81,6 @@
 		return String(state.systemFilter);
 	});
 
-	const selectedGroupLabel = $derived(state.groupFilter != null ? state.groupFilter : 'All Groups');
-	const showFavoriteGroups = $derived(state.systemFilter != null && state.favoriteGroups.length > 0);
-
-	const selectedTalkgroupLabel = $derived.by(() => {
-		if (state.talkgroupFilter == null) return 'All Talkgroups';
-		for (const tg of state.talkgroupsForSystem) {
-			const ref = tg.talkgroupRef ?? tg.id;
-			if (ref === state.talkgroupFilter) return tg.label ?? tg.name ?? String(ref);
-		}
-		return String(state.talkgroupFilter);
-	});
-	const showFavoriteTalkgroups = $derived(state.groupFilter == null && state.favoriteTalkgroups.length > 0);
-
 	const nextPlaybackCall = $derived(state.nextAutoPlayCall());
 	const playbackProgressPct = $derived(state.duration > 0 ? Math.min(100, (state.currentTime / state.duration) * 100) : 0);
 	const lastLoadedPage = $derived(Math.max(1, Math.ceil(state.totalCount / state.pageSize)));
@@ -123,93 +111,26 @@
 					value={state.systemFilter != null ? String(state.systemFilter) : undefined}
 					onValueChange={(v) => {
 						state.systemFilter = v ? Number(v) : undefined;
-						state.talkgroupFilter = undefined;
 					}}
 				>
 					<SelectTrigger size="sm" class="w-40">
 						{selectedSystemLabel}
 					</SelectTrigger>
 					<SelectContent>
-						<SelectItem value="" label="All Systems" />
-						{#each state.systems as sys (sys.systemRef ?? sys.id)}
-							<SelectItem value={String(sys.systemRef ?? sys.id)} label={sys.label ?? String(sys.systemRef ?? sys.id)} />
-						{/each}
-					</SelectContent>
-				</Select>
-
-				<Select
-					type="single"
-					value={state.groupFilter ?? undefined}
-					onValueChange={(v) => {
-						state.groupFilter = v || undefined;
-						state.talkgroupFilter = undefined;
-					}}
-				>
-					<SelectTrigger size="sm" class="w-36">
-						{selectedGroupLabel}
-					</SelectTrigger>
-
-					<SelectContent>
-						<SelectItem value="" label="All Groups" />
-
-						{#if showFavoriteGroups}
-							<SelectGroup>
-								<SelectLabel>Favorites</SelectLabel>
-
-								{#each state.favoriteGroups as group (group)}
-									<SelectItem value={group}><FavoriteStar /> {group}</SelectItem>
-								{/each}
-							</SelectGroup>
-						{/if}
-
 						<SelectGroup>
-							{#if showFavoriteGroups}<SelectLabel>All</SelectLabel>{/if}
-
-							{#each state.groups as group (group)}
-								<SelectItem value={group} label={group} />
+							<SelectItem value="" label="All Systems" />
+							{#each state.systems as sys (sys.systemRef ?? sys.id)}
+								<SelectItem value={String(sys.systemRef ?? sys.id)} label={sys.label ?? String(sys.systemRef ?? sys.id)} />
 							{/each}
 						</SelectGroup>
 					</SelectContent>
 				</Select>
 
-				<Select
-					type="single"
-					value={state.talkgroupFilter != null ? String(state.talkgroupFilter) : undefined}
-					onValueChange={(v) => {
-						state.talkgroupFilter = v ? Number(v) : undefined;
-					}}
-					disabled={state.systemFilter == null}
-				>
-					<SelectTrigger size="sm" class="w-44">
-						{selectedTalkgroupLabel}
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value="" label="All Talkgroups" />
-
-						{#if showFavoriteTalkgroups}
-							<SelectGroup>
-								<SelectLabel>Favorites</SelectLabel>
-								{#each state.favoriteTalkgroups as tg (tg.talkgroupRef ?? tg.id)}
-									<SelectItem value={String(tg.talkgroupRef ?? tg.id)}
-										><FavoriteStar /> {tg.label ?? tg.name ?? String(tg.talkgroupRef ?? tg.id)}</SelectItem
-									>
-								{/each}
-							</SelectGroup>
-						{/if}
-
-						<SelectGroup>
-							{#if showFavoriteTalkgroups}<SelectLabel>All</SelectLabel>{/if}
-
-							{#each state.talkgroupsForSystem as tg (tg.talkgroupRef ?? tg.id)}
-								<SelectItem value={String(tg.talkgroupRef ?? tg.id)} label={tg.label ?? tg.name ?? String(tg.talkgroupRef ?? tg.id)} />
-							{/each}
-						</SelectGroup>
-					</SelectContent>
-				</Select>
+				<ChannelSelectionDialog {state} />
 
 				<CallDatePicker bind:value={state.selectedDate} onSelect={() => state.search()} />
 
-				<Button variant="default" size="sm" class="gap-1.5" onclick={() => state.search()} disabled={state.isLoading}>
+				<Button variant="default" size="sm" class="gap-1.5" onclick={() => state.search()} disabled={!state.config}>
 					{#if state.isLoading}
 						<Loader2 class="size-3.5 animate-spin" />
 					{:else}
@@ -235,7 +156,7 @@
 						{/if}
 					</Button>
 
-					<Button variant="outline" size="sm" class="gap-1.5" onclick={() => state.search()} disabled={state.isLoading}>
+					<Button variant="outline" size="sm" class="gap-1.5" onclick={() => state.search()} disabled={!state.config}>
 						{#if state.isLoading}
 							<Loader2 class="size-3.5 animate-spin" />
 						{:else}
@@ -247,6 +168,21 @@
 			</div>
 		</CardContent>
 	</Card>
+
+	{#if state.searchError}
+		<Alert.Root variant="destructive">
+			<Alert.Title>Call search failed</Alert.Title>
+			<Alert.Description>{state.searchError}</Alert.Description>
+		</Alert.Root>
+	{/if}
+	{#if state.selectionNotices.length}
+		<Alert.Root>
+			<Alert.Title>Some selections have no channels in this view</Alert.Title>
+			<Alert.Description>
+				{state.selectionNotices.length} selections are unavailable or outside the current System scope. Open channel selection to review them.
+			</Alert.Description>
+		</Alert.Root>
+	{/if}
 
 	<!-- Data table -->
 	<Card class="gap-0 border-border/60 py-0">

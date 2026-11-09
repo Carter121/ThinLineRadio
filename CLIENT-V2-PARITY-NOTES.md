@@ -395,6 +395,29 @@ against the code if something seems off; add new findings here.
 
 Newest first.
 
+## 2026-11-08: Calls grouped multi-channel picker and search snapshots
+
+**Shipped:** Replaced the Group/Talkgroup dropdowns with a compact grouped picker: separate
+expand/select actions, search with group context, cross-system subheadings, favorites, Ungrouped,
+and draft Clear/Cancel/Apply. Explicit selections survive inherited group membership and System
+scope changes. Unavailable selections stay reviewable. The new `selection` URL parameter stores
+JSON group names and explicit reference pairs; old single-selection parameters are ignored.
+**Behavior:** Apply searches, Refresh resolves current group membership, and empty resolutions
+send an explicit empty channel list. No selection omits the filter. Pagination and Load all retain
+the resolved channels, date, System, and sort of the displayed search. Fetched offsets are tracked
+separately from deduplicated displayed rows. Incoming calls still require manual Refresh.
+**Learned:** LCL coordination belongs in the shared websocket client, since a Calls component
+can unmount while a search is outstanding. Superseded successes and errors are drained there;
+only the latest queued search is sent next. Reconnect resets the queue, waits for current config,
+and ignores frames from replaced sockets. Identifiable LCL errors clear loading and display an alert.
+**Validation:** `pnpm test:calls` passes 11 resolver/queue/socket tests. `pnpm check` passes with
+0 errors and the same 12 existing admin warnings; targeted ESLint and production build pass.
+The responsive picker and existing playback path have not been exercised in a browser.
+**Next:** Browser checks for picker interactions, keyboard focus, narrow screens, long labels,
+both themes, playback progression, Refresh, and Load all. Deploy the rebuilt UI and Go server
+together when ready. Offset pagination can still skip rows when underlying data changes; cursors
+remain deferred.
+
 ## 2026-11-08: Calls multi-selection server support
 
 **Shipped:** Typed, validated, deduplicated channel-list searches, explicit empty-list handling,

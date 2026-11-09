@@ -191,3 +191,20 @@ Reuse existing shadcn-svelte components without hand-editing generated component
 - Update `CLIENT-V2-PARITY-NOTES.md` after implementation.
 
 Saved presets and scan-list integration are outside the initial version.
+
+
+## Implementation status (2026-11-08)
+
+- Server support committed in `13de0671`: channel validation and filtering, LCL errors,
+  deterministic ordering, and isolated PostgreSQL regression tests.
+- Client implementation includes the grouped picker, explicit/inherited choices, cross-system
+  scope, new selection URLs, frozen filters, and shared websocket request coordination.
+- Automated validation: Go build; call-search PostgreSQL tests with race detection;
+  Go suite with the known personal-database test excluded; 11 client resolver/queue/socket tests
+  (`pnpm test:calls`); client typecheck, targeted lint, and production build.
+- The full Go run still fails on the unrelated `TestDiscoverLFDAll20FromDB` personal database.
+  Other explicitly gated database suites skip without their own DSNs.
+- Browser verification remains pending: picker interactions, keyboard navigation, long labels,
+  narrow screens, both themes, and playback/Refresh/Load all with the rendered UI.
+- Maximum-size search was exercised against 100,000 synthetic history rows with existing
+  indexes (about 83 ms locally under the race detector). Production-scale performance is unverified.

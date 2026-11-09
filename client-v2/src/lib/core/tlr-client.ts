@@ -29,6 +29,8 @@ import type {
 	WebsocketCommand
 } from './types.ts';
 
+import { CallSearchQueue } from './call-search-queue.ts';
+
 const PIN_KEY = 'tlr-pin';
 const MAX_RECONNECT_DELAY_MS = 30_000;
 // On resume, treat an OPEN socket as dead if nothing has arrived in this window
@@ -75,6 +77,7 @@ export class TlrClient {
 	private lastVersionRequested = false;
 	private livefeedMap: LivefeedMap = {};
 	private lastMessageAt = 0;
+	private callSearchQueue = new CallSearchQueue();
 
 	constructor(baseUrl: string, socketBaseUrl?: string | null) {
 		this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -123,6 +126,8 @@ export class TlrClient {
 	}
 
 	private setConnectionState(status: TlrConnectionState['status'], overrides: Omit<Partial<TlrConnectionState>, 'status'> = {}) {
+		if (['connecting', 'disconnected', 'expired', 'limited'].includes(status)) this.callSearchQueue.reset();
+		if (status === 'connecting') this.lastConfig = null;
 		this.emit({
 			type: 'connection',
 			state: {
@@ -477,7 +482,15 @@ export class TlrClient {
 	}
 
 	requestCallList(filters: LclFilters) {
-		this.send(['LCL', filters]);
+		const request = this.callSearchQueue.search(filters);
+		if (request) this.send(['LCL', request]);
+	}
+
+	requestCallListPage(offset: number): boolean {
+		const request = this.callSearchQueue.page(offset);
+		if (!request) return false;
+		this.send(['LCL', request]);
+		return true;
 	}
 
 	requestCallPlayback(callId: number) {
@@ -514,6 +527,7 @@ export class TlrClient {
 		});
 
 		socket.addEventListener('message', (event) => {
+			if (this.socket !== socket) return;
 			this.lastMessageAt = Date.now();
 			this.handleSocketMessage(event.data);
 		});
@@ -543,6 +557,12 @@ export class TlrClient {
 	private send(payload: [WebsocketCommand] | [WebsocketCommand, unknown] | [WebsocketCommand, unknown, unknown]) {
 		if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
 		this.socket.send(JSON.stringify(payload));
+	}
+
+	private completeCallSearch() {
+		const completed = this.callSearchQueue.complete();
+		if (completed.next) this.send(['LCL', completed.next]);
+		return completed;
 	}
 
 	private handleSocketMessage(rawData: unknown) {
@@ -591,9 +611,11 @@ export class TlrClient {
 					this.emit({ type: 'call', payload: payload as SocketCall });
 				}
 				break;
-			case 'LCL':
-				this.emit({ type: 'call-list', payload: payload as LclResponse });
+			case 'LCL': {
+				const completed = this.completeCallSearch();
+				if (completed.accepted) this.emit({ type: 'call-list', payload: payload as LclResponse, replace: completed.replace });
 				break;
+			}
 			case 'ALT':
 				this.emit({ type: 'alert', payload: payload as SocketAlertNotification });
 				break;
@@ -614,6 +636,16 @@ export class TlrClient {
 				}
 				break;
 			case 'ERR':
+				if (payload && typeof payload === 'object' && 'command' in payload && payload.command === 'LCL') {
+					if (!this.completeCallSearch().accepted) break;
+					const error = payload as { code?: string; message?: string };
+					this.emit({
+						type: 'call-list-error',
+						code: error.code ?? 'search_failed',
+						message: error.message ?? 'Unable to search calls. Please try again.'
+					});
+					break;
+				}
 				this.emit({
 					type: 'error',
 					message: typeof payload === 'string' ? payload : 'WebSocket error'

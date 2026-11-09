@@ -482,12 +482,14 @@ export type TlrSocketEvent =
 	| { type: 'listeners'; count: number }
 	| { type: 'expired' }
 	| { type: 'limited'; limit: number }
-	| { type: 'call-list'; payload: LclResponse }
+	| { type: 'call-list'; payload: LclResponse; replace: boolean }
+	| { type: 'call-list-error'; code: string; message: string }
 	| { type: 'call-playback'; payload: SocketCall }
 	| { type: 'call-alias'; payload: SocketCall }
 	| { type: 'error'; message: string };
 
 export interface LclFilters {
+	channels?: CallChannel[];
 	date?: string;
 	group?: string;
 	limit?: number;
@@ -496,6 +498,11 @@ export interface LclFilters {
 	system?: number;
 	tag?: string;
 	talkgroup?: number;
+}
+
+export interface CallChannel {
+	system: number;
+	talkgroup: number;
 }
 
 export interface LclResultItem {

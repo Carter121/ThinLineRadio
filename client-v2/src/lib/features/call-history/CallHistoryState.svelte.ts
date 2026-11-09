@@ -1,21 +1,13 @@
-import { SvelteMap } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { TlrApiError, type TlrClient } from '$lib/core/tlr-client.ts';
-import {
-	type LclFilters,
-	type LclResultItem,
-	type SocketCall,
-	sortTalkgroupsAlphabetically,
-	type TlrConfig,
-	type TlrConfigTalkgroup,
-	type TlrSocketEvent
-} from '$lib/core/types.ts';
-import { normalizeConfigSystems } from '$lib/core/types.ts';
-import { systemRef, talkgroupRef, TlrDirectory } from '$lib/core/directory.ts';
+import { type LclFilters, type LclResultItem, type SocketCall, type TlrConfig, type TlrSocketEvent } from '$lib/core/types.ts';
+import { TlrDirectory } from '$lib/core/directory.ts';
 import type { AudioCoordinator } from '../AudioCoordinator.svelte.ts';
 import { DateTime } from 'luxon';
 import { getLocalTimeZone, parseDate, today, type DateValue } from '@internationalized/date';
 import { createSearchParamsSchema, useSearchParams } from 'runed/kit';
 import { PersistedState } from 'runed';
+import { channelChoices, parseChannelSelection, resolveChannelSelection, selectionSummary, type ChannelSelection } from './channel-selection.ts';
 
 const PAGE_SIZE = 20;
 //* Fetch 10 pages worth of data as a buffer
@@ -29,8 +21,7 @@ const VOLUME_STORAGE_KEY = 'tlr-history-volume';
 
 const searchParamsSchema = createSearchParamsSchema({
 	system: { type: 'string', default: '' },
-	talkgroup: { type: 'string', default: '' },
-	group: { type: 'string', default: '' },
+	selection: { type: 'string', default: '' },
 	date: { type: 'string', default: DEFAULT_DATE_PARAM },
 	sort: { type: 'number', default: -1 }
 });
@@ -81,18 +72,13 @@ export class CallHistoryState {
 		this.#searchParams.system = value == null ? '' : String(value);
 	}
 
-	get talkgroupFilter(): number | undefined {
-		return numberFromParam(this.#searchParams.talkgroup);
-	}
-	set talkgroupFilter(value: number | undefined) {
-		this.#searchParams.talkgroup = value == null ? '' : String(value);
+	get selection(): ChannelSelection {
+		return parseChannelSelection(this.#searchParams.selection);
 	}
 
-	get groupFilter(): string | undefined {
-		return this.#searchParams.group || undefined;
-	}
-	set groupFilter(value: string | undefined) {
-		this.#searchParams.group = value ?? '';
+	applySelection(selection: ChannelSelection) {
+		this.#searchParams.selection = selection.groups.length || selection.channels.length ? JSON.stringify(selection) : '';
+		this.search();
 	}
 
 	get selectedDate(): DateValue | undefined {
@@ -118,7 +104,8 @@ export class CallHistoryState {
 
 	// Buffer: all fetched calls; results is a page-sized slice
 	private buffer = $state.raw<LclResultItem[]>([]);
-	private isLoadingMore = false;
+	searchError = $state<string | null>(null);
+	private socketReady = false;
 	results = $derived.by((): LclResultItem[] => this.buffer.slice(this.offset, this.offset + this.pageSize));
 
 	// Playback
@@ -163,49 +150,9 @@ export class CallHistoryState {
 	directory = $derived(new TlrDirectory(this.config));
 	systems = $derived(this.directory.systems);
 
-	talkgroupsForSystem = $derived.by(() => {
-		if (this.systemFilter == null) return [];
-		let talkgroups = this.directory.system(this.systemFilter)?.talkgroups ?? [];
-		if (this.groupFilter && this.config?.groups) {
-			const groupData = this.config.groups[this.groupFilter];
-			if (groupData) {
-				const allowedRefs = groupData[String(this.systemFilter)];
-				if (allowedRefs) {
-					// eslint-disable-next-line svelte/prefer-svelte-reactivity
-					const allowedSet = new Set(allowedRefs);
-					talkgroups = talkgroups.filter((tg) => allowedSet.has(talkgroupRef(tg) ?? 0));
-				} else {
-					talkgroups = [];
-				}
-			}
-		}
-		return sortTalkgroupsAlphabetically(talkgroups);
-	});
-
-	favoriteTalkgroups = $derived.by(() => {
-		const favTalkgroupIds = this.directory.favoriteTalkgroups(this.systemFilter) ?? [];
-		const favTalkgroups: TlrConfigTalkgroup[] = [];
-
-		favTalkgroupIds.forEach((fav) => {
-			const tg = this.directory.talkgroup(this.systemFilter, fav);
-
-			if (tg) {
-				favTalkgroups.push(tg);
-			}
-		});
-
-		return sortTalkgroupsAlphabetically(favTalkgroups);
-	});
-
-	groups = $derived.by(() => {
-		if (!this.config?.groups) return [] as string[];
-		return Object.keys(this.config.groups).sort((a, b) => a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase()));
-	});
-
-	favoriteGroups = $derived.by(() => {
-		if (!this.config?.groups || this.systemFilter != 1) return [] as string[];
-		return ['SLC FD', 'SLC FD Abnormal', 'VECC', 'VECC Abnormal'];
-	});
+	channelChoices = $derived(channelChoices(this.config));
+	selectionSummary = $derived(selectionSummary(this.selection, this.channelChoices));
+	selectionNotices = $derived(resolveChannelSelection(this.selection, this.config, this.systemFilter).notices);
 
 	allEnrichedCalls = $derived.by((): EnrichedCallResult[] => {
 		return this.buffer.map((r) => {
@@ -290,47 +237,44 @@ export class CallHistoryState {
 		this.unregisterConsumer();
 	}
 
-	search(options: { loadAll?: boolean } = {}) {
+	search() {
+		if (!this.config || !this.socketReady) return;
 		this.isLoading = true;
-		this.isLoadingAll = options.loadAll ?? false;
-		this.isLoadingMore = false;
+		this.isLoadingAll = false;
+		this.searchError = null;
 		this.offset = 0;
 		this.buffer = [];
+		this.hasMore = false;
 		this.audioCache.clear();
-		const filters = this.buildFilters({ limit: FETCH_SIZE, offset: 0 });
+		const filters: LclFilters = {
+			limit: FETCH_SIZE,
+			sort: this.sortDirection,
+			date: this.selectedDateStart(),
+			system: this.systemFilter,
+			channels: resolveChannelSelection(this.selection, this.config, this.systemFilter).channels
+		};
 		this.client.requestCallList(filters);
 	}
 
 	private loadMore(): boolean {
-		if (this.isLoading || this.isLoadingMore || !this.hasMore || this.buffer.length === 0) return false;
-		this.isLoadingMore = true;
+		if (!this.socketReady || this.isLoading || !this.hasMore || this.buffer.length === 0) return false;
+		if (!this.client.requestCallListPage(this.fetchedCount)) return false;
 		this.isLoading = true;
-		const filters = this.buildFilters({ limit: FETCH_SIZE, offset: this.buffer.length });
-		this.client.requestCallList(filters);
+		this.searchError = null;
 		return true;
 	}
 
 	loadAll() {
-		if (this.isLoading) return;
-		this.search({ loadAll: true });
+		if (this.isLoading || !this.hasMore) return;
+		this.isLoadingAll = this.loadMore();
 	}
 
 	cancelLoadAll() {
 		this.isLoadingAll = false;
 	}
 
-	private buildFilters(base: { limit: number; offset: number }): LclFilters {
-		const filters: LclFilters = {
-			offset: base.offset,
-			limit: base.limit,
-			sort: this.sortDirection,
-			date: this.selectedDateStart()
-		};
-		if (this.systemFilter != null) filters.system = this.systemFilter;
-		if (this.talkgroupFilter != null) filters.talkgroup = this.talkgroupFilter;
-		if (this.groupFilter != null) filters.group = this.groupFilter;
-		return filters;
-	}
+	//* Server offsets count fetched rows even if a shifted page repeats a displayed call.
+	private fetchedCount = 0;
 
 	private selectedDateStart(): string | undefined {
 		if (!this.selectedDate) return undefined;
@@ -550,42 +494,42 @@ export class CallHistoryState {
 
 	private handleSocketEvent(event: TlrSocketEvent) {
 		switch (event.type) {
+			case 'connection':
+				this.socketReady = ['connected', 'authenticated'].includes(event.state.status);
+				if (['connecting', 'disconnected', 'expired', 'limited'].includes(event.state.status)) {
+					this.initialSearchDone = false;
+					this.isLoading = false;
+					this.isLoadingAll = false;
+				}
+				break;
 			case 'config':
 				this.config = event.payload;
-				if (this.systemFilter == null) {
-					const systems = normalizeConfigSystems(event.payload);
-					if (systems.length === 1) {
-						this.systemFilter = systemRef(systems[0]);
-					}
-				}
-				if (!this.initialSearchDone) {
+				if (!this.initialSearchDone && this.socketReady) {
 					this.initialSearchDone = true;
 					this.search();
 				}
 				break;
+			case 'call-list-error':
 			case 'call-list': {
-				const incoming = event.payload.results;
-				this.hasMore = event.payload.hasMore;
-				if (this.isLoadingMore) {
-					// Append to buffer, deduplicating by id
-					// eslint-disable-next-line svelte/prefer-svelte-reactivity
-					const existingIds = new Set(this.buffer.map((r) => r.id));
-					const newCalls = incoming.filter((r) => !existingIds.has(r.id));
-					this.buffer = [...this.buffer, ...newCalls];
-					this.isLoadingMore = false;
-				} else {
-					//* Fresh fetch: replace buffer
-					this.buffer = incoming;
-				}
 				this.isLoading = false;
-				this.resumeDeferredAdvance();
-				if (this.isLoadingAll) {
-					if (this.hasMore) {
-						this.isLoadingAll = this.loadMore();
-					} else {
-						this.isLoadingAll = false;
-					}
+				if (event.type === 'call-list-error') {
+					this.searchError = event.message;
+					this.isLoadingAll = false;
+					this.pendingAdvanceFromId = null;
+					return;
 				}
+				const incoming = event.payload.results;
+				this.hasMore = event.payload.hasMore && incoming.length > 0;
+				this.fetchedCount = event.replace ? incoming.length : this.fetchedCount + incoming.length;
+				const seen = new SvelteSet(event.replace ? [] : this.buffer.map((r) => r.id));
+				const newCalls = incoming.filter((r) => {
+					if (seen.has(r.id)) return false;
+					seen.add(r.id);
+					return true;
+				});
+				this.buffer = event.replace ? newCalls : [...this.buffer, ...newCalls];
+				this.resumeDeferredAdvance();
+				if (this.isLoadingAll) this.isLoadingAll = this.loadMore();
 				break;
 			}
 			case 'call':
