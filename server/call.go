@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math"
 	"rdio-scanner/server/internal/models"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -109,7 +110,7 @@ type Call struct {
 	// Not persisted to DB or included in JSON output.
 	Duration float64
 
-	IsDuplicate bool `json:"isDuplicate,omitempty"`
+	IsDuplicate bool   `json:"isDuplicate,omitempty"`
 	AudioHash   string `json:"audioHash,omitempty"`
 
 	// IsForwarded is set when this call was received from another TLR server via
@@ -1075,22 +1076,45 @@ func (calls *Calls) Search(searchOptions *CallsSearchOptions, client *Client) (*
 		}
 		switch v := searchOptions.Talkgroup.(type) {
 		case uint:
-			conditions = append(conditions, fmt.Sprintf(`c."talkgroupRef" = %d`, v))
+			if searchOptions.Channels == nil {
+				conditions = append(conditions, fmt.Sprintf(`c."talkgroupRef" = %d`, v))
+			}
 		}
 		if len(conditions) > 0 {
 			where = append(where, fmt.Sprintf("(%s)", strings.Join(conditions, " AND ")))
 		}
 	}
 
-	switch v := searchOptions.Group.(type) {
-	case string:
-		groupConditions := []string{}
-		for id, m := range client.GroupsMap[v] {
-			in := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(fmt.Sprintf("%v", m), " ", ", "), "[", "("), "]", ")")
-			groupConditions = append(groupConditions, fmt.Sprintf(`(c."systemRef" = %d AND c."talkgroupRef" IN %s)`, id, in))
+	if searchOptions.Channels != nil {
+		bySystem := map[uint][]string{}
+		for _, channel := range *searchOptions.Channels {
+			bySystem[channel.System] = append(bySystem[channel.System], strconv.FormatUint(uint64(channel.Talkgroup), 10))
 		}
-		if len(groupConditions) > 0 {
-			where = append(where, fmt.Sprintf("(%s)", strings.Join(groupConditions, " OR ")))
+		systems := make([]uint, 0, len(bySystem))
+		for system := range bySystem {
+			systems = append(systems, system)
+		}
+		sort.Slice(systems, func(i, j int) bool { return systems[i] < systems[j] })
+		conditions := []string{}
+		for _, system := range systems {
+			conditions = append(conditions, fmt.Sprintf(`(c."systemRef" = %d AND c."talkgroupRef" IN (%s))`, system, strings.Join(bySystem[system], ",")))
+		}
+		if len(conditions) == 0 {
+			where = append(where, "FALSE")
+		} else {
+			where = append(where, "("+strings.Join(conditions, " OR ")+")")
+		}
+	} else {
+		switch v := searchOptions.Group.(type) {
+		case string:
+			groupConditions := []string{}
+			for id, m := range client.GroupsMap[v] {
+				in := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(fmt.Sprintf("%v", m), " ", ", "), "[", "("), "]", ")")
+				groupConditions = append(groupConditions, fmt.Sprintf(`(c."systemRef" = %d AND c."talkgroupRef" IN %s)`, id, in))
+			}
+			if len(groupConditions) > 0 {
+				where = append(where, fmt.Sprintf("(%s)", strings.Join(groupConditions, " OR ")))
+			}
 		}
 	}
 
@@ -1106,32 +1130,10 @@ func (calls *Calls) Search(searchOptions *CallsSearchOptions, client *Client) (*
 		}
 	}
 
-	// Calculate the effective delay for this specific client
-	var effectiveDelay uint = 0
-
-	if calls.controller.requiresUserAuth() && client.User != nil {
-		for _, delay := range client.User.talkgroupDelaysMap {
-			if delay > 0 && (effectiveDelay == 0 || delay < effectiveDelay) {
-				effectiveDelay = delay
-			}
-		}
-
-		if effectiveDelay == 0 {
-			for _, delay := range client.User.systemDelaysMap {
-				if delay > 0 && (effectiveDelay == 0 || delay < effectiveDelay) {
-					effectiveDelay = delay
-				}
-			}
-		}
-
-		if effectiveDelay == 0 && client.User.Delay > 0 {
-			effectiveDelay = uint(client.User.Delay)
-		}
-
-		if effectiveDelay == 0 {
-			effectiveDelay = calls.controller.Options.DefaultSystemDelay
-		}
-	} else {
+	enforcePlaybackACL := calls.controller.requiresUserAuth() && !client.BypassPlaybackSearchACL
+	var effectiveDelay uint
+	//* Per-channel delays can differ; check them individually before ACL pagination.
+	if !enforcePlaybackACL {
 		effectiveDelay = calls.controller.Options.DefaultSystemDelay
 	}
 
@@ -1200,9 +1202,7 @@ func (calls *Calls) Search(searchOptions *CallsSearchOptions, client *Client) (*
 	searchResults.HasMore = false
 
 	queryLimit := limit + 1
-	baseSelect := fmt.Sprintf(`SELECT c."callId", c."timestamp", c."systemRef", c."talkgroupRef", c."frequency", c."siteRef", (SELECT cu."unitRef" FROM "callUnits" cu WHERE cu."callId" = c."callId" ORDER BY cu."offset" LIMIT 1) as "source" FROM "calls" AS c LEFT JOIN "delayed" AS d ON d."callId" = c."callId" %s ORDER BY c."timestamp" %s`, delayWhere, order)
-
-	enforcePlaybackACL := calls.controller.requiresUserAuth() && !client.BypassPlaybackSearchACL
+	baseSelect := fmt.Sprintf(`SELECT c."callId", c."timestamp", c."systemRef", c."talkgroupRef", c."frequency", c."siteRef", (SELECT cu."unitRef" FROM "callUnits" cu WHERE cu."callId" = c."callId" ORDER BY cu."offset" LIMIT 1) as "source" FROM "calls" AS c LEFT JOIN "delayed" AS d ON d."callId" = c."callId" %s ORDER BY c."timestamp" %s, c."callId" %s`, delayWhere, order, order)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1253,6 +1253,9 @@ func (calls *Calls) Search(searchOptions *CallsSearchOptions, client *Client) (*
 			}
 		}
 
+		if err == nil {
+			err = rows.Err()
+		}
 		rows.Close()
 
 		if err != nil {
@@ -1317,6 +1320,9 @@ func (calls *Calls) Search(searchOptions *CallsSearchOptions, client *Client) (*
 			if uint(len(collected)) >= queryLimit {
 				break
 			}
+		}
+		if err == nil {
+			err = chunkRows.Err()
 		}
 		chunkRows.Close()
 
@@ -1481,21 +1487,57 @@ func (calls *Calls) writeCall(call *Call, db *Database) (uint64, error) {
 }
 
 type CallsSearchOptions struct {
-	Date      any `json:"date,omitempty"`
-	Group     any `json:"group,omitempty"`
-	Limit     any `json:"limit,omitempty"`
-	Offset    any `json:"offset,omitempty"`
-	Sort      any `json:"sort,omitempty"`
-	System    any `json:"system,omitempty"`
-	Tag       any `json:"tag,omitempty"`
-	Talkgroup any `json:"talkgroup,omitempty"`
+	Channels  *[]CallsSearchChannel `json:"channels,omitempty"`
+	Date      any                   `json:"date,omitempty"`
+	Group     any                   `json:"group,omitempty"`
+	Limit     any                   `json:"limit,omitempty"`
+	Offset    any                   `json:"offset,omitempty"`
+	Sort      any                   `json:"sort,omitempty"`
+	System    any                   `json:"system,omitempty"`
+	Tag       any                   `json:"tag,omitempty"`
+	Talkgroup any                   `json:"talkgroup,omitempty"`
+}
+
+// * References use PostgreSQL signed integer bounds; the raw list limit precedes deduplication.
+const maxCallSearchChannels = 10000
+
+type CallsSearchChannel struct {
+	System    uint `json:"system"`
+	Talkgroup uint `json:"talkgroup"`
 }
 
 func NewCallSearchOptions() *CallsSearchOptions {
 	return &CallsSearchOptions{}
 }
 
-func (searchOptions *CallsSearchOptions) fromMap(m map[string]any) *CallsSearchOptions {
+func (searchOptions *CallsSearchOptions) fromMap(m map[string]any) (*CallsSearchOptions, error) {
+	*searchOptions = CallsSearchOptions{}
+	if raw, present := m["channels"]; present {
+		entries, ok := raw.([]any)
+		if !ok || len(entries) > maxCallSearchChannels {
+			return nil, fmt.Errorf("channels must be an array of at most %d channel references", maxCallSearchChannels)
+		}
+		channels := make([]CallsSearchChannel, 0, len(entries))
+		seen := map[CallsSearchChannel]bool{}
+		for _, entry := range entries {
+			pair, ok := entry.(map[string]any)
+			if !ok {
+				return nil, errors.New("each channel must contain positive integer system and talkgroup references (1 to 2147483647)")
+			}
+			system, systemOK := pair["system"].(float64)
+			talkgroup, talkgroupOK := pair["talkgroup"].(float64)
+			validRef := func(v float64) bool { return v >= 1 && v <= math.MaxInt32 && math.Trunc(v) == v }
+			if !systemOK || !talkgroupOK || !validRef(system) || !validRef(talkgroup) {
+				return nil, errors.New("each channel must contain positive integer system and talkgroup references (1 to 2147483647)")
+			}
+			channel := CallsSearchChannel{System: uint(system), Talkgroup: uint(talkgroup)}
+			if !seen[channel] {
+				seen[channel] = true
+				channels = append(channels, channel)
+			}
+		}
+		searchOptions.Channels = &channels
+	}
 	switch v := m["date"].(type) {
 	case string:
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
@@ -1538,7 +1580,7 @@ func (searchOptions *CallsSearchOptions) fromMap(m map[string]any) *CallsSearchO
 		searchOptions.Talkgroup = uint(v)
 	}
 
-	return searchOptions
+	return searchOptions, nil
 }
 
 type CallsSearchResult struct {

@@ -284,7 +284,10 @@ func (admin *Admin) copilotSearchCalls(params map[string]any) (map[string]any, e
 	if params == nil {
 		params = map[string]any{}
 	}
-	callOptions := NewCallSearchOptions().fromMap(params)
+	callOptions, err := NewCallSearchOptions().fromMap(params)
+	if err != nil {
+		return nil, err
+	}
 	adminClient := &Client{
 		Controller:              admin.Controller,
 		BypassPlaybackSearchACL: true,

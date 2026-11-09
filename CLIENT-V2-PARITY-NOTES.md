@@ -97,6 +97,7 @@ otherwise. Date each item when adding it.
 
 ## How to build
 
+- **Calls multi-selection:** no client-v2 legacy single-selection URL migration is needed for this personal app. Allow explicit channels across systems under All Systems using simple system subheadings; keep cursor pagination outside the initial feature. Preserve existing server request behavior for the old frontend. (2026-11-08)
 - **Don't copy old client code.** The old Angular client is slow and inefficient; use it only
   to learn behavior and API contracts, then implement cleanly in Svelte 5. (2026-07)
 - **unified-app (`/home/carter/Dev/unified-app`) is the source of truth for UI code.** Never
@@ -226,6 +227,13 @@ against the code if something seems off; add new findings here.
   They do not read the application's database configuration.
 
 ## Websocket protocol
+
+- `LCL` accepts optional `channels: [{system, talkgroup}]` using positive signed 32-bit
+  references, up to 10,000 raw entries before deduplication. Omitted retains legacy filters;
+  `[]` matches nothing. Present channels override group/talkgroup but still intersect system/date.
+- LCL failures emit `ERR` with `{command: "LCL", code: "invalid_filters" | "search_failed", message}`.
+  Successful replies retain their existing shape. Calls sort by timestamp then call ID in the
+  same direction. Pagination still uses offsets and does not freeze database contents.
 
 - Commands: `PIN`, `PNS`, `CFG`, `LFM`, `CAL`, `LCL`, `ALT`, `LSC`, `VER`, `XPR`, `MAX`, `ERR`.
 - `CAL` flags: `'playback'`, `'alias'`, `'d'` (download). Request a call's audio for download
@@ -386,6 +394,29 @@ against the code if something seems off; add new findings here.
 # Session Log
 
 Newest first.
+
+## 2026-11-08: Calls multi-selection server support
+
+**Shipped:** Typed, validated, deduplicated channel-list searches, explicit empty-list handling,
+LCL validation/search errors, stable timestamp/ID ordering, and parser/handler/database regression
+tests. Adapted existing admin parser callers to handle validation errors. No old-frontend edits.
+**Learned:** The previous coarse minimum-positive delay could hide playable calls on channels
+with shorter/no delay. Restricted searches now rely on the existing per-call access/delay checks
+before pagination. Query iteration failures are propagated instead of returning partial success.
+**Validation:** Go build passes. Call-search tests pass with PostgreSQL and the race detector.
+The Go suite passes with the known personal-database `TestDiscoverLFDAll20FromDB` excluded;
+the full run fails on that unrelated unavailable localhost:5432 database. Other explicitly gated
+database suites remain skipped without their own DSNs. A maximum 10,000-channel search over
+100,000 synthetic history rows with existing indexes took about 83 ms locally under race testing;
+this is a synthetic check, not production-scale performance evidence.
+**Next:** Client selection resolver, frozen request state, LCL error handling, and grouped picker.
+
+## 2026-11-08: Calls multi-selection plan reviewed
+
+**Shipped:** Documentation only: revised `CALLS-MULTI-SELECT-PLAN.md` after reviewing the current search and playback paths. Added required automated Go parser, isolated database search, and LCL handler tests with fixtures and execution instructions. No feature implementation changes.
+**Decisions:** Drop client-v2 legacy URL migration; allow cross-system individual selections with simple picker organization. Retain offset pagination initially and defer cursors.
+**Learned:** LCL parser errors need explicit propagation to the client; current socket processing errors are only logged. Existing SQL orders by timestamp alone, and later pages rebuild filters from mutable controls.
+**Next:** Implement the revised plan with explicit empty-filter semantics, validation/error handling, frozen request filters, deterministic ordering, and inherited-selection behavior.
 
 ## 2026-10-27: incident timeline menus belong to each call header
 

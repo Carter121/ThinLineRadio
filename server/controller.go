@@ -2888,18 +2888,32 @@ func (controller *Controller) ProcessMessageCommandCall(client *Client, message 
 }
 
 func (controller *Controller) ProcessMessageCommandListCall(client *Client, message *Message) error {
-	switch v := message.Payload.(type) {
-	case map[string]any:
-		searchOptions := NewCallSearchOptions().fromMap(v)
-		if searchResults, err := controller.Calls.Search(searchOptions, client); err == nil {
-			msg := &Message{Command: MessageCommandListCall, Payload: searchResults}
-			select {
-			case client.Send <- msg:
-			default:
-			}
-		} else {
-			return fmt.Errorf("controller.processmessage.commandlistcall: %v", err)
+	sendError := func(code, text string) {
+		select {
+		case client.Send <- &Message{Command: MessageCommandError, Payload: map[string]any{
+			"command": MessageCommandListCall, "code": code, "message": text,
+		}}:
+		default:
 		}
+	}
+	v, ok := message.Payload.(map[string]any)
+	if !ok {
+		sendError("invalid_filters", "Call search filters must be an object")
+		return nil
+	}
+	searchOptions, err := NewCallSearchOptions().fromMap(v)
+	if err != nil {
+		sendError("invalid_filters", err.Error())
+		return nil
+	}
+	searchResults, err := controller.Calls.Search(searchOptions, client)
+	if err != nil {
+		sendError("search_failed", "Unable to search calls. Please try again.")
+		return fmt.Errorf("controller.processmessage.commandlistcall: %v", err)
+	}
+	select {
+	case client.Send <- &Message{Command: MessageCommandListCall, Payload: searchResults}:
+	default:
 	}
 	return nil
 }

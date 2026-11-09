@@ -3443,7 +3443,11 @@ func (admin *Admin) CallsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		callOptions := NewCallSearchOptions().fromMap(m)
+		callOptions, err := NewCallSearchOptions().fromMap(m)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		// Create a minimal client for admin search (bypasses user restrictions)
 		adminClient := &Client{
