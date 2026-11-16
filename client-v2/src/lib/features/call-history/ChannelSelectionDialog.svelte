@@ -107,7 +107,7 @@
 			</Button>
 		{/snippet}
 	</Dialog.Trigger>
-	<Dialog.Content class="flex h-[calc(100dvh-1rem)] max-w-[calc(100%-1rem)] flex-col gap-4 p-4 sm:h-[min(85dvh,48rem)] sm:max-w-2xl">
+	<Dialog.Content class="flex h-[calc(100dvh-1rem)] max-w-[calc(100%-1rem)] flex-col gap-4 p-4 sm:h-[min(85dvh,48rem)] sm:max-w-2xl" onOpenAutoFocus={(e) => e.preventDefault()}>
 		<Dialog.Header class="shrink-0 pr-6">
 			<Dialog.Title>Select channels</Dialog.Title>
 			<Dialog.Description
